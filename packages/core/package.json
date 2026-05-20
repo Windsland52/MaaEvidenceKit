@@ -8,6 +8,10 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "corpora"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -20,6 +24,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "generate:bundled-corpora": "node --import tsx ./src/retrieval/generate-bundled-corpora.ts",
     "generate:contracts": "node --import tsx ./src/contracts/generate.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --maxWorkers=1"

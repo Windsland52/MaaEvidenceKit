@@ -32,6 +32,7 @@ export type LocalCorpusDefinition = {
 
 type SearchLocalCorporaOptions = {
   workspaceRoot?: string;
+  bundledCorporaRoot?: string;
   corpora?: LocalCorpusDefinition[];
 };
 
@@ -106,7 +107,7 @@ export const BuiltinCorpusDefinitions: readonly LocalCorpusDefinition[] = [
       "sample/MaaFramework/docs/zh_cn",
       "sample/MaaFramework/docs/en_us"
     ],
-    includeGlobs: ["**/*.md"],
+    includeGlobs: ["*.md"],
     tags: ["maafw", "framework", "docs"]
   },
   {
@@ -142,6 +143,10 @@ export const BuiltinCorpusDefinitions: readonly LocalCorpusDefinition[] = [
 
 function resolveRepoRoot(): string {
   return path.resolve(fileURLToPath(new URL("../../../../", import.meta.url)));
+}
+
+function resolveDefaultBundledCorporaRoot(): string {
+  return path.resolve(fileURLToPath(new URL("../../corpora", import.meta.url)));
 }
 
 function toCorpusSummary(definition: LocalCorpusDefinition): CorpusSummary {
@@ -459,12 +464,29 @@ function resolveCorpusCachePath(workspaceRoot: string, corpusId: string): string
   return path.resolve(workspaceRoot, ".cache", "corpora", `${corpusId}.json`);
 }
 
+function resolveBundledCorpusPath(bundledCorporaRoot: string, corpusId: string): string {
+  return path.resolve(bundledCorporaRoot, `${corpusId}.json`);
+}
+
 async function readPreparedCorpus(
   workspaceRoot: string,
   corpusId: string
 ): Promise<PreparedCorpusIndex | null> {
   try {
     const content = await readFile(resolveCorpusCachePath(workspaceRoot, corpusId), "utf8");
+    return PreparedCorpusIndexSchema.parse(JSON.parse(content));
+  }
+  catch {
+    return null;
+  }
+}
+
+async function readBundledCorpus(
+  bundledCorporaRoot: string,
+  corpusId: string
+): Promise<PreparedCorpusIndex | null> {
+  try {
+    const content = await readFile(resolveBundledCorpusPath(bundledCorporaRoot, corpusId), "utf8");
     return PreparedCorpusIndexSchema.parse(JSON.parse(content));
   }
   catch {
@@ -540,7 +562,11 @@ function toRetrievalHit(
   };
 }
 
-function searchPreparedCorpus(index: PreparedCorpusIndex, query: string): RetrievalHit[] {
+function searchIndexedCorpus(
+  index: PreparedCorpusIndex,
+  query: string,
+  source: "prepared" | "bundled"
+): RetrievalHit[] {
   const tokens = tokenizeQuery(query);
   const normalizedQuery = query.trim().toLowerCase();
   const hits: RetrievalHit[] = [];
@@ -563,7 +589,8 @@ function searchPreparedCorpus(index: PreparedCorpusIndex, query: string): Retrie
       metadata: {
         lineStart: String(chunk.lineStart),
         lineEnd: String(chunk.lineEnd),
-        prepared: "true"
+        indexSource: source,
+        ...(source === "prepared" ? { prepared: "true" } : { bundled: "true" })
       }
     });
   }
@@ -611,6 +638,7 @@ export async function searchLocalCorpora(
 ): Promise<CorpusSearchResult> {
   const parsedInput = CorpusSearchInputSchema.parse(input);
   const workspaceRoot = options.workspaceRoot ?? resolveRepoRoot();
+  const bundledCorporaRoot = options.bundledCorporaRoot ?? resolveDefaultBundledCorporaRoot();
   const corpora = resolveSelectedCorpora(
     options.corpora ?? BuiltinCorpusDefinitions,
     parsedInput.corpusIds
@@ -623,7 +651,14 @@ export async function searchLocalCorpora(
     const prepared = await readPreparedCorpus(workspaceRoot, corpus.id);
     if (prepared) {
       fileCount += prepared.fileCount;
-      hits.push(...searchPreparedCorpus(prepared, parsedInput.query));
+      hits.push(...searchIndexedCorpus(prepared, parsedInput.query, "prepared"));
+      continue;
+    }
+
+    const bundled = await readBundledCorpus(bundledCorporaRoot, corpus.id);
+    if (bundled) {
+      fileCount += bundled.fileCount;
+      hits.push(...searchIndexedCorpus(bundled, parsedInput.query, "bundled"));
       continue;
     }
 

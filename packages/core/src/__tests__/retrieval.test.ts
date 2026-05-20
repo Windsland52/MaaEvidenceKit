@@ -130,4 +130,65 @@ describe("local retrieval", () => {
     expect(prepared.prepared[0]?.chunkCount).toBeGreaterThan(0);
     expect(result.hits[0]?.metadata.prepared).toBe("true");
   });
+
+  it("uses a bundled corpus index when no prepared cache exists", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "maa-diagnostic-core-"));
+    tempDirs.push(workspaceRoot);
+
+    const bundledCorporaRoot = path.join(workspaceRoot, "bundled-corpora");
+    await mkdir(bundledCorporaRoot, { recursive: true });
+    await writeFile(
+      path.join(bundledCorporaRoot, "test-guides.json"),
+      `${JSON.stringify({
+        apiVersion: "corpus-index/v1",
+        corpusId: "test-guides",
+        generatedAt: "2026-05-20T00:00:00.000Z",
+        fileCount: 1,
+        chunkCount: 1,
+        chunks: [
+          {
+            id: "test-guides:offline.md:1",
+            path: "offline.md",
+            title: "Offline Guides",
+            lineStart: 1,
+            lineEnd: 2,
+            snippet: "ProjectInterfaceV2 documentation is available from the bundled offline index.",
+            searchText: "Offline Guides\nProjectInterfaceV2 documentation is available from the bundled offline index.",
+            tags: ["test", "bundled"]
+          }
+        ]
+      }, null, 2)}\n`,
+      "utf8"
+    );
+
+    const corpora: LocalCorpusDefinition[] = [
+      {
+        id: "test-guides",
+        name: "Test Guides",
+        description: "Temporary corpus used by unit tests.",
+        rootPaths: ["docs"],
+        includeGlobs: ["**/*.md"],
+        tags: ["test"]
+      }
+    ];
+
+    const result = await searchLocalCorpora(
+      {
+        apiVersion: "retrieval-query/v1",
+        query: "ProjectInterfaceV2 offline index",
+        corpusIds: ["test-guides"],
+        limit: 3
+      },
+      {
+        workspaceRoot,
+        bundledCorporaRoot,
+        corpora
+      }
+    );
+
+    expect(result.stats.fileCount).toBe(1);
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0]?.metadata.indexSource).toBe("bundled");
+    expect(result.hits[0]?.metadata.bundled).toBe("true");
+  });
 });
