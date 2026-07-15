@@ -1,0 +1,19 @@
+{
+  "name": "@maa-diagnostic-expert/tool-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@nekosu/maa-pipeline-manager": "1.0.11",
+    "@nekosu/maa-tasker": "1.0.0"
+  }
+}

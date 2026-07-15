@@ -1,0 +1,94 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    devDependencies:
+      '@types/node':
+        specifier: 24.6.0
+        version: 24.6.0
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
+  packages/tool-adapter:
+    dependencies:
+      '@nekosu/maa-pipeline-manager':
+        specifier: 1.0.11
+        version: 1.0.11
+      '@nekosu/maa-tasker':
+        specifier: 1.0.0
+        version: 1.0.0
+
+packages:
+
+  '@nekosu/maa-locale@1.0.2':
+    resolution: {integrity: sha512-h09IQIN6iKt3OmwiCD7O36QOkmfL8lFO4nAAj+cXOuQfXYbWv4kLDzApzfURhGezjpm4+9gPaksYY9xK9LLkOA==}
+
+  '@nekosu/maa-pipeline-manager@1.0.11':
+    resolution: {integrity: sha512-5OzCMO5w7ohaLBlgpcuKeidUN+tU49e2EFpY5MveKXDPpyVkwKkqtrcug52nfJgJP57v+8Eta1ZU9/8aGyL9tA==}
+
+  '@nekosu/maa-tasker@1.0.0':
+    resolution: {integrity: sha512-p5SaBJGvAMr5J2uk6imoiK7eIF7yA67HndWyfxddAHHdoyliai2dkHqBhTmDDuRmmAJ/ly4INg5Hnx8CI7Po3A==}
+
+  '@nekosu/simple-parser@1.0.0':
+    resolution: {integrity: sha512-Jf3tGs3/0D8XJtjRguInFh8ofGdCk6PcDK2V7HEZTXA4RN/9kk527I6pAX4zqPEUU8ISNu8dCR9F+KAn1U6tdg==}
+
+  '@types/node@24.6.0':
+    resolution: {integrity: sha512-F1CBxgqwOMc4GKJ7eY22hWhBVQuMYTtqI8L0FcszYcpYX0fzfDGpez22Xau8Mgm7O9fI+zA/TYIdq3tGWfweBA==}
+
+  chokidar@5.0.0:
+    resolution: {integrity: sha512-TQMmc3w+5AxjpL8iIiwebF73dRDF4fBIieAqGn9RGCWaEVwQ6Fb2cGe31Yns0RRIzii5goJ1Y7xbMwo1TxMplw==}
+    engines: {node: '>= 20.19.0'}
+
+  jsonc-parser@3.3.1:
+    resolution: {integrity: sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ==}
+
+  readdirp@5.0.0:
+    resolution: {integrity: sha512-9u/XQ1pvrQtYyMpZe7DXKv2p5CNvyVwzUB6uhLAnQwHMSgKMBR62lc7AHljaeteeHXn11XTAaLLUVZYVZyuRBQ==}
+    engines: {node: '>= 20.19.0'}
+
+  typescript@5.9.3:
+    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
+  undici-types@7.13.0:
+    resolution: {integrity: sha512-Ov2Rr9Sx+fRgagJ5AX0qvItZG/JKKoBRAVITs1zk7IqZGTJUwgUr7qoYBpWwakpWilTZFM98rG/AFRocu10iIQ==}
+
+snapshots:
+
+  '@nekosu/maa-locale@1.0.2': {}
+
+  '@nekosu/maa-pipeline-manager@1.0.11':
+    dependencies:
+      '@nekosu/maa-locale': 1.0.2
+      '@nekosu/maa-tasker': 1.0.0
+      chokidar: 5.0.0
+      jsonc-parser: 3.3.1
+
+  '@nekosu/maa-tasker@1.0.0':
+    dependencies:
+      '@nekosu/simple-parser': 1.0.0
+
+  '@nekosu/simple-parser@1.0.0': {}
+
+  '@types/node@24.6.0':
+    dependencies:
+      undici-types: 7.13.0
+
+  chokidar@5.0.0:
+    dependencies:
+      readdirp: 5.0.0
+
+  jsonc-parser@3.3.1: {}
+
+  readdirp@5.0.0: {}
+
+  typescript@5.9.3: {}
+
+  undici-types@7.13.0: {}

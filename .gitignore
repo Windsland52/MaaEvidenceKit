@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node.js
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local caches and research data
+.cache/
+.uv-cache/
+tmp/
+sample/
+
+# Editors and local agent configuration
+.vscode/
+.idea/
+.claude/
+.agents/
+.codex
+
+# Build artifacts
+build/
+*.egg-info/

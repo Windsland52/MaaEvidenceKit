@@ -1,0 +1,14 @@
+{
+  "name": "maa-diagnostic-expert-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.5.0",
+  "scripts": {
+    "build": "pnpm --filter @maa-diagnostic-expert/tool-adapter build",
+    "typecheck": "pnpm --filter @maa-diagnostic-expert/tool-adapter typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "24.6.0",
+    "typescript": "5.9.3"
+  }
+}
