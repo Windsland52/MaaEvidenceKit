@@ -3,12 +3,26 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from .domain import AnalysisRequest, DiagnosisResult, Evidence
+from .domain import (
+    AnalysisRequest,
+    DiagnosisResult,
+    DiagnosticEvent,
+    Evidence,
+    EvidenceQuery,
+    EvidenceWindow,
+    PreparedAnalysis,
+    ReasoningRequest,
+)
 
 CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "analysis-request.schema.json": AnalysisRequest,
+    "diagnostic-event.schema.json": DiagnosticEvent,
     "diagnosis-result.schema.json": DiagnosisResult,
     "evidence.schema.json": Evidence,
+    "evidence-query.schema.json": EvidenceQuery,
+    "evidence-window.schema.json": EvidenceWindow,
+    "prepared-analysis.schema.json": PreparedAnalysis,
+    "reasoning-request.schema.json": ReasoningRequest,
 }
 
 
