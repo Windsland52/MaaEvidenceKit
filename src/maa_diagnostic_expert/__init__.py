@@ -23,6 +23,18 @@ from .domain import (
     SourceRole,
     SourceSnapshot,
 )
+from .mla_contracts import (
+    MlaCompatibility,
+    MlaCompatibilityStatus,
+    MlaFrameworkSession,
+    MlaFrameworkStatus,
+    MlaFrameworkSummary,
+    MlaLogPosition,
+    MlaPreflightResult,
+    MlaSessionStartKind,
+    MlaSessionStatus,
+    MlaVersionEvidence,
+)
 
 __all__ = [
     "AnalysisRequest",
@@ -45,6 +57,16 @@ __all__ = [
     "PreparedAnalysis",
     "ReasoningBackend",
     "ReasoningRequest",
+    "MlaCompatibility",
+    "MlaCompatibilityStatus",
+    "MlaFrameworkSession",
+    "MlaFrameworkStatus",
+    "MlaFrameworkSummary",
+    "MlaLogPosition",
+    "MlaPreflightResult",
+    "MlaSessionStartKind",
+    "MlaSessionStatus",
+    "MlaVersionEvidence",
     "ReasoningSession",
     "RevisionResolutionStatus",
     "SourceInput",

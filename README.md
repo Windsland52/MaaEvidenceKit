@@ -33,9 +33,10 @@ The framework-independent foundation includes:
 - a versioned JSONL tool-adapter protocol.
 
 The first machine-facing vertical slice now provides artifact preparation, bounded evidence
-windows, and result validation. LangGraph orchestration, concrete MLA/MSE calls, RAG, and
-project-specific GUI/agent log adapters will be added after their interfaces are validated
-against real issue cases. The runtime decision is recorded in
+windows, result validation, and MLA compatibility/runtime-version preflight through the JSONL
+adapter. LangGraph orchestration, MSE calls, RAG, and project-specific GUI/agent log adapters will
+be added after their interfaces are validated against real issue cases. The runtime decision is
+recorded in
 [ADR 0001](docs/adr/0001-runtime-and-agent-surfaces.md).
 
 ## CLI
@@ -67,4 +68,5 @@ uv run ruff format --check .
 uv run pyright
 pnpm install
 pnpm typecheck
+pnpm --filter @maa-diagnostic-expert/tool-adapter test
 ```

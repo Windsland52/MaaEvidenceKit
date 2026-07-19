@@ -13,6 +13,7 @@ from .domain import (
     PreparedAnalysis,
     ReasoningRequest,
 )
+from .mla_contracts import MlaPreflightResult
 
 CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "analysis-request.schema.json": AnalysisRequest,
@@ -23,6 +24,7 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "evidence-window.schema.json": EvidenceWindow,
     "prepared-analysis.schema.json": PreparedAnalysis,
     "reasoning-request.schema.json": ReasoningRequest,
+    "mla-preflight.schema.json": MlaPreflightResult,
 }
 
 

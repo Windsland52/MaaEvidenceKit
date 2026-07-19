@@ -10,5 +10,6 @@ Generated contracts cover:
 - `EvidenceQuery` and `EvidenceWindow`
 - `DiagnosisResult`
 - `DiagnosticEvent`
+- `MlaPreflightResult`, including source-backed MaaFramework runtime sessions
 - `ReasoningRequest`
 - the JSONL tool-adapter request and response envelopes

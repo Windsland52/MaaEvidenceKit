@@ -1,0 +1,295 @@
+{
+  "$defs": {
+    "MlaCompatibility": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/MlaCompatibilityStatus"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "parser_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parser Version"
+        },
+        "task_count": {
+          "minimum": 0,
+          "title": "Task Count",
+          "type": "integer"
+        },
+        "event_count": {
+          "minimum": 0,
+          "title": "Event Count",
+          "type": "integer"
+        },
+        "node_statistic_count": {
+          "minimum": 0,
+          "title": "Node Statistic Count",
+          "type": "integer"
+        },
+        "recognition_statistic_count": {
+          "minimum": 0,
+          "title": "Recognition Statistic Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "task_count",
+        "event_count",
+        "node_statistic_count",
+        "recognition_statistic_count"
+      ],
+      "title": "MlaCompatibility",
+      "type": "object"
+    },
+    "MlaCompatibilityStatus": {
+      "enum": [
+        "supported",
+        "unsupported"
+      ],
+      "title": "MlaCompatibilityStatus",
+      "type": "string"
+    },
+    "MlaFrameworkSession": {
+      "additionalProperties": false,
+      "properties": {
+        "session_id": {
+          "minLength": 1,
+          "title": "Session Id",
+          "type": "string"
+        },
+        "start_kind": {
+          "$ref": "#/$defs/MlaSessionStartKind"
+        },
+        "status": {
+          "$ref": "#/$defs/MlaSessionStatus"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        },
+        "versions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Versions",
+          "type": "array"
+        },
+        "start": {
+          "$ref": "#/$defs/MlaLogPosition"
+        },
+        "end": {
+          "$ref": "#/$defs/MlaLogPosition"
+        },
+        "version_evidence": {
+          "items": {
+            "$ref": "#/$defs/MlaVersionEvidence"
+          },
+          "title": "Version Evidence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "session_id",
+        "start_kind",
+        "status",
+        "start",
+        "end"
+      ],
+      "title": "MlaFrameworkSession",
+      "type": "object"
+    },
+    "MlaFrameworkStatus": {
+      "enum": [
+        "none",
+        "single",
+        "multiple",
+        "conflict"
+      ],
+      "title": "MlaFrameworkStatus",
+      "type": "string"
+    },
+    "MlaFrameworkSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/MlaFrameworkStatus"
+        },
+        "versions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Versions",
+          "type": "array"
+        },
+        "sessions": {
+          "items": {
+            "$ref": "#/$defs/MlaFrameworkSession"
+          },
+          "title": "Sessions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "MlaFrameworkSummary",
+      "type": "object"
+    },
+    "MlaLogPosition": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "line": {
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "timestamp": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timestamp"
+        }
+      },
+      "required": [
+        "source",
+        "path",
+        "line"
+      ],
+      "title": "MlaLogPosition",
+      "type": "object"
+    },
+    "MlaSessionStartKind": {
+      "enum": [
+        "process_start",
+        "partial_file"
+      ],
+      "title": "MlaSessionStartKind",
+      "type": "string"
+    },
+    "MlaSessionStatus": {
+      "enum": [
+        "resolved",
+        "missing_version",
+        "conflict"
+      ],
+      "title": "MlaSessionStatus",
+      "type": "string"
+    },
+    "MlaVersionEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "line": {
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "timestamp": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timestamp"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "path",
+        "line",
+        "version"
+      ],
+      "title": "MlaVersionEvidence",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "mde-mla-preflight/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "mla_schema_version": {
+      "minLength": 1,
+      "title": "Mla Schema Version",
+      "type": "string"
+    },
+    "compatibility": {
+      "$ref": "#/$defs/MlaCompatibility"
+    },
+    "framework": {
+      "$ref": "#/$defs/MlaFrameworkSummary"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "mla_schema_version",
+    "compatibility",
+    "framework"
+  ],
+  "title": "MlaPreflightResult",
+  "type": "object"
+}
