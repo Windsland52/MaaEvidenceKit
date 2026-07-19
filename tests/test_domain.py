@@ -9,6 +9,8 @@ from maa_diagnostic_expert.domain import (
     DiagnosisResult,
     DiagnosisStatus,
     Evidence,
+    SourceInput,
+    SourceRole,
 )
 from maa_diagnostic_expert.inputs import resolve_project_root
 
@@ -16,6 +18,27 @@ from maa_diagnostic_expert.inputs import resolve_project_root
 def test_request_requires_a_source_or_question() -> None:
     with pytest.raises(ValidationError):
         AnalysisRequest()
+
+
+def test_request_rejects_duplicate_source_ids(tmp_path: Path) -> None:
+    duplicate_sources = [
+        SourceInput(
+            source_id="runtime",
+            role=SourceRole.PROJECT,
+            path=tmp_path,
+        ),
+        SourceInput(
+            source_id="runtime",
+            role=SourceRole.MAA_FRAMEWORK,
+            path=tmp_path,
+        ),
+    ]
+
+    with pytest.raises(ValidationError, match="Source IDs must be unique"):
+        AnalysisRequest(
+            question="Which source revision applies?",
+            sources=duplicate_sources,
+        )
 
 
 def test_cwd_is_used_only_for_a_maa_project(tmp_path: Path) -> None:

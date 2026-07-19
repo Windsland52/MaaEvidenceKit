@@ -43,17 +43,39 @@ def _new_artifact_inputs() -> list[ArtifactInput]:
     return []
 
 
+class SourceRole(StrEnum):
+    PROJECT = "project"
+    MAA_FRAMEWORK = "maa_framework"
+    GUI = "gui"
+    AGENT = "agent"
+    AUXILIARY = "auxiliary"
+
+
+class SourceInput(ContractModel):
+    source_id: str = Field(min_length=1)
+    role: SourceRole
+    path: Path
+    revision: str | None = None
+
+
+def _new_source_inputs() -> list[SourceInput]:
+    return []
+
+
 class AnalysisRequest(ContractModel):
+    api_version: str = "analysis-request/v2"
     issue: str | None = None
     artifacts: list[ArtifactInput] = Field(default_factory=_new_artifact_inputs)
-    project_root: Path | None = None
-    revision: str | None = None
+    sources: list[SourceInput] = Field(default_factory=_new_source_inputs)
     question: str | None = None
 
     @model_validator(mode="after")
     def require_an_input(self) -> AnalysisRequest:
         if not self.issue and not self.artifacts and not self.question:
             raise ValueError("At least one of issue, artifacts, or question is required")
+        source_ids = [source.source_id for source in self.sources]
+        if len(source_ids) != len(set(source_ids)):
+            raise ValueError("Source IDs must be unique")
         return self
 
 
@@ -74,9 +96,14 @@ class RevisionResolutionStatus(StrEnum):
     UNRESOLVED = "unresolved"
     NOT_A_GIT_REPOSITORY = "not_a_git_repository"
 
+    PATH_MISSING = "path_missing"
+    NOT_A_DIRECTORY = "not_a_directory"
+
 
 class SourceSnapshot(ContractModel):
-    project_root: Path
+    source_id: str = Field(min_length=1)
+    role: SourceRole
+    path: Path
     requested_revision: str | None = None
     resolved_revision: str | None = None
     current_revision: str | None = None
@@ -86,6 +113,7 @@ class SourceSnapshot(ContractModel):
 class MissingEvidence(ContractModel):
     code: str = Field(min_length=1)
     message: str = Field(min_length=1)
+    source_id: str | None = None
     source_path: Path | None = None
     required: bool = True
 
@@ -127,11 +155,15 @@ def _new_missing_evidence() -> list[MissingEvidence]:
     return []
 
 
+def _new_source_snapshots() -> list[SourceSnapshot]:
+    return []
+
+
 class PreparedAnalysis(ContractModel):
-    api_version: str = "prepared-analysis/v1"
+    api_version: str = "prepared-analysis/v2"
     request: AnalysisRequest
     artifacts: list[ArtifactRecord] = Field(default_factory=_new_artifact_records)
-    source_snapshot: SourceSnapshot | None = None
+    source_snapshots: list[SourceSnapshot] = Field(default_factory=_new_source_snapshots)
     evidence: list[Evidence] = Field(default_factory=_new_prepared_evidence)
     missing_evidence: list[MissingEvidence] = Field(default_factory=_new_missing_evidence)
 

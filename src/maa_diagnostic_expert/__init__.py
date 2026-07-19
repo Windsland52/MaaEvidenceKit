@@ -19,6 +19,8 @@ from .domain import (
     PreparedAnalysis,
     ReasoningRequest,
     RevisionResolutionStatus,
+    SourceInput,
+    SourceRole,
     SourceSnapshot,
 )
 
@@ -45,5 +47,7 @@ __all__ = [
     "ReasoningRequest",
     "ReasoningSession",
     "RevisionResolutionStatus",
+    "SourceInput",
+    "SourceRole",
     "SourceSnapshot",
 ]

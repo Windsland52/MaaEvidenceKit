@@ -25,7 +25,8 @@ tests/                       Python tests
 
 The framework-independent foundation includes:
 
-- analysis input contracts, including an explicit project source path;
+- named source inputs that keep project, MaaFramework, GUI, agent, and auxiliary source separate;
+- source snapshots with independent path, revision, and resolution status;
 - project-root discovery that uses `cwd` only when Maa project markers are present;
 - evidence and diagnosis result contracts;
 - an agent protocol without a LangGraph dependency in domain code;
@@ -50,6 +51,11 @@ uv run maa-diagnostic-expert validate-result --input diagnosis.json
 `prepare` only inventories explicitly supplied artifacts and source metadata. It does not extract
 archives or scan the whole project source tree. `query-evidence` reads at most 400 lines and
 40,000 characters from a path authorized by the prepared analysis.
+
+`AnalysisRequest.sources` contains named entries with a `source_id`, role, path, and optional
+revision. Roles `project`, `maa_framework`, `gui`, and `agent` are independently versioned;
+`auxiliary` is reserved for non-versioned reference source. GUI and agent roles do not assume MXU,
+a programming language, or a fixed repository layout. Optional source adapters handle discovery.
 
 ## Development
 

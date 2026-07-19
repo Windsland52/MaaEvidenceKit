@@ -10,9 +10,21 @@ from .domain import (
     EvidenceQuery,
     EvidenceWindow,
     PreparedAnalysis,
+    SourceSnapshot,
 )
 
 MAX_EVIDENCE_CHARACTERS = 40_000
+
+
+def _matching_source(prepared: PreparedAnalysis, source_path: Path) -> SourceSnapshot | None:
+    matches = [
+        snapshot
+        for snapshot in prepared.source_snapshots
+        if source_path.is_relative_to(snapshot.path)
+    ]
+    if not matches:
+        return None
+    return max(matches, key=lambda snapshot: len(snapshot.path.parts))
 
 
 def _authorized_source(prepared: PreparedAnalysis, source_path: Path) -> Path:
@@ -24,9 +36,9 @@ def _authorized_source(prepared: PreparedAnalysis, source_path: Path) -> Path:
             return resolved
         if resolved == artifact.path:
             return resolved
-    snapshot = prepared.source_snapshot
-    if snapshot is not None and resolved.is_relative_to(snapshot.project_root):
-        relative = resolved.relative_to(snapshot.project_root)
+    snapshot = _matching_source(prepared, resolved)
+    if snapshot is not None:
+        relative = resolved.relative_to(snapshot.path)
         if relative.parts and relative.parts[0] == ".git":
             raise ValueError("Git metadata is not an authorized evidence source")
         return resolved
@@ -34,9 +46,9 @@ def _authorized_source(prepared: PreparedAnalysis, source_path: Path) -> Path:
 
 
 def _source_component(prepared: PreparedAnalysis, source_path: Path) -> str:
-    snapshot = prepared.source_snapshot
-    if snapshot is not None and source_path.is_relative_to(snapshot.project_root):
-        return "project-source"
+    snapshot = _matching_source(prepared, source_path)
+    if snapshot is not None:
+        return f"source:{snapshot.source_id}"
     return "diagnostic-artifact"
 
 

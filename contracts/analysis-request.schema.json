@@ -27,10 +27,63 @@
       ],
       "title": "ArtifactKind",
       "type": "string"
+    },
+    "SourceInput": {
+      "additionalProperties": false,
+      "properties": {
+        "source_id": {
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/SourceRole"
+        },
+        "path": {
+          "format": "path",
+          "title": "Path",
+          "type": "string"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision"
+        }
+      },
+      "required": [
+        "source_id",
+        "role",
+        "path"
+      ],
+      "title": "SourceInput",
+      "type": "object"
+    },
+    "SourceRole": {
+      "enum": [
+        "project",
+        "maa_framework",
+        "gui",
+        "agent",
+        "auxiliary"
+      ],
+      "title": "SourceRole",
+      "type": "string"
     }
   },
   "additionalProperties": false,
   "properties": {
+    "api_version": {
+      "default": "analysis-request/v2",
+      "title": "Api Version",
+      "type": "string"
+    },
     "issue": {
       "anyOf": [
         {
@@ -50,30 +103,12 @@
       "title": "Artifacts",
       "type": "array"
     },
-    "project_root": {
-      "anyOf": [
-        {
-          "format": "path",
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Project Root"
-    },
-    "revision": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Revision"
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/SourceInput"
+      },
+      "title": "Sources",
+      "type": "array"
     },
     "question": {
       "anyOf": [

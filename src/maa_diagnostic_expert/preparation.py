@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -14,10 +13,8 @@ from .domain import (
     ArtifactRecord,
     MissingEvidence,
     PreparedAnalysis,
-    RevisionResolutionStatus,
-    SourceSnapshot,
 )
-from .inputs import resolve_project_root
+from .source_preparation import prepare_sources
 
 MAX_DISCOVERED_FILES = 10_000
 
@@ -178,60 +175,16 @@ def _discover_artifact(
     return records, missing
 
 
-def _git_revision(project_root: Path, revision: str) -> str | None:
-    try:
-        completed = subprocess.run(
-            ["git", "-C", str(project_root), "rev-parse", "--verify", f"{revision}^{{commit}}"],
-            capture_output=True,
-            check=False,
-            encoding="utf-8",
-            timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    resolved = completed.stdout.strip()
-    return resolved if completed.returncode == 0 and resolved else None
-
-
-def _source_snapshot(
-    project_root: Path | None, requested_revision: str | None
-) -> SourceSnapshot | None:
-    if project_root is None:
-        return None
-    current_revision = _git_revision(project_root, "HEAD")
-    if current_revision is None:
-        status = RevisionResolutionStatus.NOT_A_GIT_REPOSITORY
-        resolved_revision = None
-    elif requested_revision is None:
-        status = RevisionResolutionStatus.NOT_REQUESTED
-        resolved_revision = None
-    else:
-        resolved_revision = _git_revision(project_root, requested_revision)
-        status = (
-            RevisionResolutionStatus.RESOLVED
-            if resolved_revision is not None
-            else RevisionResolutionStatus.UNRESOLVED
-        )
-    return SourceSnapshot(
-        project_root=project_root,
-        requested_revision=requested_revision,
-        resolved_revision=resolved_revision,
-        current_revision=current_revision,
-        resolution_status=status,
-    )
-
-
 def prepare_analysis(request: AnalysisRequest) -> PreparedAnalysis:
-    project_root = resolve_project_root(request.project_root)
-    normalized_request = request.model_copy(update={"project_root": project_root})
+    sources, snapshots, source_missing = prepare_sources(request)
+    normalized_request = request.model_copy(update={"sources": sources})
     records: list[ArtifactRecord] = []
-    missing: list[MissingEvidence] = []
+    missing = list(source_missing)
     for artifact in request.artifacts:
         artifact_records, artifact_missing = _discover_artifact(artifact)
         records.extend(artifact_records)
         missing.extend(artifact_missing)
 
-    snapshot = _source_snapshot(project_root, request.revision)
     if request.issue and not request.artifacts:
         missing.append(
             MissingEvidence(
@@ -239,40 +192,11 @@ def prepare_analysis(request: AnalysisRequest) -> PreparedAnalysis:
                 message="The issue has no supplied logs, dumps, screenshots, or configuration.",
             )
         )
-    if request.issue and project_root is None:
-        missing.append(
-            MissingEvidence(
-                code="project_source_missing",
-                message="Issue diagnosis requires an explicit Maa project source path.",
-            )
-        )
-    elif request.issue and request.revision is None:
-        missing.append(
-            MissingEvidence(
-                code="issue_revision_unresolved",
-                message="The issue-time source revision has not been supplied or resolved.",
-                source_path=project_root,
-            )
-        )
-    elif (
-        snapshot is not None
-        and request.revision is not None
-        and snapshot.resolution_status is not RevisionResolutionStatus.RESOLVED
-    ):
-        missing.append(
-            MissingEvidence(
-                code="requested_revision_unresolved",
-                message=(
-                    "The requested source revision is not available in the supplied repository."
-                ),
-                source_path=project_root,
-            )
-        )
 
     unique_records = {record.id: record for record in records}
     return PreparedAnalysis(
         request=normalized_request,
         artifacts=list(unique_records.values()),
-        source_snapshot=snapshot,
+        source_snapshots=snapshots,
         missing_evidence=missing,
     )

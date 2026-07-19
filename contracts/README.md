@@ -4,8 +4,8 @@ Cross-process JSON schemas are generated from the Python domain models. The Type
 
 Generated contracts cover:
 
-- `AnalysisRequest`
-- `PreparedAnalysis`
+- `AnalysisRequest`, including named project, MaaFramework, GUI, and agent source inputs
+- `PreparedAnalysis`, including independently resolved source snapshots
 - `Evidence`
 - `EvidenceQuery` and `EvidenceWindow`
 - `DiagnosisResult`

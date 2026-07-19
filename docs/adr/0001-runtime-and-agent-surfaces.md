@@ -20,9 +20,10 @@ MDE supports two first-class execution modes over one Python diagnostic core.
    through stable CLI commands. A skill teaches an external agent how to call those commands and
    produce the shared diagnosis contract.
 
-The shared Python core owns artifact discovery, source revision metadata, evidence IDs, missing
-evidence, and `DiagnosisResult` validation. Model output remains interpretation and cannot create
-or cite unknown evidence.
+The shared Python core owns artifact discovery, named source snapshots, evidence IDs, missing
+evidence, and `DiagnosisResult` validation. Project, MaaFramework, GUI, and agent revisions remain
+independent source inputs; GUI and agent roles do not imply a specific implementation. Model output
+remains interpretation and cannot create or cite unknown evidence.
 
 MCP is deferred. If a concrete consumer later requires it, an MCP adapter may mechanically mirror
 stable Python service contracts. It must not contain prompts, model calls, diagnostic policy, or a
@@ -32,8 +33,8 @@ second implementation of the workflow.
 
 The first CLI slice consists of:
 
-- `prepare`: inventory explicit artifacts and record the supplied source snapshot without scanning
-  the complete project tree;
+- `prepare`: inventory explicit artifacts and record supplied source snapshots without scanning
+  complete source trees;
 - `query-evidence`: read a bounded text line window from a path authorized by prepared input;
 - `validate-result`: parse and validate a `DiagnosisResult`, including evidence references.
 

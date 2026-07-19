@@ -18,6 +18,8 @@ from maa_diagnostic_expert.domain import (
     EvidenceWindow,
     PreparedAnalysis,
     RevisionResolutionStatus,
+    SourceInput,
+    SourceRole,
 )
 from maa_diagnostic_expert.evidence_query import query_evidence
 from maa_diagnostic_expert.preparation import prepare_analysis
@@ -52,14 +54,30 @@ def test_prepare_reports_unresolved_issue_source(tmp_path: Path) -> None:
     prepared = prepare_analysis(
         AnalysisRequest(
             issue="https://github.com/example/project/issues/1",
-            project_root=tmp_path,
-            revision="v1.0.0",
+            sources=[
+                SourceInput(
+                    source_id="project",
+                    role=SourceRole.PROJECT,
+                    path=tmp_path,
+                    revision="v1.0.0",
+                ),
+                SourceInput(
+                    source_id="maa-framework",
+                    role=SourceRole.MAA_FRAMEWORK,
+                    path=tmp_path,
+                    revision="v5.11.1",
+                ),
+            ],
         )
     )
 
-    assert prepared.source_snapshot is not None
-    assert (
-        prepared.source_snapshot.resolution_status is RevisionResolutionStatus.NOT_A_GIT_REPOSITORY
+    assert {snapshot.source_id for snapshot in prepared.source_snapshots} == {
+        "project",
+        "maa-framework",
+    }
+    assert all(
+        snapshot.resolution_status is RevisionResolutionStatus.NOT_A_GIT_REPOSITORY
+        for snapshot in prepared.source_snapshots
     )
     assert {item.code for item in prepared.missing_evidence} == {
         "diagnostic_artifacts_missing",

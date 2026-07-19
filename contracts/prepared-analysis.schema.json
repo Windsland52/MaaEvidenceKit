@@ -3,6 +3,11 @@
     "AnalysisRequest": {
       "additionalProperties": false,
       "properties": {
+        "api_version": {
+          "default": "analysis-request/v2",
+          "title": "Api Version",
+          "type": "string"
+        },
         "issue": {
           "anyOf": [
             {
@@ -22,30 +27,12 @@
           "title": "Artifacts",
           "type": "array"
         },
-        "project_root": {
-          "anyOf": [
-            {
-              "format": "path",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Project Root"
-        },
-        "revision": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Revision"
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/SourceInput"
+          },
+          "title": "Sources",
+          "type": "array"
         },
         "question": {
           "anyOf": [
@@ -282,6 +269,18 @@
           "title": "Message",
           "type": "string"
         },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        },
         "source_path": {
           "anyOf": [
             {
@@ -313,17 +312,75 @@
         "not_requested",
         "resolved",
         "unresolved",
-        "not_a_git_repository"
+        "not_a_git_repository",
+        "path_missing",
+        "not_a_directory"
       ],
       "title": "RevisionResolutionStatus",
+      "type": "string"
+    },
+    "SourceInput": {
+      "additionalProperties": false,
+      "properties": {
+        "source_id": {
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/SourceRole"
+        },
+        "path": {
+          "format": "path",
+          "title": "Path",
+          "type": "string"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision"
+        }
+      },
+      "required": [
+        "source_id",
+        "role",
+        "path"
+      ],
+      "title": "SourceInput",
+      "type": "object"
+    },
+    "SourceRole": {
+      "enum": [
+        "project",
+        "maa_framework",
+        "gui",
+        "agent",
+        "auxiliary"
+      ],
+      "title": "SourceRole",
       "type": "string"
     },
     "SourceSnapshot": {
       "additionalProperties": false,
       "properties": {
-        "project_root": {
+        "source_id": {
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/SourceRole"
+        },
+        "path": {
           "format": "path",
-          "title": "Project Root",
+          "title": "Path",
           "type": "string"
         },
         "requested_revision": {
@@ -367,7 +424,9 @@
         }
       },
       "required": [
-        "project_root",
+        "source_id",
+        "role",
+        "path",
         "resolution_status"
       ],
       "title": "SourceSnapshot",
@@ -377,7 +436,7 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
-      "default": "prepared-analysis/v1",
+      "default": "prepared-analysis/v2",
       "title": "Api Version",
       "type": "string"
     },
@@ -391,16 +450,12 @@
       "title": "Artifacts",
       "type": "array"
     },
-    "source_snapshot": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/SourceSnapshot"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
+    "source_snapshots": {
+      "items": {
+        "$ref": "#/$defs/SourceSnapshot"
+      },
+      "title": "Source Snapshots",
+      "type": "array"
     },
     "evidence": {
       "items": {
