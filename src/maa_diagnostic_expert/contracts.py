@@ -13,11 +13,13 @@ from .domain import (
     PreparedAnalysis,
     ReasoningRequest,
 )
+from .inspection import DeterministicInspection
 from .mla_contracts import MlaPreflightResult
 
 CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "analysis-request.schema.json": AnalysisRequest,
     "diagnostic-event.schema.json": DiagnosticEvent,
+    "deterministic-inspection.schema.json": DeterministicInspection,
     "diagnosis-result.schema.json": DiagnosisResult,
     "evidence.schema.json": Evidence,
     "evidence-query.schema.json": EvidenceQuery,

@@ -6,6 +6,7 @@ Generated contracts cover:
 
 - `AnalysisRequest`, including named project, MaaFramework, GUI, and agent source inputs
 - `PreparedAnalysis`, including independently resolved source snapshots
+- `DeterministicInspection`, combining prepared inputs with MLA preflight facts
 - `Evidence`
 - `EvidenceQuery` and `EvidenceWindow`
 - `DiagnosisResult`

@@ -1,0 +1,823 @@
+{
+  "$defs": {
+    "AnalysisRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "default": "analysis-request/v2",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "issue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Issue"
+        },
+        "artifacts": {
+          "items": {
+            "$ref": "#/$defs/ArtifactInput"
+          },
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/SourceInput"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Question"
+        }
+      },
+      "title": "AnalysisRequest",
+      "type": "object"
+    },
+    "ArtifactAvailability": {
+      "enum": [
+        "available",
+        "missing",
+        "type_mismatch",
+        "unreadable"
+      ],
+      "title": "ArtifactAvailability",
+      "type": "string"
+    },
+    "ArtifactInput": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "format": "path",
+          "title": "Path",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ArtifactKind"
+        }
+      },
+      "required": [
+        "path",
+        "kind"
+      ],
+      "title": "ArtifactInput",
+      "type": "object"
+    },
+    "ArtifactKind": {
+      "enum": [
+        "file",
+        "directory",
+        "archive"
+      ],
+      "title": "ArtifactKind",
+      "type": "string"
+    },
+    "ArtifactMediaKind": {
+      "enum": [
+        "log",
+        "configuration",
+        "archive",
+        "image",
+        "dump",
+        "text",
+        "other"
+      ],
+      "title": "ArtifactMediaKind",
+      "type": "string"
+    },
+    "ArtifactRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "input_path": {
+          "format": "path",
+          "title": "Input Path",
+          "type": "string"
+        },
+        "path": {
+          "format": "path",
+          "title": "Path",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ArtifactKind"
+        },
+        "media_kind": {
+          "$ref": "#/$defs/ArtifactMediaKind"
+        },
+        "availability": {
+          "$ref": "#/$defs/ArtifactAvailability"
+        },
+        "size_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Bytes"
+        },
+        "modified_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Modified At"
+        }
+      },
+      "required": [
+        "id",
+        "input_path",
+        "path",
+        "kind",
+        "media_kind",
+        "availability"
+      ],
+      "title": "ArtifactRecord",
+      "type": "object"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_component": {
+          "minLength": 1,
+          "title": "Source Component",
+          "type": "string"
+        },
+        "source_path": {
+          "minLength": 1,
+          "title": "Source Path",
+          "type": "string"
+        },
+        "content": {
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        },
+        "line_start": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line Start"
+        },
+        "line_end": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line End"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        },
+        "reliability": {
+          "$ref": "#/$defs/EvidenceReliability",
+          "default": "primary"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "source_component",
+        "source_path",
+        "content"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "EvidenceReliability": {
+      "enum": [
+        "primary",
+        "secondary",
+        "context"
+      ],
+      "title": "EvidenceReliability",
+      "type": "string"
+    },
+    "MissingEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        },
+        "source_path": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Path"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "MissingEvidence",
+      "type": "object"
+    },
+    "MlaArtifactInspection": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "minLength": 1,
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "path": {
+          "format": "path",
+          "title": "Path",
+          "type": "string"
+        },
+        "preflight": {
+          "$ref": "#/$defs/MlaPreflightResult"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "path",
+        "preflight"
+      ],
+      "title": "MlaArtifactInspection",
+      "type": "object"
+    },
+    "MlaCompatibility": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/MlaCompatibilityStatus"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "parser_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parser Version"
+        },
+        "task_count": {
+          "minimum": 0,
+          "title": "Task Count",
+          "type": "integer"
+        },
+        "event_count": {
+          "minimum": 0,
+          "title": "Event Count",
+          "type": "integer"
+        },
+        "node_statistic_count": {
+          "minimum": 0,
+          "title": "Node Statistic Count",
+          "type": "integer"
+        },
+        "recognition_statistic_count": {
+          "minimum": 0,
+          "title": "Recognition Statistic Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "task_count",
+        "event_count",
+        "node_statistic_count",
+        "recognition_statistic_count"
+      ],
+      "title": "MlaCompatibility",
+      "type": "object"
+    },
+    "MlaCompatibilityStatus": {
+      "enum": [
+        "supported",
+        "unsupported"
+      ],
+      "title": "MlaCompatibilityStatus",
+      "type": "string"
+    },
+    "MlaFrameworkSession": {
+      "additionalProperties": false,
+      "properties": {
+        "session_id": {
+          "minLength": 1,
+          "title": "Session Id",
+          "type": "string"
+        },
+        "start_kind": {
+          "$ref": "#/$defs/MlaSessionStartKind"
+        },
+        "status": {
+          "$ref": "#/$defs/MlaSessionStatus"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        },
+        "versions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Versions",
+          "type": "array"
+        },
+        "start": {
+          "$ref": "#/$defs/MlaLogPosition"
+        },
+        "end": {
+          "$ref": "#/$defs/MlaLogPosition"
+        },
+        "version_evidence": {
+          "items": {
+            "$ref": "#/$defs/MlaVersionEvidence"
+          },
+          "title": "Version Evidence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "session_id",
+        "start_kind",
+        "status",
+        "start",
+        "end"
+      ],
+      "title": "MlaFrameworkSession",
+      "type": "object"
+    },
+    "MlaFrameworkStatus": {
+      "enum": [
+        "none",
+        "single",
+        "multiple",
+        "conflict"
+      ],
+      "title": "MlaFrameworkStatus",
+      "type": "string"
+    },
+    "MlaFrameworkSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/MlaFrameworkStatus"
+        },
+        "versions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Versions",
+          "type": "array"
+        },
+        "sessions": {
+          "items": {
+            "$ref": "#/$defs/MlaFrameworkSession"
+          },
+          "title": "Sessions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "MlaFrameworkSummary",
+      "type": "object"
+    },
+    "MlaLogPosition": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "line": {
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "timestamp": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timestamp"
+        }
+      },
+      "required": [
+        "source",
+        "path",
+        "line"
+      ],
+      "title": "MlaLogPosition",
+      "type": "object"
+    },
+    "MlaPreflightResult": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": "mde-mla-preflight/v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "mla_schema_version": {
+          "minLength": 1,
+          "title": "Mla Schema Version",
+          "type": "string"
+        },
+        "compatibility": {
+          "$ref": "#/$defs/MlaCompatibility"
+        },
+        "framework": {
+          "$ref": "#/$defs/MlaFrameworkSummary"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "mla_schema_version",
+        "compatibility",
+        "framework"
+      ],
+      "title": "MlaPreflightResult",
+      "type": "object"
+    },
+    "MlaSessionStartKind": {
+      "enum": [
+        "process_start",
+        "partial_file"
+      ],
+      "title": "MlaSessionStartKind",
+      "type": "string"
+    },
+    "MlaSessionStatus": {
+      "enum": [
+        "resolved",
+        "missing_version",
+        "conflict"
+      ],
+      "title": "MlaSessionStatus",
+      "type": "string"
+    },
+    "MlaVersionEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "line": {
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "timestamp": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timestamp"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "path",
+        "line",
+        "version"
+      ],
+      "title": "MlaVersionEvidence",
+      "type": "object"
+    },
+    "PreparedAnalysis": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "default": "prepared-analysis/v2",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/AnalysisRequest"
+        },
+        "artifacts": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRecord"
+          },
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "source_snapshots": {
+          "items": {
+            "$ref": "#/$defs/SourceSnapshot"
+          },
+          "title": "Source Snapshots",
+          "type": "array"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "missing_evidence": {
+          "items": {
+            "$ref": "#/$defs/MissingEvidence"
+          },
+          "title": "Missing Evidence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "title": "PreparedAnalysis",
+      "type": "object"
+    },
+    "RevisionResolutionStatus": {
+      "enum": [
+        "not_requested",
+        "resolved",
+        "unresolved",
+        "not_a_git_repository",
+        "path_missing",
+        "not_a_directory"
+      ],
+      "title": "RevisionResolutionStatus",
+      "type": "string"
+    },
+    "SourceInput": {
+      "additionalProperties": false,
+      "properties": {
+        "source_id": {
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/SourceRole"
+        },
+        "path": {
+          "format": "path",
+          "title": "Path",
+          "type": "string"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision"
+        }
+      },
+      "required": [
+        "source_id",
+        "role",
+        "path"
+      ],
+      "title": "SourceInput",
+      "type": "object"
+    },
+    "SourceRole": {
+      "enum": [
+        "project",
+        "maa_framework",
+        "gui",
+        "agent",
+        "auxiliary"
+      ],
+      "title": "SourceRole",
+      "type": "string"
+    },
+    "SourceSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "source_id": {
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/SourceRole"
+        },
+        "path": {
+          "format": "path",
+          "title": "Path",
+          "type": "string"
+        },
+        "requested_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Requested Revision"
+        },
+        "resolved_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolved Revision"
+        },
+        "current_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Revision"
+        },
+        "resolution_status": {
+          "$ref": "#/$defs/RevisionResolutionStatus"
+        }
+      },
+      "required": [
+        "source_id",
+        "role",
+        "path",
+        "resolution_status"
+      ],
+      "title": "SourceSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "default": "deterministic-inspection/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "prepared": {
+      "$ref": "#/$defs/PreparedAnalysis"
+    },
+    "mla_preflights": {
+      "items": {
+        "$ref": "#/$defs/MlaArtifactInspection"
+      },
+      "title": "Mla Preflights",
+      "type": "array"
+    }
+  },
+  "required": [
+    "prepared"
+  ],
+  "title": "DeterministicInspection",
+  "type": "object"
+}

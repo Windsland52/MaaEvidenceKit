@@ -1,0 +1,92 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Protocol
+
+from pydantic import Field, JsonValue, ValidationError
+
+from .domain import (
+    AnalysisRequest,
+    ArtifactAvailability,
+    ArtifactKind,
+    ArtifactMediaKind,
+    ArtifactRecord,
+    ContractModel,
+    MissingEvidence,
+    PreparedAnalysis,
+)
+from .mla_contracts import MlaPreflightResult
+from .preparation import prepare_analysis
+from .tool_adapter_client import ToolAdapterInvocationError
+
+
+class ToolCaller(Protocol):
+    def call(self, name: str, arguments: dict[str, JsonValue]) -> dict[str, JsonValue]: ...
+
+
+class MlaArtifactInspection(ContractModel):
+    artifact_id: str = Field(min_length=1)
+    path: Path
+    preflight: MlaPreflightResult
+
+
+def _new_mla_preflights() -> list[MlaArtifactInspection]:
+    return []
+
+
+class DeterministicInspection(ContractModel):
+    api_version: str = "deterministic-inspection/v1"
+    prepared: PreparedAnalysis
+    mla_preflights: list[MlaArtifactInspection] = Field(default_factory=_new_mla_preflights)
+
+
+def _is_mla_target(artifact: ArtifactRecord) -> bool:
+    if artifact.availability is not ArtifactAvailability.AVAILABLE:
+        return False
+    if artifact.path != artifact.input_path:
+        return False
+    if artifact.kind is ArtifactKind.DIRECTORY:
+        return True
+    if artifact.media_kind is ArtifactMediaKind.LOG:
+        return True
+    return (
+        artifact.media_kind is ArtifactMediaKind.ARCHIVE and artifact.path.suffix.lower() == ".zip"
+    )
+
+
+def inspect_analysis(
+    request: AnalysisRequest,
+    tool_caller: ToolCaller,
+) -> DeterministicInspection:
+    prepared = prepare_analysis(request)
+    preflights: list[MlaArtifactInspection] = []
+    missing = list(prepared.missing_evidence)
+
+    for artifact in prepared.artifacts:
+        if not _is_mla_target(artifact):
+            continue
+        try:
+            raw_result = tool_caller.call("mla.preflight", {"path": str(artifact.path)})
+            preflight = MlaPreflightResult.model_validate(raw_result)
+        except (ToolAdapterInvocationError, ValidationError, ValueError) as error:
+            missing.append(
+                MissingEvidence(
+                    code="mla_preflight_failed",
+                    message=str(error),
+                    source_path=artifact.path,
+                )
+            )
+            continue
+        preflights.append(
+            MlaArtifactInspection(
+                artifact_id=artifact.id,
+                path=artifact.path,
+                preflight=preflight,
+            )
+        )
+
+    prepared_with_tools = prepared.model_copy(update={"missing_evidence": missing})
+    return DeterministicInspection(
+        prepared=prepared_with_tools,
+        mla_preflights=preflights,
+    )

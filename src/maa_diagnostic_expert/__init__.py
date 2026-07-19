@@ -23,6 +23,7 @@ from .domain import (
     SourceRole,
     SourceSnapshot,
 )
+from .inspection import DeterministicInspection, MlaArtifactInspection
 from .mla_contracts import (
     MlaCompatibility,
     MlaCompatibilityStatus,
@@ -41,6 +42,7 @@ __all__ = [
     "ArtifactAvailability",
     "ArtifactInput",
     "ArtifactKind",
+    "DeterministicInspection",
     "ArtifactMediaKind",
     "ArtifactRecord",
     "Conclusion",
@@ -58,6 +60,7 @@ __all__ = [
     "ReasoningBackend",
     "ReasoningRequest",
     "MlaCompatibility",
+    "MlaArtifactInspection",
     "MlaCompatibilityStatus",
     "MlaFrameworkSession",
     "MlaFrameworkStatus",

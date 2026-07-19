@@ -44,6 +44,7 @@ recorded in
 All machine inputs and outputs are strict JSON contracts generated under `contracts/`.
 
 ~~~powershell
+uv run maa-diagnostic-expert inspect --request request.json --output inspection.json
 uv run maa-diagnostic-expert prepare --request request.json --output prepared.json
 uv run maa-diagnostic-expert query-evidence --prepared prepared.json --request evidence-query.json --output evidence-window.json
 uv run maa-diagnostic-expert validate-result --input diagnosis.json
@@ -52,6 +53,11 @@ uv run maa-diagnostic-expert validate-result --input diagnosis.json
 `prepare` only inventories explicitly supplied artifacts and source metadata. It does not extract
 archives or scan the whole project source tree. `query-evidence` reads at most 400 lines and
 40,000 characters from a path authorized by the prepared analysis.
+
+`inspect` is the single-command deterministic path. It prepares the request, selects each explicit
+log, ZIP, or directory input once, calls `mla.preflight` through the internal JSONL adapter, and
+validates the returned facts with the Python `MlaPreflightResult` contract. Run `pnpm build` first;
+use `--tool-adapter <path>` or `MDE_TOOL_ADAPTER_PATH` for a non-default adapter location.
 
 `AnalysisRequest.sources` contains named entries with a `source_id`, role, path, and optional
 revision. Roles `project`, `maa_framework`, `gui`, and `agent` are independently versioned;

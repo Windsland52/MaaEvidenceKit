@@ -10,7 +10,12 @@ from pydantic import BaseModel, ValidationError
 
 from .domain import AnalysisRequest, DiagnosisResult, EvidenceQuery, PreparedAnalysis
 from .evidence_query import query_evidence
+from .inspection import inspect_analysis
 from .preparation import prepare_analysis
+from .tool_adapter_client import (
+    JsonlToolAdapterClient,
+    default_tool_adapter_path,
+)
 
 
 def _add_output_argument(parser: argparse.ArgumentParser) -> None:
@@ -24,6 +29,11 @@ def build_parser() -> argparse.ArgumentParser:
     prepare = commands.add_parser("prepare")
     prepare.add_argument("--request", type=Path, required=True)
     _add_output_argument(prepare)
+
+    inspect = commands.add_parser("inspect")
+    inspect.add_argument("--request", type=Path, required=True)
+    inspect.add_argument("--tool-adapter", type=Path)
+    _add_output_argument(inspect)
 
     query = commands.add_parser("query-evidence")
     query.add_argument("--prepared", type=Path, required=True)
@@ -55,6 +65,15 @@ def _run_command(args: argparse.Namespace) -> None:
     if command == "prepare":
         request = _load_model(cast(Path, args.request), AnalysisRequest)
         _emit_model(prepare_analysis(request), output)
+        return
+    if command == "inspect":
+        request = _load_model(cast(Path, args.request), AnalysisRequest)
+        configured_path = cast(Path | None, args.tool_adapter)
+        adapter_path = configured_path or default_tool_adapter_path()
+        _emit_model(
+            inspect_analysis(request, JsonlToolAdapterClient(adapter_path=adapter_path)),
+            output,
+        )
         return
     if command == "query-evidence":
         prepared = _load_model(cast(Path, args.prepared), PreparedAnalysis)
