@@ -1,4 +1,4 @@
-from .agent import DiagnosticAgent, ReasoningBackend, ReasoningSession
+from .agent import DiagnosticAgent, ReasoningBackend, ReasoningContext, ReasoningSession
 from .domain import (
     AnalysisRequest,
     ArtifactAvailability,
@@ -42,6 +42,13 @@ from .mla_contracts import (
     MlaSessionStatus,
     MlaVersionEvidence,
 )
+from .reasoning import (
+    StubReasoningBackend,
+    StubReasoningSession,
+    build_reasoning_context,
+    make_stub_backend,
+)
+from .workflow import DiagnosticWorkflow
 
 __all__ = [
     "AnalysisRequest",
@@ -57,6 +64,7 @@ __all__ = [
     "DiagnosisResult",
     "DiagnosisStatus",
     "DiagnosticAgent",
+    "DiagnosticWorkflow",
     "Evidence",
     "EvidenceQuery",
     "EvidenceReliability",
@@ -64,6 +72,7 @@ __all__ = [
     "MissingEvidence",
     "PreparedAnalysis",
     "ReasoningBackend",
+    "ReasoningContext",
     "ReasoningRequest",
     "MlaCompatibility",
     "MlaArtifactInspection",
@@ -83,5 +92,9 @@ __all__ = [
     "SourceInput",
     "SourceRole",
     "SourceSnapshot",
+    "StubReasoningBackend",
+    "StubReasoningSession",
+    "build_reasoning_context",
+    "make_stub_backend",
     "synthesize_evidence",
 ]

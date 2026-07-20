@@ -1,0 +1,203 @@
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+from pydantic import JsonValue
+
+from maa_diagnostic_expert.domain import (
+    AnalysisRequest,
+    ArtifactInput,
+    ArtifactKind,
+    DiagnosisStatus,
+    DiagnosticEvent,
+    DiagnosticEventKind,
+)
+from maa_diagnostic_expert.reasoning import StubReasoningBackend
+from maa_diagnostic_expert.workflow import DiagnosticWorkflow
+
+
+def _supported_preflight() -> dict[str, JsonValue]:
+    return {
+        "schema_version": "mde-mla-preflight/v1",
+        "mla_schema_version": "mla-preflight/v1",
+        "compatibility": {
+            "status": "supported",
+            "reason": "notify_events_parsed",
+            "parser_version": "test-parser",
+            "task_count": 1,
+            "event_count": 3,
+            "node_statistic_count": 1,
+            "recognition_statistic_count": 0,
+        },
+        "framework": {
+            "status": "single",
+            "versions": ["v5.11.1"],
+            "sessions": [],
+        },
+        "warnings": [],
+    }
+
+
+def _empty_runtime_inspection() -> dict[str, JsonValue]:
+    return {
+        "schema_version": "mla-runtime-inspection/v1",
+        "sessions": [],
+        "unscoped_tasks": [],
+        "failures": [],
+        "outcomes": [],
+        "signals": [],
+        "warnings": [],
+    }
+
+
+def _runtime_with_failure() -> dict[str, JsonValue]:
+    base = _empty_runtime_inspection()
+    base["failures"] = [
+        {
+            "session_id": "s1",
+            "execution_id": "exec-1",
+            "task_id": 1,
+            "task_name": "LoginTask",
+            "failure_id": "fail-1",
+            "kind": "next_list_timeout",
+            "node_id": 10,
+            "node_name": "LoginButton",
+            "started_at": "2024-01-01T00:00:00Z",
+            "ended_at": "2024-01-01T00:00:05Z",
+            "error_images": [],
+            "vision_images": [],
+            "evidence": {
+                "path": "maafw.log",
+                "local_line": 100,
+                "timestamp": "2024-01-01T00:00:00Z",
+                "source": "maafw.log",
+            },
+        }
+    ]
+    return base
+
+
+class _ToolCaller:
+    def __init__(
+        self,
+        preflight: dict[str, JsonValue] | None = None,
+        runtime: dict[str, JsonValue] | None = None,
+    ) -> None:
+        self._preflight = preflight if preflight is not None else _supported_preflight()
+        self._runtime = runtime if runtime is not None else _empty_runtime_inspection()
+        self.calls: list[tuple[str, dict[str, JsonValue]]] = []
+
+    def call(self, name: str, arguments: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        self.calls.append((name, arguments))
+        if name == "mla.runtime-inspection":
+            return self._runtime
+        return self._preflight
+
+
+def _make_directory_with_log(tmp_path: Path) -> Path:
+    debug_path = tmp_path / "debug"
+    debug_path.mkdir()
+    (debug_path / "maafw.log").write_text("log content", encoding="utf-8")
+    return debug_path
+
+
+def _request(path: Path) -> AnalysisRequest:
+    return AnalysisRequest(
+        question="Diagnose the log.",
+        artifacts=[ArtifactInput(path=path, kind=ArtifactKind.DIRECTORY)],
+    )
+
+
+def _collect_events(
+    workflow: DiagnosticWorkflow, request: AnalysisRequest
+) -> list[DiagnosticEvent]:
+    async def _collect() -> list[DiagnosticEvent]:
+        return [event async for event in workflow.stream(request)]
+
+    return asyncio.run(_collect())
+
+
+def test_diagnose_produces_complete_result_with_failure(tmp_path: Path) -> None:
+    debug_path = _make_directory_with_log(tmp_path)
+    caller = _ToolCaller(runtime=_runtime_with_failure())
+    workflow = DiagnosticWorkflow(caller, StubReasoningBackend())
+
+    result = asyncio.run(workflow.diagnose(_request(debug_path)))
+
+    assert result.status is DiagnosisStatus.COMPLETE
+    assert len(result.conclusions) == 1
+    conclusion = result.conclusions[0]
+    evidence_ids = {e.id for e in result.evidence}
+    assert set(conclusion.evidence_ids).issubset(evidence_ids)
+
+
+def test_diagnose_returns_insufficient_without_failures(tmp_path: Path) -> None:
+    debug_path = _make_directory_with_log(tmp_path)
+    caller = _ToolCaller(runtime=_empty_runtime_inspection())
+    workflow = DiagnosticWorkflow(caller, StubReasoningBackend())
+
+    result = asyncio.run(workflow.diagnose(_request(debug_path)))
+
+    assert result.status is DiagnosisStatus.INSUFFICIENT_EVIDENCE
+    assert result.conclusions == []
+
+
+def test_stream_emits_events_in_order(tmp_path: Path) -> None:
+    debug_path = _make_directory_with_log(tmp_path)
+    caller = _ToolCaller(runtime=_runtime_with_failure())
+    workflow = DiagnosticWorkflow(caller, StubReasoningBackend())
+
+    events = _collect_events(workflow, _request(debug_path))
+
+    kinds = [event.kind for event in events]
+    assert kinds[0] is DiagnosticEventKind.RUN_STARTED
+    assert DiagnosticEventKind.STAGE_STARTED in kinds
+    assert DiagnosticEventKind.STAGE_COMPLETED in kinds
+    assert DiagnosticEventKind.MODEL_REQUESTED in kinds
+    assert DiagnosticEventKind.MODEL_COMPLETED in kinds
+    assert kinds[-1] is DiagnosticEventKind.RUN_COMPLETED
+    assert workflow.result is not None
+    assert workflow.result.status is DiagnosisStatus.COMPLETE
+
+
+def test_workflow_records_missing_evidence_when_adapter_fails(tmp_path: Path) -> None:
+    from maa_diagnostic_expert.tool_adapter_client import ToolAdapterInvocationError
+
+    class _FailingCaller:
+        def call(self, name: str, arguments: dict[str, JsonValue]) -> dict[str, JsonValue]:
+            raise ToolAdapterInvocationError("adapter unavailable")
+
+    debug_path = _make_directory_with_log(tmp_path)
+    workflow = DiagnosticWorkflow(_FailingCaller(), StubReasoningBackend())
+
+    events = _collect_events(workflow, _request(debug_path))
+    kinds = [event.kind for event in events]
+
+    assert kinds[-1] is DiagnosticEventKind.RUN_COMPLETED
+    assert workflow.result is not None
+    assert workflow.result.status is DiagnosisStatus.INSUFFICIENT_EVIDENCE
+    assert "mla_preflight_failed" in workflow.result.missing_evidence
+
+
+def test_cancel_before_inspection_produces_failed(tmp_path: Path) -> None:
+    debug_path = _make_directory_with_log(tmp_path)
+    caller = _ToolCaller(runtime=_runtime_with_failure())
+    workflow = DiagnosticWorkflow(caller, StubReasoningBackend())
+
+    asyncio.run(workflow.cancel(workflow.run_id))
+
+    result = asyncio.run(workflow.diagnose(_request(debug_path)))
+
+    assert result.status is DiagnosisStatus.FAILED
+
+
+def test_run_id_is_deterministic_when_provided(tmp_path: Path) -> None:
+    debug_path = _make_directory_with_log(tmp_path)
+    caller = _ToolCaller(runtime=_runtime_with_failure())
+    workflow = DiagnosticWorkflow(caller, StubReasoningBackend(), run_id="fixed-run-id")
+
+    assert workflow.run_id == "fixed-run-id"
+
+    events = _collect_events(workflow, _request(debug_path))
+    assert all(event.run_id == "fixed-run-id" for event in events)

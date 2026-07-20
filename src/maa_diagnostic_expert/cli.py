@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -12,10 +13,12 @@ from .domain import AnalysisRequest, DiagnosisResult, EvidenceQuery, PreparedAna
 from .evidence_query import query_evidence
 from .inspection import inspect_analysis
 from .preparation import prepare_analysis
+from .reasoning import make_stub_backend
 from .tool_adapter_client import (
     JsonlToolAdapterClient,
     default_tool_adapter_path,
 )
+from .workflow import DiagnosticWorkflow
 
 
 def _add_output_argument(parser: argparse.ArgumentParser) -> None:
@@ -40,6 +43,16 @@ def build_parser() -> argparse.ArgumentParser:
     query.add_argument("--request", type=Path, required=True)
     _add_output_argument(query)
 
+    diagnose = commands.add_parser("diagnose")
+    diagnose.add_argument("--request", type=Path, required=True)
+    diagnose.add_argument("--tool-adapter", type=Path)
+    diagnose.add_argument(
+        "--events",
+        type=Path,
+        help="Optional path to write the diagnostic event stream as JSON lines.",
+    )
+    _add_output_argument(diagnose)
+
     validate = commands.add_parser("validate-result")
     validate.add_argument("--input", type=Path, required=True)
     _add_output_argument(validate)
@@ -59,6 +72,43 @@ def _emit_model(model: BaseModel, output: Path | None) -> None:
     output.write_text(serialized, encoding="utf-8")
 
 
+def _resolve_adapter_path(configured: Path | None) -> Path:
+    return configured or default_tool_adapter_path()
+
+
+def _run_diagnose(args: argparse.Namespace) -> None:
+    request = _load_model(cast(Path, args.request), AnalysisRequest)
+    adapter_path = _resolve_adapter_path(cast(Path | None, args.tool_adapter))
+    workflow = DiagnosticWorkflow(
+        tool_caller=JsonlToolAdapterClient(adapter_path=adapter_path),
+        reasoning_backend=make_stub_backend(),
+    )
+    events_path = cast(Path | None, args.events)
+    output = cast(Path | None, args.output)
+    if events_path is None:
+        result = asyncio.run(workflow.diagnose(request))
+        _emit_model(result, output)
+        return
+    events_path.parent.mkdir(parents=True, exist_ok=True)
+    result = asyncio.run(_stream_to_file(workflow, request, events_path))
+    _emit_model(result, output)
+
+
+async def _stream_to_file(
+    workflow: DiagnosticWorkflow,
+    request: AnalysisRequest,
+    events_path: Path,
+) -> DiagnosisResult:
+    with events_path.open("w", encoding="utf-8") as handle:
+        async for event in workflow.stream(request):
+            handle.write(
+                json.dumps(event.model_dump(mode="json"), ensure_ascii=False) + "\n",
+            )
+    if workflow.result is None:
+        raise RuntimeError("workflow completed without producing a result")
+    return workflow.result
+
+
 def _run_command(args: argparse.Namespace) -> None:
     command = cast(str, args.command)
     output = cast(Path | None, args.output)
@@ -68,12 +118,14 @@ def _run_command(args: argparse.Namespace) -> None:
         return
     if command == "inspect":
         request = _load_model(cast(Path, args.request), AnalysisRequest)
-        configured_path = cast(Path | None, args.tool_adapter)
-        adapter_path = configured_path or default_tool_adapter_path()
+        adapter_path = _resolve_adapter_path(cast(Path | None, args.tool_adapter))
         _emit_model(
             inspect_analysis(request, JsonlToolAdapterClient(adapter_path=adapter_path)),
             output,
         )
+        return
+    if command == "diagnose":
+        _run_diagnose(args)
         return
     if command == "query-evidence":
         prepared = _load_model(cast(Path, args.prepared), PreparedAnalysis)
