@@ -11,8 +11,32 @@ requires-python = ">=3.13,<3.14"
 license = "MIT"
 authors = [{ name = "Windsland52" }]
 dependencies = [
+  "langchain>=1,<2",
+  "langchain-core>=1,<2",
   "langgraph>=1,<2",
   "pydantic>=2.12,<3",
+]
+
+[project.optional-dependencies]
+openai = ["langchain-openai>=1,<2"]
+anthropic = ["langchain-anthropic>=1,<2"]
+bedrock = ["langchain-aws>=1,<2"]
+deepseek = ["langchain-deepseek>=1,<2"]
+google = ["langchain-google-genai>=4,<5"]
+groq = ["langchain-groq>=1,<2"]
+mistral = ["langchain-mistralai>=1,<2"]
+ollama = ["langchain-ollama>=1,<2"]
+xai = ["langchain-xai>=1,<2"]
+models = [
+  "langchain-anthropic>=1,<2",
+  "langchain-aws>=1,<2",
+  "langchain-deepseek>=1,<2",
+  "langchain-google-genai>=4,<5",
+  "langchain-groq>=1,<2",
+  "langchain-mistralai>=1,<2",
+  "langchain-ollama>=1,<2",
+  "langchain-openai>=1,<2",
+  "langchain-xai>=1,<2",
 ]
 
 [project.scripts]

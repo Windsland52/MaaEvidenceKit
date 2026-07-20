@@ -48,7 +48,8 @@ can plug in without changing graph transitions or evidence validation.
 
 The runtime and orchestration decisions are recorded in
 [ADR 0001](docs/adr/0001-runtime-and-agent-surfaces.md) and
-[ADR 0002](docs/adr/0002-langgraph-workflow-orchestration.md).
+[ADR 0002](docs/adr/0002-langgraph-workflow-orchestration.md), while model-provider selection
+is recorded in [ADR 0003](docs/adr/0003-langchain-model-providers.md).
 
 ## CLI
 
@@ -58,6 +59,7 @@ All machine inputs and outputs are strict JSON contracts generated under `contra
 uv run maa-diagnostic-expert prepare --request request.json --output prepared.json
 uv run maa-diagnostic-expert inspect --request request.json --output inspection.json
 uv run maa-diagnostic-expert diagnose --request request.json --output diagnosis.json
+uv run maa-diagnostic-expert diagnose --request request.json --model-config model.json --output diagnosis.json
 uv run maa-diagnostic-expert query-evidence --prepared inspection.json --request evidence-query.json --output evidence-window.json
 uv run maa-diagnostic-expert validate-result --input diagnosis.json --inspection inspection.json --evidence-window evidence-window.json
 ~~~
@@ -78,6 +80,32 @@ required). Pass `--events <path>` to write the diagnostic event stream as JSON l
 result. The produced `DiagnosisResult` cites evidence IDs that trace back to MLA runtime facts.
 The reasoning backend produces a `DiagnosisDraft` without evidence objects; the workflow attaches
 only cited evidence from the deterministic inspection ledger.
+
+Pass `--model-config <path>` to use a LangChain chat model instead of the stub. Install only the
+provider integrations needed by the deployment, for example `uv sync --extra openai`,
+`uv sync --extra anthropic`, or `uv sync --extra deepseek`; `--extra models` installs the bundled
+common providers. LangChain providers not listed as project extras can still be installed and
+selected by their `init_chat_model` provider name. OpenAI-compatible gateways use the `openai`
+provider with a custom `base_url`.
+
+```json
+{
+  "api_version": "model-config/v1",
+  "provider": "openai",
+  "model": "model-name",
+  "api_key_env": "MDE_MODEL_API_KEY",
+  "base_url": "https://example.invalid/v1",
+  "temperature": 0,
+  "timeout_seconds": 120,
+  "max_retries": 2,
+  "structured_output_method": "auto"
+}
+```
+
+`api_key_env` names an environment variable; credential values are never fields in `ModelConfig`
+and are not written to workflow state, events, diagnosis results, or benchmark artifacts. Omit it
+when the provider uses its standard environment variables or another credential chain, such as
+AWS credentials for Bedrock.
 
 `validate-result` requires the inspection that established the evidence ledger. Pass every cited
 raw `EvidenceWindow` with a repeated `--evidence-window` option. Validation rejects invented IDs,

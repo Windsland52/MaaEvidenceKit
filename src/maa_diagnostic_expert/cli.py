@@ -19,6 +19,8 @@ from .domain import (
 )
 from .evidence_query import query_evidence
 from .inspection import DeterministicInspection, inspect_analysis
+from .langchain_reasoning import make_langchain_backend
+from .model_config import ModelConfig
 from .preparation import prepare_analysis
 from .reasoning import make_stub_backend
 from .report import render_markdown_report
@@ -54,6 +56,11 @@ def build_parser() -> argparse.ArgumentParser:
     diagnose = commands.add_parser("diagnose")
     diagnose.add_argument("--request", type=Path, required=True)
     diagnose.add_argument("--tool-adapter", type=Path)
+    diagnose.add_argument(
+        "--model-config",
+        type=Path,
+        help="Optional ModelConfig JSON; omit to use the deterministic stub backend.",
+    )
     diagnose.add_argument(
         "--format",
         choices=["json", "markdown"],
@@ -122,9 +129,15 @@ def _resolve_adapter_path(configured: Path | None) -> Path:
 def _run_diagnose(args: argparse.Namespace) -> None:
     request = _load_model(cast(Path, args.request), AnalysisRequest)
     adapter_path = _resolve_adapter_path(cast(Path | None, args.tool_adapter))
+    model_config_path = cast(Path | None, args.model_config)
+    reasoning_backend = (
+        make_langchain_backend(_load_model(model_config_path, ModelConfig))
+        if model_config_path is not None
+        else make_stub_backend()
+    )
     workflow = DiagnosticWorkflow(
         tool_caller=JsonlToolAdapterClient(adapter_path=adapter_path),
-        reasoning_backend=make_stub_backend(),
+        reasoning_backend=reasoning_backend,
     )
     events_path = cast(Path | None, args.events)
     output = cast(Path | None, args.output)

@@ -35,6 +35,11 @@ from .inspection import (
     MlaArtifactInspection,
     MlaRuntimeInspectionArtifact,
 )
+from .langchain_reasoning import (
+    LangChainReasoningBackend,
+    LangChainReasoningSession,
+    make_langchain_backend,
+)
 from .mla_contracts import (
     MlaCompatibility,
     MlaCompatibilityStatus,
@@ -48,6 +53,7 @@ from .mla_contracts import (
     MlaSessionStatus,
     MlaVersionEvidence,
 )
+from .model_config import ModelConfig, StructuredOutputMethod
 from .reasoning import (
     StubReasoningBackend,
     StubReasoningSession,
@@ -78,6 +84,9 @@ __all__ = [
     "EvidenceReliability",
     "EvidenceWindow",
     "MissingEvidence",
+    "LangChainReasoningBackend",
+    "LangChainReasoningSession",
+    "ModelConfig",
     "PreparedAnalysis",
     "ReasoningBackend",
     "ReasoningContext",
@@ -102,10 +111,12 @@ __all__ = [
     "SourceSnapshot",
     "StubReasoningBackend",
     "StubReasoningSession",
+    "StructuredOutputMethod",
     "build_reasoning_context",
     "collect_inspection_evidence",
     "finalize_diagnosis_draft",
     "make_stub_backend",
+    "make_langchain_backend",
     "render_markdown_report",
     "synthesize_evidence",
     "validate_result_against_inspection",
