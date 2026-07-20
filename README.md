@@ -15,7 +15,7 @@ commands; standalone MDE will use a small Python harness with a user-configured 
 ## Repository layout
 
 ```text
-src/maa_diagnostic_expert/   Python domain and agent interfaces
+src/maa_diagnostic_expert/   Python domain and agent implementation
 packages/tool-adapter/       Thin TypeScript adapter for MLA/MSE
 contracts/                   Generated cross-process JSON schemas
 tests/                       Python tests
@@ -32,11 +32,17 @@ The framework-independent foundation includes:
 - an agent protocol without a LangGraph dependency in domain code;
 - a versioned JSONL tool-adapter protocol.
 
-The first machine-facing vertical slice now provides artifact preparation, bounded evidence
-windows, result validation, and MLA compatibility/runtime-version preflight through the JSONL
-adapter. LangGraph orchestration, MSE calls, RAG, and project-specific GUI/agent log adapters will
-be added after their interfaces are validated against real issue cases. The runtime decision is
-recorded in
+The deterministic vertical slice provides artifact preparation, bounded evidence windows, result
+validation, MLA preflight, and MLA runtime inspection through the JSONL adapter. Runtime
+inspection results are synthesized into typed `Evidence` records (primary failures/outcomes,
+secondary signals, context task/session summaries).
+
+The diagnostic workflow orchestrates the full pipeline — prepare, inspect, synthesize evidence,
+reason, validate — behind a single `DiagnosticWorkflow`. The reasoning stage is delegated to a
+pluggable `ReasoningBackend` protocol. A deterministic `StubReasoningBackend` ships with the
+project for model-free testing; a real model backend plugs in without workflow changes.
+
+The runtime decision is recorded in
 [ADR 0001](docs/adr/0001-runtime-and-agent-surfaces.md).
 
 ## CLI
@@ -44,8 +50,9 @@ recorded in
 All machine inputs and outputs are strict JSON contracts generated under `contracts/`.
 
 ~~~powershell
-uv run maa-diagnostic-expert inspect --request request.json --output inspection.json
 uv run maa-diagnostic-expert prepare --request request.json --output prepared.json
+uv run maa-diagnostic-expert inspect --request request.json --output inspection.json
+uv run maa-diagnostic-expert diagnose --request request.json --output diagnosis.json
 uv run maa-diagnostic-expert query-evidence --prepared prepared.json --request evidence-query.json --output evidence-window.json
 uv run maa-diagnostic-expert validate-result --input diagnosis.json
 ~~~
@@ -58,6 +65,11 @@ archives or scan the whole project source tree. `query-evidence` reads at most 4
 log, ZIP, or directory input once, calls `mla.preflight` through the internal JSONL adapter, and
 validates the returned facts with the Python `MlaPreflightResult` contract. Run `pnpm build` first;
 use `--tool-adapter <path>` or `MDE_TOOL_ADAPTER_PATH` for a non-default adapter location.
+
+`diagnose` runs the complete pipeline end to end: prepare, inspect, synthesize evidence, reason,
+and validate. It uses the deterministic stub reasoning backend by default (no model credentials
+required). Pass `--events <path>` to write the diagnostic event stream as JSON lines alongside the
+result. The produced `DiagnosisResult` cites evidence IDs that trace back to MLA runtime facts.
 
 `AnalysisRequest.sources` contains named entries with a `source_id`, role, path, and optional
 revision. Roles `project`, `maa_framework`, `gui`, and `agent` are independently versioned;
@@ -72,7 +84,8 @@ uv run pytest
 uv run ruff check .
 uv run ruff format --check .
 uv run pyright
+uv run maa-generate-contracts
 pnpm install
 pnpm typecheck
-pnpm --filter @maa-diagnostic-expert/tool-adapter test
+pnpm build
 ```
