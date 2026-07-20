@@ -18,6 +18,7 @@ commands; standalone MDE will use a small Python harness with a user-configured 
 src/maa_diagnostic_expert/   Python domain and agent implementation
 packages/tool-adapter/       Thin TypeScript adapter for MLA/MSE
 contracts/                   Generated cross-process JSON schemas
+skills/                      Host-agent SKILL.md for external agent integration
 tests/                       Python tests
 ```
 
@@ -75,6 +76,14 @@ result. The produced `DiagnosisResult` cites evidence IDs that trace back to MLA
 revision. Roles `project`, `maa_framework`, `gui`, and `agent` are independently versioned;
 `auxiliary` is reserved for non-versioned reference source. GUI and agent roles do not assume MXU,
 a programming language, or a fixed repository layout. Optional source adapters handle discovery.
+
+## Host-agent integration
+
+External agents (Codex, Claude Code, OpenCode) can use the deterministic CLI without a model
+backend. The [`skills/maa-diagnostic/SKILL.md`](skills/maa-diagnostic/SKILL.md) file documents
+the full workflow: prepare a request, run `inspect` for structured evidence, query raw log windows
+when needed, and form a diagnosis citing evidence IDs. Copy or symlink this skill into the agent's
+workspace to enable MaaFramework log diagnosis.
 
 ## Development
 

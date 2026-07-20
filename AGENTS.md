@@ -43,6 +43,7 @@ TypeScript tool adapter
 src/maa_diagnostic_expert/   Python domain and agent implementation
 packages/tool-adapter/       Thin TypeScript MLA/MSE adapter
 contracts/                   Generated JSON schemas
+skills/                      Host-agent SKILL.md for external agent integration
 tests/                       Python tests
 tmp/                         Ignored local issue-analysis data
 sample/                      Ignored local upstream repositories/links
