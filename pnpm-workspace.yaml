@@ -5,5 +5,4 @@ minimumReleaseAgeExclude:
   - '@windsland52/maa-log-kernel@1.0.1'
   - '@windsland52/maa-log-parser@1.0.1'
   - '@windsland52/maa-log-runtime@1.0.1'
-  - '@windsland52/maa-log-tools@1.1.1'
-  - '@windsland52/maa-log-tools@1.2.1'
+  - '@windsland52/maa-log-tools@1.2.2'
