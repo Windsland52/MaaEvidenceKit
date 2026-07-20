@@ -38,13 +38,17 @@ validation, MLA preflight, and MLA runtime inspection through the JSONL adapter.
 inspection results are synthesized into typed `Evidence` records (primary failures/outcomes,
 secondary signals, context task/session summaries).
 
-The diagnostic workflow orchestrates the full pipeline — prepare, inspect, synthesize evidence,
-reason, validate — behind a single `DiagnosticWorkflow`. The reasoning stage is delegated to a
-pluggable `ReasoningBackend` protocol. A deterministic `StubReasoningBackend` ships with the
-project for model-free testing; a real model backend plugs in without workflow changes.
+The diagnostic workflow uses LangGraph to orchestrate the full pipeline — prepare, inspect,
+synthesize evidence, reason, validate — behind a single `DiagnosticWorkflow`. Explicit graph
+state keeps inspection facts, authoritative evidence, model drafts, failures, and final results
+separate.
+The reasoning stage is delegated to a pluggable `ReasoningBackend` protocol. A deterministic
+`StubReasoningBackend` ships with the project for model-free testing; LangChain model providers
+can plug in without changing graph transitions or evidence validation.
 
-The runtime decision is recorded in
-[ADR 0001](docs/adr/0001-runtime-and-agent-surfaces.md).
+The runtime and orchestration decisions are recorded in
+[ADR 0001](docs/adr/0001-runtime-and-agent-surfaces.md) and
+[ADR 0002](docs/adr/0002-langgraph-workflow-orchestration.md).
 
 ## CLI
 

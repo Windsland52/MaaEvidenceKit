@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import secrets
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Literal, NotRequired, TypedDict
+
+from langgraph.config import get_stream_writer
+from langgraph.graph import END, START, StateGraph  # pyright: ignore[reportMissingTypeStubs]
+from langgraph.graph.state import (  # pyright: ignore[reportMissingTypeStubs]
+    CompiledStateGraph,
+)
 
 from .agent import ReasoningBackend, ReasoningContext
 from .diagnosis_validation import collect_inspection_evidence, finalize_diagnosis_draft
@@ -16,8 +23,15 @@ from .domain import (
     DiagnosticEventKind,
     Evidence,
     JsonValue,
+    PreparedAnalysis,
 )
-from .inspection import DeterministicInspection, ToolCaller, inspect_analysis
+from .inspection import (
+    DeterministicInspection,
+    ToolCaller,
+    inspect_prepared_analysis,
+    synthesize_inspection_evidence,
+)
+from .preparation import prepare_analysis
 from .reasoning import build_reasoning_context
 
 _DEFAULT_QUESTION = "Diagnose the runtime failures and their likely causes."
@@ -27,17 +41,98 @@ def _new_run_id() -> str:
     return secrets.token_hex(8)
 
 
+class DiagnosticState(TypedDict):
+    """Internal LangGraph state for one diagnostic run."""
+
+    request: AnalysisRequest
+    prepared: NotRequired[PreparedAnalysis]
+    inspection: NotRequired[DeterministicInspection]
+    evidence: NotRequired[list[Evidence]]
+    draft: NotRequired[DiagnosisDraft]
+    result: NotRequired[DiagnosisResult]
+    error_message: NotRequired[str]
+    error_type: NotRequired[str]
+    error_stage: NotRequired[str]
+
+
+class _DiagnosticStateUpdate(TypedDict, total=False):
+    prepared: PreparedAnalysis
+    inspection: DeterministicInspection
+    evidence: list[Evidence]
+    draft: DiagnosisDraft
+    result: DiagnosisResult
+    error_message: str
+    error_type: str
+    error_stage: str
+
+
+type _GraphNode = (
+    Callable[[DiagnosticState], _DiagnosticStateUpdate]
+    | Callable[[DiagnosticState], Awaitable[_DiagnosticStateUpdate]]
+)
+type _CompiledDiagnosticGraph = CompiledStateGraph[
+    DiagnosticState,
+    None,
+    DiagnosticState,
+    DiagnosticState,
+]
+
+
+@dataclass(frozen=True, slots=True)
+class _WorkflowUpdate:
+    kind: DiagnosticEventKind
+    stage: str
+    message: str
+    data: dict[str, JsonValue] = field(default_factory=dict[str, JsonValue])
+    result: DiagnosisResult | None = None
+
+
+def _emit(update: _WorkflowUpdate) -> None:
+    get_stream_writer()(update)
+
+
+def _failure_update(stage: str, error: Exception) -> _DiagnosticStateUpdate:
+    return {
+        "error_message": f"Workflow failed: {error}",
+        "error_type": type(error).__name__,
+        "error_stage": stage,
+    }
+
+
+def _add_graph_node(
+    graph: StateGraph[DiagnosticState, None, DiagnosticState, DiagnosticState],
+    name: str,
+    node: _GraphNode,
+) -> None:
+    # LangGraph 1.2.9 exposes unparameterized cache/error-handler types in this overload.
+    graph.add_node(name, node)  # pyright: ignore[reportUnknownMemberType, reportArgumentType]
+
+
+def _compile_graph(
+    graph: StateGraph[DiagnosticState, None, DiagnosticState, DiagnosticState],
+) -> _CompiledDiagnosticGraph:
+    # LangGraph 1.2.9 exposes an unparameterized checkpointer type in this signature.
+    return graph.compile()  # pyright: ignore[reportUnknownMemberType]
+
+
+async def _stream_graph(
+    graph: _CompiledDiagnosticGraph,
+    initial_state: DiagnosticState,
+) -> AsyncIterator[object]:
+    # LangGraph 1.2.9 exposes an unparameterized Command type in this overload.
+    async for update in graph.astream(  # pyright: ignore[reportUnknownMemberType]
+        initial_state,
+        stream_mode="custom",
+    ):
+        yield update
+
+
 @dataclass
 class DiagnosticWorkflow:
-    """Orchestrates the end-to-end diagnostic pipeline.
+    """LangGraph-backed end-to-end diagnostic workflow.
 
-    The pipeline runs: prepare -> inspect -> synthesize evidence ->
-    reason -> validate. Deterministic stages (prepare, inspect, synthesize)
-    run synchronously; the reasoning stage is delegated to a pluggable
-    ReasoningBackend so the workflow stays model-agnostic.
-
-    After a run completes (via ``diagnose`` or by exhausting ``stream``),
-    the produced result is available through the ``result`` property.
+    The public facade remains framework-independent for CLI and host integrations,
+    while LangGraph owns node transitions and failure routing internally.
     """
 
     tool_caller: ToolCaller
@@ -66,120 +161,288 @@ class DiagnosticWorkflow:
         self._result = None
         return self._run(request)
 
-    async def _run(self, request: AnalysisRequest) -> AsyncIterator[DiagnosticEvent]:
-        sequence = 0
-
-        def emit(
-            kind: DiagnosticEventKind,
-            stage: str,
-            message: str,
-            data: dict[str, JsonValue] | None = None,
-        ) -> DiagnosticEvent:
-            nonlocal sequence
-            event = DiagnosticEvent(
-                run_id=self.run_id,
-                sequence=sequence,
-                occurred_at=datetime.now(UTC),
-                kind=kind,
-                stage=stage,
-                message=message,
-                data=data or {},
+    def _start_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
+        del state
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.RUN_STARTED,
+                stage="workflow",
+                message="Started diagnostic workflow",
+                data={"run_id": self.run_id},
             )
-            sequence += 1
-            return event
-
-        yield emit(
-            DiagnosticEventKind.RUN_STARTED,
-            "workflow",
-            "Started diagnostic workflow",
-            {"run_id": self.run_id},
         )
+        return {}
 
-        evidence: list[Evidence] = []
-        inspection: DeterministicInspection | None = None
+    def _prepare_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
         try:
             if self.run_id in self._cancelled:
-                raise RuntimeError("workflow cancelled before inspection")
-
-            yield emit(
-                DiagnosticEventKind.STAGE_STARTED,
-                "inspect",
-                "Running deterministic inspection",
+                raise RuntimeError("workflow cancelled before preparation")
+            _emit(
+                _WorkflowUpdate(
+                    kind=DiagnosticEventKind.STAGE_STARTED,
+                    stage="prepare",
+                    message="Preparing diagnostic inputs",
+                )
             )
-            inspection = inspect_analysis(request, self.tool_caller)
-            evidence = collect_inspection_evidence(inspection)
-            yield emit(
-                DiagnosticEventKind.STAGE_COMPLETED,
-                "inspect",
-                "Deterministic inspection complete",
-                {
-                    "artifacts": len(inspection.mla_runtime_inspections),
-                    "evidence": len(evidence),
+            prepared = prepare_analysis(state["request"])
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("prepare", error)
+
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.STAGE_COMPLETED,
+                stage="prepare",
+                message="Diagnostic inputs prepared",
+                data={
+                    "artifacts": len(prepared.artifacts),
+                    "sources": len(prepared.source_snapshots),
+                    "missing": len(prepared.missing_evidence),
+                },
+            )
+        )
+        return {"prepared": prepared}
+
+    @staticmethod
+    def _after_prepare(state: DiagnosticState) -> Literal["inspect", "fail"]:
+        return "fail" if "error_message" in state else "inspect"
+
+    def _inspect_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
+        try:
+            prepared = state.get("prepared")
+            if prepared is None:
+                raise RuntimeError("inspection requires prepared diagnostic inputs")
+            if self.run_id in self._cancelled:
+                raise RuntimeError("workflow cancelled before inspection")
+            _emit(
+                _WorkflowUpdate(
+                    kind=DiagnosticEventKind.STAGE_STARTED,
+                    stage="inspect",
+                    message="Running deterministic inspection",
+                )
+            )
+            inspection = inspect_prepared_analysis(prepared, self.tool_caller)
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("inspect", error)
+
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.STAGE_COMPLETED,
+                stage="inspect",
+                message="Deterministic inspection complete",
+                data={
+                    "preflights": len(inspection.mla_preflights),
+                    "runtime_inspections": len(inspection.mla_runtime_inspections),
                     "missing": len(inspection.prepared.missing_evidence),
                 },
             )
-            if evidence:
-                yield emit(
-                    DiagnosticEventKind.EVIDENCE_ADDED,
-                    "inspect",
-                    f"Synthesized {len(evidence)} evidence items",
-                    {"count": len(evidence)},
-                )
+        )
+        return {"inspection": inspection}
 
+    @staticmethod
+    def _after_inspect(state: DiagnosticState) -> Literal["synthesize", "fail"]:
+        return "fail" if "error_message" in state else "synthesize"
+
+    def _synthesize_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.STAGE_STARTED,
+                stage="synthesize",
+                message="Synthesizing authoritative evidence",
+            )
+        )
+        try:
+            inspection = state.get("inspection")
+            if inspection is None:
+                raise RuntimeError("evidence synthesis requires deterministic inspection")
+            inspection = synthesize_inspection_evidence(inspection)
+            evidence = collect_inspection_evidence(inspection)
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("synthesize", error)
+
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.STAGE_COMPLETED,
+                stage="synthesize",
+                message="Authoritative evidence synthesized",
+                data={
+                    "evidence": len(evidence),
+                },
+            )
+        )
+        if evidence:
+            _emit(
+                _WorkflowUpdate(
+                    kind=DiagnosticEventKind.EVIDENCE_ADDED,
+                    stage="synthesize",
+                    message=f"Synthesized {len(evidence)} evidence items",
+                    data={"count": len(evidence)},
+                )
+            )
+        return {"inspection": inspection, "evidence": evidence}
+
+    @staticmethod
+    def _after_synthesize(state: DiagnosticState) -> Literal["reason", "fail"]:
+        return "fail" if "error_message" in state else "reason"
+
+    async def _reason_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
+        try:
             if self.run_id in self._cancelled:
                 raise RuntimeError("workflow cancelled before reasoning")
-
-            question = request.question or _DEFAULT_QUESTION
+            inspection = state.get("inspection")
+            if inspection is None:
+                raise RuntimeError("reasoning requires deterministic inspection")
+            evidence = state.get("evidence", [])
+            question = state["request"].question or _DEFAULT_QUESTION
             context: ReasoningContext = build_reasoning_context(question, evidence)
 
-            yield emit(
-                DiagnosticEventKind.MODEL_REQUESTED,
-                "reason",
-                "Requesting diagnostic reasoning",
-                {"evidence_count": len(evidence)},
+            _emit(
+                _WorkflowUpdate(
+                    kind=DiagnosticEventKind.MODEL_REQUESTED,
+                    stage="reason",
+                    message="Requesting diagnostic reasoning",
+                    data={"evidence_count": len(evidence)},
+                )
             )
             session = await self.reasoning_backend.start(run_id=self.run_id)
             try:
                 draft = await session.reason(context, DiagnosisDraft)
             finally:
                 await session.close()
-            yield emit(
-                DiagnosticEventKind.MODEL_COMPLETED,
-                "reason",
-                "Diagnostic reasoning complete",
-                {"conclusions": len(draft.conclusions)},
-            )
-
-            final = finalize_diagnosis_draft(draft, inspection)
-            self._result = final
-            yield emit(
-                DiagnosticEventKind.RUN_COMPLETED,
-                "workflow",
-                "Diagnostic workflow complete",
-                {
-                    "status": final.status.value,
-                    "conclusions": len(final.conclusions),
-                    "evidence": len(final.evidence),
-                },
-            )
         except Exception as error:  # noqa: BLE001
-            message = f"Workflow failed: {error}"
-            stage = "reason" if inspection is not None else "inspect"
-            missing_codes = (
-                [item.code for item in inspection.prepared.missing_evidence]
-                if inspection is not None
-                else []
+            return _failure_update("reason", error)
+
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.MODEL_COMPLETED,
+                stage="reason",
+                message="Diagnostic reasoning complete",
+                data={"conclusions": len(draft.conclusions)},
             )
-            self._result = DiagnosisResult(
-                status=DiagnosisStatus.FAILED,
-                summary=message,
-                evidence=evidence,
-                conclusions=[],
-                missing_evidence=missing_codes,
+        )
+        return {"draft": draft}
+
+    @staticmethod
+    def _after_reason(state: DiagnosticState) -> Literal["validate", "fail"]:
+        return "fail" if "error_message" in state else "validate"
+
+    def _validate_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.STAGE_STARTED,
+                stage="validate",
+                message="Validating diagnosis against authoritative evidence",
             )
-            yield emit(
-                DiagnosticEventKind.RUN_FAILED,
-                stage,
-                message,
-                {"error_type": type(error).__name__},
+        )
+        try:
+            inspection = state.get("inspection")
+            draft = state.get("draft")
+            if inspection is None or draft is None:
+                raise RuntimeError("validation requires inspection and diagnosis draft")
+            result = finalize_diagnosis_draft(draft, inspection)
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("validate", error)
+
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.STAGE_COMPLETED,
+                stage="validate",
+                message="Diagnosis validation complete",
+                data={"cited_evidence": len(result.evidence)},
             )
+        )
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.RUN_COMPLETED,
+                stage="workflow",
+                message="Diagnostic workflow complete",
+                data={
+                    "status": result.status.value,
+                    "conclusions": len(result.conclusions),
+                    "evidence": len(result.evidence),
+                },
+                result=result,
+            )
+        )
+        return {"result": result}
+
+    @staticmethod
+    def _after_validate(state: DiagnosticState) -> Literal["complete", "fail"]:
+        return "fail" if "error_message" in state else "complete"
+
+    def _fail_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
+        message = state.get("error_message", "Workflow failed")
+        inspection = state.get("inspection")
+        prepared = state.get("prepared")
+        evidence = state.get("evidence", [])
+        if inspection is not None:
+            missing_codes = [item.code for item in inspection.prepared.missing_evidence]
+        elif prepared is not None:
+            missing_codes = [item.code for item in prepared.missing_evidence]
+        else:
+            missing_codes = []
+        result = DiagnosisResult(
+            status=DiagnosisStatus.FAILED,
+            summary=message,
+            evidence=evidence,
+            conclusions=[],
+            missing_evidence=missing_codes,
+        )
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.RUN_FAILED,
+                stage=state.get("error_stage", "workflow"),
+                message=message,
+                data={"error_type": state.get("error_type", "RuntimeError")},
+                result=result,
+            )
+        )
+        return {"result": result}
+
+    @staticmethod
+    def _complete_node(state: DiagnosticState) -> _DiagnosticStateUpdate:
+        del state
+        return {}
+
+    def _build_graph(
+        self,
+    ) -> _CompiledDiagnosticGraph:
+        graph = StateGraph(DiagnosticState)
+        _add_graph_node(graph, "start", self._start_node)
+        _add_graph_node(graph, "prepare", self._prepare_node)
+        _add_graph_node(graph, "inspect", self._inspect_node)
+        _add_graph_node(graph, "synthesize", self._synthesize_node)
+        _add_graph_node(graph, "reason", self._reason_node)
+        _add_graph_node(graph, "validate", self._validate_node)
+        _add_graph_node(graph, "fail", self._fail_node)
+        _add_graph_node(graph, "complete", self._complete_node)
+        graph.add_edge(START, "start")
+        graph.add_edge("start", "prepare")
+        graph.add_conditional_edges("prepare", self._after_prepare)
+        graph.add_conditional_edges("inspect", self._after_inspect)
+        graph.add_conditional_edges("synthesize", self._after_synthesize)
+        graph.add_conditional_edges("reason", self._after_reason)
+        graph.add_conditional_edges("validate", self._after_validate)
+        graph.add_edge("fail", END)
+        graph.add_edge("complete", END)
+        return _compile_graph(graph)
+
+    async def _run(self, request: AnalysisRequest) -> AsyncIterator[DiagnosticEvent]:
+        sequence = 0
+        initial_state: DiagnosticState = {"request": request}
+        graph = self._build_graph()
+        async for raw_update in _stream_graph(graph, initial_state):
+            if not isinstance(raw_update, _WorkflowUpdate):
+                raise TypeError("LangGraph returned an unexpected custom stream update")
+            update = raw_update
+            if update.result is not None:
+                self._result = update.result
+            yield DiagnosticEvent(
+                run_id=self.run_id,
+                sequence=sequence,
+                occurred_at=datetime.now(UTC),
+                kind=update.kind,
+                stage=update.stage,
+                message=update.message,
+                data=update.data,
+            )
+            sequence += 1

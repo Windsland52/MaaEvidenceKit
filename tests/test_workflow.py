@@ -130,6 +130,12 @@ class _InventingReasoningBackend:
         return _InventingReasoningSession()
 
 
+class _FailingReasoningBackend:
+    async def start(self, *, run_id: str) -> _InventingReasoningSession:
+        del run_id
+        raise RuntimeError("model unavailable")
+
+
 def _make_directory_with_log(tmp_path: Path) -> Path:
     debug_path = tmp_path / "debug"
     debug_path.mkdir()
@@ -186,9 +192,25 @@ def test_workflow_rejects_model_invented_evidence_ids(tmp_path: Path) -> None:
     events = _collect_events(workflow, _request(debug_path))
 
     assert events[-1].kind is DiagnosticEventKind.RUN_FAILED
+    assert events[-1].stage == "validate"
     assert workflow.result is not None
     assert workflow.result.status is DiagnosisStatus.FAILED
     assert "unknown evidence IDs" in workflow.result.summary
+
+
+def test_workflow_routes_reasoning_errors_to_failed_result(tmp_path: Path) -> None:
+    debug_path = _make_directory_with_log(tmp_path)
+    caller = _ToolCaller(runtime=_runtime_with_failure())
+    workflow = DiagnosticWorkflow(caller, _FailingReasoningBackend())
+
+    events = _collect_events(workflow, _request(debug_path))
+
+    assert events[-1].kind is DiagnosticEventKind.RUN_FAILED
+    assert events[-1].stage == "reason"
+    assert workflow.result is not None
+    assert workflow.result.status is DiagnosisStatus.FAILED
+    assert workflow.result.evidence
+    assert "model unavailable" in workflow.result.summary
 
 
 def test_stream_emits_events_in_order(tmp_path: Path) -> None:
@@ -199,11 +221,15 @@ def test_stream_emits_events_in_order(tmp_path: Path) -> None:
     events = _collect_events(workflow, _request(debug_path))
 
     kinds = [event.kind for event in events]
+    completed_stages = [
+        event.stage for event in events if event.kind is DiagnosticEventKind.STAGE_COMPLETED
+    ]
     assert kinds[0] is DiagnosticEventKind.RUN_STARTED
     assert DiagnosticEventKind.STAGE_STARTED in kinds
     assert DiagnosticEventKind.STAGE_COMPLETED in kinds
     assert DiagnosticEventKind.MODEL_REQUESTED in kinds
     assert DiagnosticEventKind.MODEL_COMPLETED in kinds
+    assert completed_stages == ["prepare", "inspect", "synthesize", "validate"]
     assert kinds[-1] is DiagnosticEventKind.RUN_COMPLETED
     assert workflow.result is not None
     assert workflow.result.status is DiagnosisStatus.COMPLETE

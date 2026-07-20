@@ -269,13 +269,8 @@ name = "maa-diagnostic-expert"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-agent = [
-    { name = "langchain-core" },
     { name = "langgraph" },
+    { name = "pydantic" },
 ]
 
 [package.dev-dependencies]
@@ -287,11 +282,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "langchain-core", marker = "extra == 'agent'", specifier = ">=1,<2" },
-    { name = "langgraph", marker = "extra == 'agent'", specifier = ">=1,<2" },
+    { name = "langgraph", specifier = ">=1,<2" },
     { name = "pydantic", specifier = ">=2.12,<3" },
 ]
-provides-extras = ["agent"]
 
 [package.metadata.requires-dev]
 dev = [

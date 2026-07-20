@@ -84,7 +84,15 @@ def inspect_analysis(
     request: AnalysisRequest,
     tool_caller: ToolCaller,
 ) -> DeterministicInspection:
-    prepared = prepare_analysis(request)
+    inspection = inspect_prepared_analysis(prepare_analysis(request), tool_caller)
+    return synthesize_inspection_evidence(inspection)
+
+
+def inspect_prepared_analysis(
+    prepared: PreparedAnalysis,
+    tool_caller: ToolCaller,
+) -> DeterministicInspection:
+    """Run deterministic tools against an already prepared analysis."""
     preflights: list[MlaArtifactInspection] = []
     runtime_inspections: list[MlaRuntimeInspectionArtifact] = []
     missing = list(prepared.missing_evidence)
@@ -150,5 +158,12 @@ def inspect_analysis(
         prepared=prepared_with_tools,
         mla_preflights=preflights,
         mla_runtime_inspections=runtime_inspections,
-        synthesized_evidence=synthesize_evidence(runtime_inspections),
     )
+
+
+def synthesize_inspection_evidence(
+    inspection: DeterministicInspection,
+) -> DeterministicInspection:
+    """Attach project-owned evidence records derived from deterministic facts."""
+    evidence = synthesize_evidence(inspection.mla_runtime_inspections)
+    return inspection.model_copy(update={"synthesized_evidence": evidence})
