@@ -79,6 +79,10 @@ only cited evidence from the deterministic inspection ledger.
 raw `EvidenceWindow` with a repeated `--evidence-window` option. Validation rejects invented IDs,
 altered evidence content, and omitted required missing-evidence codes.
 
+When a source snapshot has a resolved `revision`, `query-evidence` reads the file directly from
+that Git commit rather than the current checkout or dirty worktree. Versioned evidence uses a
+`git:<source-id>@<commit>:<path>` locator in the resulting `Evidence` record.
+
 `AnalysisRequest.sources` contains named entries with a `source_id`, role, path, and optional
 revision. Roles `project`, `maa_framework`, `gui`, and `agent` are independently versioned;
 `auxiliary` is reserved for non-versioned reference source. GUI and agent roles do not assume MXU,

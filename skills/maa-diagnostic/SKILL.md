@@ -195,7 +195,8 @@ loop at the time the log was captured.
 
 4. **Respect versioned source.** Do not use current source code to deny behavior from an older
    release. If the issue is from an old version, check that version's source. Use current source
-   only to assess whether a fix exists.
+   only to assess whether a fix exists. When `inspection.json` contains a resolved source revision,
+   `query-evidence` reads from that commit even if the checkout or worktree differs.
 
 5. **Report missing evidence.** If logs are incomplete, timestamps mismatch, or source is
    unavailable, report it as `missing_evidence` rather than guessing.
