@@ -1,4 +1,4 @@
-import { runMlaPreflight } from "./mla.js";
+import { runMlaPreflight, runMlaRuntimeInspection } from "./mla.js";
 import type { ToolDescriptor, ToolRequest, ToolResponse } from "./protocol.js";
 
 const tools: ToolDescriptor[] = [
@@ -6,6 +6,11 @@ const tools: ToolDescriptor[] = [
     name: "mla.preflight",
     description:
       "Check MaaFramework log compatibility and return runtime-version sessions with source evidence."
+  },
+  {
+    name: "mla.runtime-inspection",
+    description:
+      "Parse MaaFramework logs and return structured failures, outcomes, and recognition/repetition signals with source-mapped evidence."
   }
 ];
 
@@ -50,30 +55,32 @@ async function callTool(request: ToolRequest): Promise<ToolResponse> {
       "tools/call requires string params.name and object params.arguments."
     );
   }
-  if (toolName !== "mla.preflight") {
-    return failure(
-      request.id,
-      "TOOL_NOT_FOUND",
-      `Unknown tool: ${toolName}`
-    );
-  }
-
   const targetPath = toolArguments["path"];
   if (typeof targetPath !== "string" || targetPath.trim().length === 0) {
     return failure(
       request.id,
       "INVALID_TOOL_ARGUMENTS",
-      "mla.preflight requires a non-empty string arguments.path."
+      `${toolName} requires a non-empty string arguments.path.`
     );
   }
 
   try {
-    return success(request.id, await runMlaPreflight(targetPath));
+    if (toolName === "mla.preflight") {
+      return success(request.id, await runMlaPreflight(targetPath));
+    }
+    if (toolName === "mla.runtime-inspection") {
+      return success(request.id, await runMlaRuntimeInspection(targetPath));
+    }
+    return failure(
+      request.id,
+      "TOOL_NOT_FOUND",
+      `Unknown tool: ${toolName}`
+    );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     return failure(
       request.id,
-      "MLA_PREFLIGHT_FAILED",
+      "MLA_TOOL_FAILED",
       message,
       false,
       { tool: toolName }

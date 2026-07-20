@@ -23,7 +23,11 @@ from .domain import (
     SourceRole,
     SourceSnapshot,
 )
-from .inspection import DeterministicInspection, MlaArtifactInspection
+from .inspection import (
+    DeterministicInspection,
+    MlaArtifactInspection,
+    MlaRuntimeInspectionArtifact,
+)
 from .mla_contracts import (
     MlaCompatibility,
     MlaCompatibilityStatus,
@@ -32,6 +36,7 @@ from .mla_contracts import (
     MlaFrameworkSummary,
     MlaLogPosition,
     MlaPreflightResult,
+    MlaRuntimeInspectionResult,
     MlaSessionStartKind,
     MlaSessionStatus,
     MlaVersionEvidence,
@@ -67,6 +72,8 @@ __all__ = [
     "MlaFrameworkSummary",
     "MlaLogPosition",
     "MlaPreflightResult",
+    "MlaRuntimeInspectionArtifact",
+    "MlaRuntimeInspectionResult",
     "MlaSessionStartKind",
     "MlaSessionStatus",
     "MlaVersionEvidence",

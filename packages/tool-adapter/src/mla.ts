@@ -5,9 +5,13 @@ import {
   analyzeDirectory,
   analyzeLogContent,
   analyzeZipFile,
+  buildRuntimeInspection,
   extractFrameworkSessions,
+  extractZipContentFromNodeFile,
   loadFrameworkLogSources,
-  readNodeTextFileContent
+  loadNodeLogDirectory,
+  readNodeTextFileContent,
+  type SourceSegment
 } from "@windsland52/maa-log-tools";
 import {
   buildPreflightOutput,
@@ -125,4 +129,66 @@ export async function runMlaPreflight(targetPath: string): Promise<MlaPreflightR
   }
 
   return translatePreflight(buildPreflightOutput(output, framework));
+}
+
+const camelToSnake = (key: string): string =>
+  key.replace(/([A-Z])/g, "_$1").toLowerCase();
+
+const convertKeys = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(convertKeys);
+  if (value !== null && typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      result[camelToSnake(key)] = convertKeys(val);
+    }
+    return result;
+  }
+  return value;
+};
+
+export async function runMlaRuntimeInspection(
+  targetPath: string
+): Promise<Record<string, unknown>> {
+  const resolvedPath = path.resolve(targetPath);
+  const targetStat = await stat(resolvedPath);
+  const framework = extractFrameworkSessions(
+    await loadFrameworkLogSources(resolvedPath)
+  );
+
+  let output = null;
+  let sourceSegments: readonly SourceSegment[] = [];
+
+  if (targetStat.isDirectory()) {
+    const extracted = await loadNodeLogDirectory(resolvedPath);
+    if (extracted) {
+      sourceSegments = extracted.sourceSegments;
+      output = await analyzeLogContent({
+        content: extracted.content,
+        errorImages: extracted.errorImages,
+        visionImages: extracted.visionImages,
+        waitFreezesImages: extracted.waitFreezesImages
+      });
+    }
+  } else if (resolvedPath.toLowerCase().endsWith(".zip")) {
+    const extracted = await extractZipContentFromNodeFile(resolvedPath);
+    if (extracted) {
+      sourceSegments = extracted.sourceSegments;
+      output = await analyzeLogContent({
+        content: extracted.content,
+        errorImages: extracted.errorImages,
+        visionImages: extracted.visionImages,
+        waitFreezesImages: extracted.waitFreezesImages
+      });
+    }
+  } else {
+    const content = await readNodeTextFileContent(resolvedPath);
+    output = await analyzeLogContent({ content });
+  }
+
+  if (!output) {
+    throw new Error("No analyzable log content found in the provided path.");
+  }
+
+  const inspection = buildRuntimeInspection(output, framework, sourceSegments);
+  return convertKeys(inspection) as Record<string, unknown>;
 }

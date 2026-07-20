@@ -14,7 +14,7 @@ from .domain import (
     ReasoningRequest,
 )
 from .inspection import DeterministicInspection
-from .mla_contracts import MlaPreflightResult
+from .mla_contracts import MlaPreflightResult, MlaRuntimeInspectionResult
 
 CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "analysis-request.schema.json": AnalysisRequest,
@@ -27,6 +27,7 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "prepared-analysis.schema.json": PreparedAnalysis,
     "reasoning-request.schema.json": ReasoningRequest,
     "mla-preflight.schema.json": MlaPreflightResult,
+    "mla-runtime-inspection.schema.json": MlaRuntimeInspectionResult,
 }
 
 

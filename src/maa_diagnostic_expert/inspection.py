@@ -15,7 +15,11 @@ from .domain import (
     MissingEvidence,
     PreparedAnalysis,
 )
-from .mla_contracts import MlaPreflightResult
+from .mla_contracts import (
+    MlaCompatibilityStatus,
+    MlaPreflightResult,
+    MlaRuntimeInspectionResult,
+)
 from .preparation import prepare_analysis
 from .tool_adapter_client import ToolAdapterInvocationError
 
@@ -34,10 +38,23 @@ def _new_mla_preflights() -> list[MlaArtifactInspection]:
     return []
 
 
+class MlaRuntimeInspectionArtifact(ContractModel):
+    artifact_id: str = Field(min_length=1)
+    path: Path
+    inspection: MlaRuntimeInspectionResult
+
+
+def _new_mla_runtime_inspections() -> list[MlaRuntimeInspectionArtifact]:
+    return []
+
+
 class DeterministicInspection(ContractModel):
     api_version: str = "deterministic-inspection/v1"
     prepared: PreparedAnalysis
     mla_preflights: list[MlaArtifactInspection] = Field(default_factory=_new_mla_preflights)
+    mla_runtime_inspections: list[MlaRuntimeInspectionArtifact] = Field(
+        default_factory=_new_mla_runtime_inspections,
+    )
 
 
 def _is_mla_target(artifact: ArtifactRecord) -> bool:
@@ -60,6 +77,7 @@ def inspect_analysis(
 ) -> DeterministicInspection:
     prepared = prepare_analysis(request)
     preflights: list[MlaArtifactInspection] = []
+    runtime_inspections: list[MlaRuntimeInspectionArtifact] = []
     missing = list(prepared.missing_evidence)
 
     for artifact in prepared.artifacts:
@@ -84,9 +102,34 @@ def inspect_analysis(
                 preflight=preflight,
             )
         )
+        if preflight.compatibility.status is not MlaCompatibilityStatus.SUPPORTED:
+            continue
+        try:
+            raw_runtime = tool_caller.call(
+                "mla.runtime-inspection",
+                {"path": str(artifact.path)},
+            )
+            runtime = MlaRuntimeInspectionResult.model_validate(raw_runtime)
+        except (ToolAdapterInvocationError, ValidationError, ValueError) as error:
+            missing.append(
+                MissingEvidence(
+                    code="mla_runtime_inspection_failed",
+                    message=str(error),
+                    source_path=artifact.path,
+                )
+            )
+            continue
+        runtime_inspections.append(
+            MlaRuntimeInspectionArtifact(
+                artifact_id=artifact.id,
+                path=artifact.path,
+                inspection=runtime,
+            )
+        )
 
     prepared_with_tools = prepared.model_copy(update={"missing_evidence": missing})
     return DeterministicInspection(
         prepared=prepared_with_tools,
         mla_preflights=preflights,
+        mla_runtime_inspections=runtime_inspections,
     )

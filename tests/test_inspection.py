@@ -29,18 +29,75 @@ def _empty_preflight() -> dict[str, JsonValue]:
     }
 
 
+def _supported_preflight() -> dict[str, JsonValue]:
+    return {
+        "schema_version": "mde-mla-preflight/v1",
+        "mla_schema_version": "mla-preflight/v1",
+        "compatibility": {
+            "status": "supported",
+            "reason": "notify_events_parsed",
+            "parser_version": "test-parser",
+            "task_count": 1,
+            "event_count": 3,
+            "node_statistic_count": 1,
+            "recognition_statistic_count": 0,
+        },
+        "framework": {
+            "status": "single",
+            "versions": ["v5.11.1"],
+            "sessions": [],
+        },
+        "warnings": [],
+    }
+
+
+def _empty_runtime_inspection() -> dict[str, JsonValue]:
+    return {
+        "schema_version": "mla-runtime-inspection/v1",
+        "sessions": [],
+        "unscoped_tasks": [],
+        "failures": [],
+        "outcomes": [],
+        "signals": [],
+        "warnings": [],
+    }
+
+
 class RecordingToolCaller:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        preflight: dict[str, JsonValue] | None = None,
+        runtime: dict[str, JsonValue] | None = None,
+    ) -> None:
         self.calls: list[tuple[str, dict[str, JsonValue]]] = []
+        self._preflight: dict[str, JsonValue] = (
+            preflight if preflight is not None else _empty_preflight()
+        )
+        self._runtime: dict[str, JsonValue] = (
+            runtime if runtime is not None else _empty_runtime_inspection()
+        )
 
     def call(self, name: str, arguments: dict[str, JsonValue]) -> dict[str, JsonValue]:
         self.calls.append((name, arguments))
-        return _empty_preflight()
+        if name == "mla.runtime-inspection":
+            return self._runtime
+        return self._preflight
 
 
 class FailingToolCaller:
     def call(self, name: str, arguments: dict[str, JsonValue]) -> dict[str, JsonValue]:
         raise ToolAdapterInvocationError(f"{name} failed for {arguments['path']}")
+
+
+class SupportedPreflightRuntimeFailingCaller:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, JsonValue]]] = []
+
+    def call(self, name: str, arguments: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        self.calls.append((name, arguments))
+        if name == "mla.runtime-inspection":
+            raise ToolAdapterInvocationError(f"{name} failed for {arguments['path']}")
+        return _supported_preflight()
 
 
 def test_inspect_runs_mla_once_for_an_explicit_directory(tmp_path: Path) -> None:
@@ -80,3 +137,69 @@ def test_inspect_records_mla_failures_as_missing_evidence(tmp_path: Path) -> Non
 
     assert inspection.mla_preflights == []
     assert {item.code for item in inspection.prepared.missing_evidence} == {"mla_preflight_failed"}
+
+
+def test_inspect_calls_runtime_inspection_when_preflight_supported(tmp_path: Path) -> None:
+    debug_path = tmp_path / "debug"
+    debug_path.mkdir()
+    (debug_path / "maafw.log").write_text("log", encoding="utf-8")
+    tool_caller = RecordingToolCaller(preflight=_supported_preflight())
+
+    inspection = inspect_analysis(
+        AnalysisRequest(
+            question="Inspect the logs.",
+            artifacts=[ArtifactInput(path=debug_path, kind=ArtifactKind.DIRECTORY)],
+        ),
+        tool_caller,
+    )
+
+    assert len(tool_caller.calls) == 2
+    assert tool_caller.calls[0][0] == "mla.preflight"
+    assert tool_caller.calls[1][0] == "mla.runtime-inspection"
+    assert len(inspection.mla_preflights) == 1
+    assert len(inspection.mla_runtime_inspections) == 1
+    assert (
+        inspection.mla_runtime_inspections[0].inspection.schema_version
+        == "mla-runtime-inspection/v1"
+    )
+
+
+def test_inspect_skips_runtime_inspection_when_preflight_unsupported(tmp_path: Path) -> None:
+    debug_path = tmp_path / "debug"
+    debug_path.mkdir()
+    (debug_path / "maafw.log").write_text("log", encoding="utf-8")
+    tool_caller = RecordingToolCaller()
+
+    inspection = inspect_analysis(
+        AnalysisRequest(
+            question="Inspect the logs.",
+            artifacts=[ArtifactInput(path=debug_path, kind=ArtifactKind.DIRECTORY)],
+        ),
+        tool_caller,
+    )
+
+    assert len(tool_caller.calls) == 1
+    assert tool_caller.calls[0][0] == "mla.preflight"
+    assert len(inspection.mla_preflights) == 1
+    assert len(inspection.mla_runtime_inspections) == 0
+
+
+def test_inspect_records_runtime_inspection_failures_as_missing_evidence(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "maafw.log"
+    log_path.write_text("log", encoding="utf-8")
+    tool_caller = SupportedPreflightRuntimeFailingCaller()
+
+    inspection = inspect_analysis(
+        AnalysisRequest(
+            question="Inspect the log.",
+            artifacts=[ArtifactInput(path=log_path, kind=ArtifactKind.FILE)],
+        ),
+        tool_caller,
+    )
+
+    assert len(inspection.mla_preflights) == 1
+    assert len(inspection.mla_runtime_inspections) == 0
+    missing_codes = {item.code for item in inspection.prepared.missing_evidence}
+    assert "mla_runtime_inspection_failed" in missing_codes
