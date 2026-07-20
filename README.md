@@ -54,13 +54,14 @@ All machine inputs and outputs are strict JSON contracts generated under `contra
 uv run maa-diagnostic-expert prepare --request request.json --output prepared.json
 uv run maa-diagnostic-expert inspect --request request.json --output inspection.json
 uv run maa-diagnostic-expert diagnose --request request.json --output diagnosis.json
-uv run maa-diagnostic-expert query-evidence --prepared prepared.json --request evidence-query.json --output evidence-window.json
-uv run maa-diagnostic-expert validate-result --input diagnosis.json
+uv run maa-diagnostic-expert query-evidence --prepared inspection.json --request evidence-query.json --output evidence-window.json
+uv run maa-diagnostic-expert validate-result --input diagnosis.json --inspection inspection.json --evidence-window evidence-window.json
 ~~~
 
 `prepare` only inventories explicitly supplied artifacts and source metadata. It does not extract
-archives or scan the whole project source tree. `query-evidence` reads at most 400 lines and
-40,000 characters from a path authorized by the prepared analysis.
+archives or scan the whole project source tree. `query-evidence` accepts either `PreparedAnalysis`
+or `DeterministicInspection` through `--prepared`, and reads at most 400 lines and 40,000
+characters from an authorized path.
 
 `inspect` is the single-command deterministic path. It prepares the request, selects each explicit
 log, ZIP, or directory input once, calls `mla.preflight` through the internal JSONL adapter, and
@@ -71,6 +72,12 @@ use `--tool-adapter <path>` or `MDE_TOOL_ADAPTER_PATH` for a non-default adapter
 and validate. It uses the deterministic stub reasoning backend by default (no model credentials
 required). Pass `--events <path>` to write the diagnostic event stream as JSON lines alongside the
 result. The produced `DiagnosisResult` cites evidence IDs that trace back to MLA runtime facts.
+The reasoning backend produces a `DiagnosisDraft` without evidence objects; the workflow attaches
+only cited evidence from the deterministic inspection ledger.
+
+`validate-result` requires the inspection that established the evidence ledger. Pass every cited
+raw `EvidenceWindow` with a repeated `--evidence-window` option. Validation rejects invented IDs,
+altered evidence content, and omitted required missing-evidence codes.
 
 `AnalysisRequest.sources` contains named entries with a `source_id`, role, path, and optional
 revision. Roles `project`, `maa_framework`, `gui`, and `agent` are independently versioned;

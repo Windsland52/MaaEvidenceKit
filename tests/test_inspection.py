@@ -182,6 +182,7 @@ def test_inspect_skips_runtime_inspection_when_preflight_unsupported(tmp_path: P
     assert tool_caller.calls[0][0] == "mla.preflight"
     assert len(inspection.mla_preflights) == 1
     assert len(inspection.mla_runtime_inspections) == 0
+    assert {item.code for item in inspection.prepared.missing_evidence} == {"mla_log_unsupported"}
 
 
 def test_inspect_records_runtime_inspection_failures_as_missing_evidence(

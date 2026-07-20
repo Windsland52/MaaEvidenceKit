@@ -6,7 +6,7 @@ import pytest
 
 from maa_diagnostic_expert.domain import (
     ContractModel,
-    DiagnosisResult,
+    DiagnosisDraft,
     DiagnosisStatus,
     Evidence,
     EvidenceReliability,
@@ -94,7 +94,7 @@ def test_build_reasoning_context_orders_evidence() -> None:
     assert request.evidence_ids == ["pri", "ctx"]
 
 
-def test_stub_backend_produces_complete_result_with_primary_evidence() -> None:
+def test_stub_backend_produces_complete_draft_with_primary_evidence() -> None:
     backend = StubReasoningBackend()
     session = asyncio.run(backend.start(run_id="run-1"))
     context = build_reasoning_context(
@@ -105,12 +105,11 @@ def test_stub_backend_produces_complete_result_with_primary_evidence() -> None:
         ],
     )
 
-    result = asyncio.run(session.reason(context, DiagnosisResult))
+    result = asyncio.run(session.reason(context, DiagnosisDraft))
 
     assert result.status is DiagnosisStatus.COMPLETE
     assert len(result.conclusions) == 1
     assert result.conclusions[0].evidence_ids == ["p1"]
-    assert {e.id for e in result.evidence} == {"p1", "c1"}
     asyncio.run(session.close())
     assert session.closed
 
@@ -122,7 +121,7 @@ def test_stub_backend_returns_insufficient_without_primary() -> None:
         [_evidence("c1", EvidenceReliability.CONTEXT, kind="session_summary")],
     )
 
-    result = asyncio.run(session.reason(context, DiagnosisResult))
+    result = asyncio.run(session.reason(context, DiagnosisDraft))
 
     assert result.status is DiagnosisStatus.INSUFFICIENT_EVIDENCE
     assert result.conclusions == []
@@ -144,7 +143,7 @@ def test_stub_session_cannot_reason_after_close() -> None:
     asyncio.run(session.close())
 
     with pytest.raises(RuntimeError):
-        asyncio.run(session.reason(build_reasoning_context("diagnose", []), DiagnosisResult))
+        asyncio.run(session.reason(build_reasoning_context("diagnose", []), DiagnosisDraft))
 
 
 def test_stub_backend_tracks_sessions() -> None:

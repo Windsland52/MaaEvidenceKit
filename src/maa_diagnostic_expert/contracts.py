@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from .domain import (
     AnalysisRequest,
+    DiagnosisDraft,
     DiagnosisResult,
     DiagnosticEvent,
     Evidence,
@@ -20,6 +21,7 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "analysis-request.schema.json": AnalysisRequest,
     "diagnostic-event.schema.json": DiagnosticEvent,
     "deterministic-inspection.schema.json": DeterministicInspection,
+    "diagnosis-draft.schema.json": DiagnosisDraft,
     "diagnosis-result.schema.json": DiagnosisResult,
     "evidence.schema.json": Evidence,
     "evidence-query.schema.json": EvidenceQuery,
@@ -37,7 +39,11 @@ def generate_contracts(output_dir: Path) -> list[Path]:
     for filename, model in CONTRACT_MODELS.items():
         path = output_dir / filename
         schema = model.model_json_schema()
-        path.write_text(json.dumps(schema, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        path.write_text(
+            json.dumps(schema, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
         written.append(path)
     return written
 

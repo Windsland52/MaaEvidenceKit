@@ -1,4 +1,9 @@
 from .agent import DiagnosticAgent, ReasoningBackend, ReasoningContext, ReasoningSession
+from .diagnosis_validation import (
+    collect_inspection_evidence,
+    finalize_diagnosis_draft,
+    validate_result_against_inspection,
+)
 from .domain import (
     AnalysisRequest,
     ArtifactAvailability,
@@ -7,6 +12,7 @@ from .domain import (
     ArtifactMediaKind,
     ArtifactRecord,
     Conclusion,
+    DiagnosisDraft,
     DiagnosisResult,
     DiagnosisStatus,
     DiagnosticEvent,
@@ -60,6 +66,7 @@ __all__ = [
     "ArtifactMediaKind",
     "ArtifactRecord",
     "Conclusion",
+    "DiagnosisDraft",
     "DiagnosticEvent",
     "DiagnosticEventKind",
     "DiagnosisResult",
@@ -96,7 +103,10 @@ __all__ = [
     "StubReasoningBackend",
     "StubReasoningSession",
     "build_reasoning_context",
+    "collect_inspection_evidence",
+    "finalize_diagnosis_draft",
     "make_stub_backend",
     "render_markdown_report",
     "synthesize_evidence",
+    "validate_result_against_inspection",
 ]

@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import cast
 
 from pydantic import JsonValue
 
+from maa_diagnostic_expert.agent import ReasoningContext
 from maa_diagnostic_expert.domain import (
     AnalysisRequest,
     ArtifactInput,
     ArtifactKind,
+    Conclusion,
+    ContractModel,
+    DiagnosisDraft,
     DiagnosisStatus,
     DiagnosticEvent,
     DiagnosticEventKind,
@@ -95,6 +100,36 @@ class _ToolCaller:
         return self._preflight
 
 
+class _InventingReasoningSession:
+    async def reason[ResultT: ContractModel](
+        self, context: ReasoningContext, result_type: type[ResultT]
+    ) -> ResultT:
+        del context, result_type
+        return cast(
+            ResultT,
+            DiagnosisDraft(
+                status=DiagnosisStatus.COMPLETE,
+                summary="Invented diagnosis.",
+                conclusions=[
+                    Conclusion(
+                        statement="Invented conclusion.",
+                        evidence_ids=["ev:invented"],
+                        confidence=1,
+                    )
+                ],
+            ),
+        )
+
+    async def close(self) -> None:
+        pass
+
+
+class _InventingReasoningBackend:
+    async def start(self, *, run_id: str) -> _InventingReasoningSession:
+        del run_id
+        return _InventingReasoningSession()
+
+
 def _make_directory_with_log(tmp_path: Path) -> Path:
     debug_path = tmp_path / "debug"
     debug_path.mkdir()
@@ -141,6 +176,19 @@ def test_diagnose_returns_insufficient_without_failures(tmp_path: Path) -> None:
 
     assert result.status is DiagnosisStatus.INSUFFICIENT_EVIDENCE
     assert result.conclusions == []
+
+
+def test_workflow_rejects_model_invented_evidence_ids(tmp_path: Path) -> None:
+    debug_path = _make_directory_with_log(tmp_path)
+    caller = _ToolCaller(runtime=_runtime_with_failure())
+    workflow = DiagnosticWorkflow(caller, _InventingReasoningBackend())
+
+    events = _collect_events(workflow, _request(debug_path))
+
+    assert events[-1].kind is DiagnosticEventKind.RUN_FAILED
+    assert workflow.result is not None
+    assert workflow.result.status is DiagnosisStatus.FAILED
+    assert "unknown evidence IDs" in workflow.result.summary
 
 
 def test_stream_emits_events_in_order(tmp_path: Path) -> None:

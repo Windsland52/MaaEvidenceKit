@@ -9,9 +9,16 @@ from typing import cast
 
 from pydantic import BaseModel, ValidationError
 
-from .domain import AnalysisRequest, DiagnosisResult, EvidenceQuery, PreparedAnalysis
+from .diagnosis_validation import validate_result_against_inspection
+from .domain import (
+    AnalysisRequest,
+    DiagnosisResult,
+    EvidenceQuery,
+    EvidenceWindow,
+    PreparedAnalysis,
+)
 from .evidence_query import query_evidence
-from .inspection import inspect_analysis
+from .inspection import DeterministicInspection, inspect_analysis
 from .preparation import prepare_analysis
 from .reasoning import make_stub_backend
 from .report import render_markdown_report
@@ -62,12 +69,33 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate = commands.add_parser("validate-result")
     validate.add_argument("--input", type=Path, required=True)
+    validate.add_argument("--inspection", type=Path, required=True)
+    validate.add_argument(
+        "--evidence-window",
+        type=Path,
+        action="append",
+        default=[],
+        help="Additional authoritative EvidenceWindow; may be repeated.",
+    )
     _add_output_argument(validate)
     return parser
 
 
 def _load_model[ModelT: BaseModel](path: Path, model: type[ModelT]) -> ModelT:
     return model.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+def _load_prepared_context(path: Path) -> PreparedAnalysis:
+    serialized = path.read_text(encoding="utf-8")
+    try:
+        return PreparedAnalysis.model_validate_json(serialized)
+    except ValidationError:
+        try:
+            return DeterministicInspection.model_validate_json(serialized).prepared
+        except ValidationError as error:
+            raise ValueError(
+                "Expected a PreparedAnalysis or DeterministicInspection context."
+            ) from error
 
 
 def _emit_model(model: BaseModel, output: Path | None) -> None:
@@ -146,13 +174,18 @@ def _run_command(args: argparse.Namespace) -> None:
         _run_diagnose(args)
         return
     if command == "query-evidence":
-        prepared = _load_model(cast(Path, args.prepared), PreparedAnalysis)
+        prepared = _load_prepared_context(cast(Path, args.prepared))
         request = _load_model(cast(Path, args.request), EvidenceQuery)
         _emit_model(query_evidence(prepared, request), output)
         return
     if command == "validate-result":
         result = _load_model(cast(Path, args.input), DiagnosisResult)
-        _emit_model(result, output)
+        inspection = _load_model(cast(Path, args.inspection), DeterministicInspection)
+        windows = [
+            _load_model(path, EvidenceWindow).evidence
+            for path in cast(list[Path], args.evidence_window)
+        ]
+        _emit_model(validate_result_against_inspection(result, inspection, windows), output)
         return
     raise ValueError(f"Unsupported command: {command}")
 

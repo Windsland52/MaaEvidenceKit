@@ -44,6 +44,9 @@ target-version = "py313"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.format]
+line-ending = "lf"
+
 [tool.pyright]
 include = ["src", "tests"]
 extraPaths = ["src"]

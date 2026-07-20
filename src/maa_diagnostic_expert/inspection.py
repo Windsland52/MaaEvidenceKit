@@ -112,6 +112,15 @@ def inspect_analysis(
             )
         )
         if preflight.compatibility.status is not MlaCompatibilityStatus.SUPPORTED:
+            missing.append(
+                MissingEvidence(
+                    code="mla_log_unsupported",
+                    message=(
+                        f"MaaLogAnalyzer cannot inspect this log: {preflight.compatibility.reason}."
+                    ),
+                    source_path=artifact.path,
+                )
+            )
             continue
         try:
             raw_runtime = tool_caller.call(

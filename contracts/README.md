@@ -9,7 +9,8 @@ Generated contracts cover:
 - `DeterministicInspection`, combining prepared inputs with MLA preflight facts
 - `Evidence`
 - `EvidenceQuery` and `EvidenceWindow`
-- `DiagnosisResult`
+- `DiagnosisDraft`, the model-produced interpretation without evidence objects
+- `DiagnosisResult`, with evidence attached from an authoritative ledger
 - `DiagnosticEvent`
 - `MlaPreflightResult`, including source-backed MaaFramework runtime sessions
 - `ReasoningRequest`

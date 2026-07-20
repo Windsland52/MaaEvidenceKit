@@ -206,11 +206,21 @@ class DiagnosisStatus(StrEnum):
     FAILED = "failed"
 
 
-def _new_evidence_items() -> list[Evidence]:
+def _new_conclusions() -> list[Conclusion]:
     return []
 
 
-def _new_conclusions() -> list[Conclusion]:
+class DiagnosisDraft(ContractModel):
+    """Model-produced interpretation without authority to create evidence."""
+
+    api_version: str = "diagnosis-draft/v1"
+    status: DiagnosisStatus
+    summary: str = Field(min_length=1)
+    conclusions: list[Conclusion] = Field(default_factory=_new_conclusions)
+    missing_evidence: list[str] = Field(default_factory=list)
+
+
+def _new_evidence_items() -> list[Evidence]:
     return []
 
 
@@ -224,6 +234,9 @@ class DiagnosisResult(ContractModel):
 
     @model_validator(mode="after")
     def require_known_evidence_references(self) -> DiagnosisResult:
+        evidence_ids = [item.id for item in self.evidence]
+        if len(evidence_ids) != len(set(evidence_ids)):
+            raise ValueError("Evidence IDs must be unique")
         known_ids = {item.id for item in self.evidence}
         referenced_ids = {
             evidence_id

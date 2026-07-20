@@ -6,8 +6,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from .agent import ReasoningBackend, ReasoningContext
+from .diagnosis_validation import collect_inspection_evidence, finalize_diagnosis_draft
 from .domain import (
     AnalysisRequest,
+    DiagnosisDraft,
     DiagnosisResult,
     DiagnosisStatus,
     DiagnosticEvent,
@@ -23,49 +25,6 @@ _DEFAULT_QUESTION = "Diagnose the runtime failures and their likely causes."
 
 def _new_run_id() -> str:
     return secrets.token_hex(8)
-
-
-def _assemble_evidence(inspection: DeterministicInspection) -> list[Evidence]:
-    """Merge prepared and synthesized evidence, deduplicated by ID."""
-    seen: set[str] = set()
-    evidence: list[Evidence] = []
-    for item in inspection.prepared.evidence:
-        if item.id not in seen:
-            seen.add(item.id)
-            evidence.append(item)
-    for item in inspection.synthesized_evidence:
-        if item.id not in seen:
-            seen.add(item.id)
-            evidence.append(item)
-    return evidence
-
-
-def _finalize_result(
-    result: DiagnosisResult,
-    evidence: list[Evidence],
-    inspection: DeterministicInspection,
-) -> DiagnosisResult:
-    """Attach available evidence and missing-evidence codes to the model result.
-
-    Reconstructs the DiagnosisResult so the evidence-reference validator runs.
-    """
-    store = {item.id: item for item in evidence}
-    merged = {item.id: item for item in result.evidence}
-    referenced = {
-        evidence_id for conclusion in result.conclusions for evidence_id in conclusion.evidence_ids
-    }
-    for evidence_id in referenced:
-        if evidence_id not in merged and evidence_id in store:
-            merged[evidence_id] = store[evidence_id]
-    missing_codes = [item.code for item in inspection.prepared.missing_evidence]
-    combined_missing = list(dict.fromkeys([*result.missing_evidence, *missing_codes]))
-    return DiagnosisResult(
-        status=result.status,
-        summary=result.summary,
-        evidence=list(merged.values()),
-        conclusions=result.conclusions,
-        missing_evidence=combined_missing,
-    )
 
 
 @dataclass
@@ -148,7 +107,7 @@ class DiagnosticWorkflow:
                 "Running deterministic inspection",
             )
             inspection = inspect_analysis(request, self.tool_caller)
-            evidence = _assemble_evidence(inspection)
+            evidence = collect_inspection_evidence(inspection)
             yield emit(
                 DiagnosticEventKind.STAGE_COMPLETED,
                 "inspect",
@@ -181,17 +140,17 @@ class DiagnosticWorkflow:
             )
             session = await self.reasoning_backend.start(run_id=self.run_id)
             try:
-                result = await session.reason(context, DiagnosisResult)
+                draft = await session.reason(context, DiagnosisDraft)
             finally:
                 await session.close()
             yield emit(
                 DiagnosticEventKind.MODEL_COMPLETED,
                 "reason",
                 "Diagnostic reasoning complete",
-                {"conclusions": len(result.conclusions)},
+                {"conclusions": len(draft.conclusions)},
             )
 
-            final = _finalize_result(result, evidence, inspection)
+            final = finalize_diagnosis_draft(draft, inspection)
             self._result = final
             yield emit(
                 DiagnosticEventKind.RUN_COMPLETED,
@@ -206,11 +165,17 @@ class DiagnosticWorkflow:
         except Exception as error:  # noqa: BLE001
             message = f"Workflow failed: {error}"
             stage = "reason" if inspection is not None else "inspect"
+            missing_codes = (
+                [item.code for item in inspection.prepared.missing_evidence]
+                if inspection is not None
+                else []
+            )
             self._result = DiagnosisResult(
                 status=DiagnosisStatus.FAILED,
                 summary=message,
                 evidence=evidence,
                 conclusions=[],
+                missing_evidence=missing_codes,
             )
             yield emit(
                 DiagnosticEventKind.RUN_FAILED,

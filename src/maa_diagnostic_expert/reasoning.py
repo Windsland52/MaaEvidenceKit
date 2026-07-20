@@ -6,7 +6,7 @@ from .agent import ReasoningContext
 from .domain import (
     Conclusion,
     ContractModel,
-    DiagnosisResult,
+    DiagnosisDraft,
     DiagnosisStatus,
     Evidence,
     EvidenceReliability,
@@ -93,7 +93,7 @@ def build_reasoning_context(question: str, evidence: list[Evidence]) -> Reasonin
     )
 
 
-def _stub_diagnose(context: ReasoningContext) -> DiagnosisResult:
+def _stub_diagnose(context: ReasoningContext) -> DiagnosisDraft:
     """Produce a deterministic diagnosis from the evidence without a model.
 
     Groups primary evidence (failures and failed outcomes) into conclusions.
@@ -101,10 +101,9 @@ def _stub_diagnose(context: ReasoningContext) -> DiagnosisResult:
     """
     primary = [item for item in context.evidence if item.reliability is EvidenceReliability.PRIMARY]
     if not primary:
-        return DiagnosisResult(
+        return DiagnosisDraft(
             status=DiagnosisStatus.INSUFFICIENT_EVIDENCE,
             summary="No primary runtime failures were found in the inspected logs.",
-            evidence=list(context.evidence),
             conclusions=[],
             missing_evidence=[],
         )
@@ -118,13 +117,12 @@ def _stub_diagnose(context: ReasoningContext) -> DiagnosisResult:
                 confidence=0.85,
             )
         )
-    return DiagnosisResult(
+    return DiagnosisDraft(
         status=DiagnosisStatus.COMPLETE,
         summary=(
             f"Identified {len(primary)} primary runtime failure(s) "
             f"across {len(context.evidence)} evidence items."
         ),
-        evidence=list(context.evidence),
         conclusions=conclusions,
         missing_evidence=[],
     )
@@ -152,7 +150,7 @@ class StubReasoningSession:
         if self._closed:
             raise RuntimeError("reasoning session is closed")
         self.last_context = context
-        if result_type is DiagnosisResult:
+        if result_type is DiagnosisDraft:
             return cast(ResultT, _stub_diagnose(context))
         raise TypeError(f"Stub backend cannot produce {result_type.__name__}")
 

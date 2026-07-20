@@ -79,3 +79,20 @@ def test_conclusions_must_reference_known_evidence() -> None:
                 Conclusion(statement="Unsupported.", evidence_ids=["ev:missing"], confidence=1),
             ],
         )
+
+
+def test_diagnosis_result_rejects_duplicate_evidence_ids() -> None:
+    evidence = Evidence(
+        id="ev:duplicate",
+        kind="log_line",
+        source_component="maa-framework",
+        source_path="maafw.log",
+        content="first",
+    )
+
+    with pytest.raises(ValidationError, match="Evidence IDs must be unique"):
+        DiagnosisResult(
+            status=DiagnosisStatus.COMPLETE,
+            summary="Duplicate evidence.",
+            evidence=[evidence, evidence.model_copy(update={"content": "second"})],
+        )

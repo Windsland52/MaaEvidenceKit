@@ -22,6 +22,7 @@ from maa_diagnostic_expert.domain import (
     SourceRole,
 )
 from maa_diagnostic_expert.evidence_query import query_evidence
+from maa_diagnostic_expert.inspection import DeterministicInspection
 from maa_diagnostic_expert.preparation import prepare_analysis
 
 
@@ -142,6 +143,11 @@ def test_cli_vertical_slice(tmp_path: Path, capsys: pytest.CaptureFixture[str]) 
 
     assert main(["prepare", "--request", str(request_path), "--output", str(prepared_path)]) == 0
     prepared = PreparedAnalysis.model_validate_json(prepared_path.read_text(encoding="utf-8"))
+    inspection_path = tmp_path / "inspection.json"
+    inspection_path.write_text(
+        DeterministicInspection(prepared=prepared).model_dump_json(),
+        encoding="utf-8",
+    )
 
     query_path = tmp_path / "query.json"
     query_path.write_text(
@@ -159,7 +165,7 @@ def test_cli_vertical_slice(tmp_path: Path, capsys: pytest.CaptureFixture[str]) 
             [
                 "query-evidence",
                 "--prepared",
-                str(prepared_path),
+                str(inspection_path),
                 "--request",
                 str(query_path),
                 "--output",
@@ -184,6 +190,19 @@ def test_cli_vertical_slice(tmp_path: Path, capsys: pytest.CaptureFixture[str]) 
     result_path = tmp_path / "diagnosis.json"
     result_path.write_text(result.model_dump_json(), encoding="utf-8")
 
-    assert main(["validate-result", "--input", str(result_path)]) == 0
+    assert (
+        main(
+            [
+                "validate-result",
+                "--input",
+                str(result_path),
+                "--inspection",
+                str(inspection_path),
+                "--evidence-window",
+                str(window_path),
+            ]
+        )
+        == 0
+    )
     output = json.loads(capsys.readouterr().out)
     assert output["status"] == "complete"

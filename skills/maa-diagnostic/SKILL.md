@@ -120,14 +120,20 @@ Produce a `DiagnosisResult` with these fields:
   `confidence` (0.0 to 1.0).
 - `missing_evidence` — codes for evidence that was unavailable.
 
+Copy evidence records unchanged from `inspection.json` or saved `EvidenceWindow` outputs. The
+model or host agent may select and interpret evidence, but must not create IDs or rewrite evidence
+content.
+
 ### 7. Validate
 
 ```powershell
-uv run maa-diagnostic-expert validate-result --input diagnosis.json
+uv run maa-diagnostic-expert validate-result --input diagnosis.json --inspection inspection.json --evidence-window window.json
 ```
 
-This checks that every conclusion cites known evidence IDs. If validation fails, you referenced an
-evidence ID that is not in the `evidence` list — fix it before reporting.
+Repeat `--evidence-window` for every raw window cited by the diagnosis; omit the option when no raw
+windows were used. Validation checks every evidence record against the authoritative inspection
+and window ledger. It rejects invented IDs, modified content, and omitted required
+`missing_evidence` codes.
 
 ## Evidence Interpretation
 
@@ -177,7 +183,7 @@ loop at the time the log was captured.
 ## Diagnostic Rules
 
 1. **Cite evidence IDs.** Every conclusion must reference at least one evidence ID from the
-   `synthesized_evidence` list. Do not invent IDs.
+   `synthesized_evidence` list or a saved `EvidenceWindow`. Do not invent IDs or alter evidence.
 
 2. **Separate symptom, mechanism, and trigger.** The symptom is what the user observed. The
    mechanism is the directly observed failure (e.g., `next_list_timeout` at node X). The trigger is
@@ -207,7 +213,7 @@ loop at the time the log was captured.
 | `inspect` | Run MLA preflight + runtime inspection, synthesize evidence. |
 | `diagnose` | Full pipeline with stub reasoning backend (model-free baseline). |
 | `query-evidence` | Read a bounded raw-log window (max 400 lines). |
-| `validate-result` | Check that a DiagnosisResult cites known evidence IDs. |
+| `validate-result` | Compare a DiagnosisResult with its authoritative inspection/window ledger. |
 
 All inputs and outputs are strict JSON contracts under `contracts/`. Use `--tool-adapter <path>`
 or the `MDE_TOOL_ADAPTER_PATH` environment variable for a non-default adapter location.
