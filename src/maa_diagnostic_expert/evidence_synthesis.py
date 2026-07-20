@@ -27,9 +27,19 @@ if TYPE_CHECKING:
 _SOURCE_COMPONENT = "mla:runtime-inspection"
 
 
+def _source_locator(source: str | None, path: str | None, fallback: str) -> str:
+    if source:
+        if source.startswith("file:"):
+            return source.removeprefix("file:")
+        return source
+    if path:
+        return path
+    return fallback
+
+
 def _position_path(position: MlaRuntimeEvidencePosition | None, fallback: str) -> str:
-    if position is not None and position.path:
-        return position.path
+    if position is not None:
+        return _source_locator(position.source, position.path, fallback)
     return fallback
 
 
@@ -315,7 +325,7 @@ def _format_session_summary(
         id=f"mla-ri:{artifact_id}:session:{session.session_id}",
         kind="session_summary",
         source_component=_SOURCE_COMPONENT,
-        source_path=session.start.path or artifact_path,
+        source_path=_source_locator(session.start.source, session.start.path, artifact_path),
         content="\n".join(lines),
         line_start=session.start.line,
         line_end=session.end.line,

@@ -182,6 +182,14 @@ export async function runMlaRuntimeInspection(
     }
   } else {
     const content = await readNodeTextFileContent(resolvedPath);
+    sourceSegments = [
+      {
+        source: `file:${resolvedPath.replace(/\\/g, "/")}`,
+        path: path.basename(resolvedPath),
+        startLine: 1,
+        lineCount: (content.match(/\n/g) ?? []).length + 1
+      }
+    ];
     output = await analyzeLogContent({ content });
   }
 

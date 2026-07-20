@@ -298,6 +298,35 @@ def test_failures_produce_primary_evidence() -> None:
     assert "NodeA" in ev.content
 
 
+def test_evidence_prefers_the_traceable_source_locator() -> None:
+    failure = _failure()
+    position = failure["evidence"]
+    assert isinstance(position, dict)
+    position["path"] = "maafw.log"
+    position["source"] = "file:C:/logs/debug/maafw.log"
+    artifact = _build_artifact(_inspection_payload(failures=[failure]))
+
+    evidence = synthesize_evidence([artifact])
+
+    assert evidence[0].source_path == "C:/logs/debug/maafw.log"
+
+
+def test_zip_evidence_retains_its_archive_member_locator() -> None:
+    failure = _failure()
+    position = failure["evidence"]
+    assert isinstance(position, dict)
+    position["path"] = "debug/maafw.log"
+    position["source"] = "zip:C:/logs/debug.zip#debug/maafw.log"
+    artifact = _build_artifact(
+        _inspection_payload(failures=[failure]),
+        path="C:/logs/debug.zip",
+    )
+
+    evidence = synthesize_evidence([artifact])
+
+    assert evidence[0].source_path == "zip:C:/logs/debug.zip#debug/maafw.log"
+
+
 def test_failed_outcomes_produce_primary_evidence() -> None:
     artifact = _build_artifact(
         _inspection_payload(outcomes=[_failed_outcome(), _running_outcome()])
