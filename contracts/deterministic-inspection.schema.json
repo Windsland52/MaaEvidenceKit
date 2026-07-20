@@ -949,6 +949,31 @@
         },
         "evidence": {
           "$ref": "#/$defs/MlaRuntimeEvidencePosition"
+        },
+        "pattern": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Pattern",
+          "type": "array"
+        },
+        "duration_ms": {
+          "default": 0.0,
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "number"
+        },
+        "termination": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Termination"
         }
       },
       "required": [

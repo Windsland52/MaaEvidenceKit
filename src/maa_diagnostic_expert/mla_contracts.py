@@ -282,6 +282,9 @@ class MlaRepeatedNodeRepresentative(ContractModel):
     last_seen_at: str = Field(min_length=1)
     repeat_count: int = Field(ge=0)
     evidence: MlaRuntimeEvidencePosition
+    pattern: list[str] = Field(default_factory=list)
+    duration_ms: float = Field(default=0.0, ge=0)
+    termination: str | None = Field(default=None)
 
 
 class MlaRepeatedNodeRepresentatives(ContractModel):
