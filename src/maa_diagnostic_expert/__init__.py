@@ -23,6 +23,7 @@ from .domain import (
     SourceRole,
     SourceSnapshot,
 )
+from .evidence_synthesis import synthesize_evidence
 from .inspection import (
     DeterministicInspection,
     MlaArtifactInspection,
@@ -82,4 +83,5 @@ __all__ = [
     "SourceInput",
     "SourceRole",
     "SourceSnapshot",
+    "synthesize_evidence",
 ]

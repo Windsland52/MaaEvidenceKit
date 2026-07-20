@@ -2226,6 +2226,13 @@
       },
       "title": "Mla Runtime Inspections",
       "type": "array"
+    },
+    "synthesized_evidence": {
+      "items": {
+        "$ref": "#/$defs/Evidence"
+      },
+      "title": "Synthesized Evidence",
+      "type": "array"
     }
   },
   "required": [

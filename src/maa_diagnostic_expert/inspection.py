@@ -12,9 +12,11 @@ from .domain import (
     ArtifactMediaKind,
     ArtifactRecord,
     ContractModel,
+    Evidence,
     MissingEvidence,
     PreparedAnalysis,
 )
+from .evidence_synthesis import synthesize_evidence
 from .mla_contracts import (
     MlaCompatibilityStatus,
     MlaPreflightResult,
@@ -48,12 +50,19 @@ def _new_mla_runtime_inspections() -> list[MlaRuntimeInspectionArtifact]:
     return []
 
 
+def _new_synthesized_evidence() -> list[Evidence]:
+    return []
+
+
 class DeterministicInspection(ContractModel):
     api_version: str = "deterministic-inspection/v1"
     prepared: PreparedAnalysis
     mla_preflights: list[MlaArtifactInspection] = Field(default_factory=_new_mla_preflights)
     mla_runtime_inspections: list[MlaRuntimeInspectionArtifact] = Field(
         default_factory=_new_mla_runtime_inspections,
+    )
+    synthesized_evidence: list[Evidence] = Field(
+        default_factory=_new_synthesized_evidence,
     )
 
 
@@ -132,4 +141,5 @@ def inspect_analysis(
         prepared=prepared_with_tools,
         mla_preflights=preflights,
         mla_runtime_inspections=runtime_inspections,
+        synthesized_evidence=synthesize_evidence(runtime_inspections),
     )
