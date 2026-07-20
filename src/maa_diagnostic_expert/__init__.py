@@ -48,6 +48,7 @@ from .reasoning import (
     build_reasoning_context,
     make_stub_backend,
 )
+from .report import render_markdown_report
 from .workflow import DiagnosticWorkflow
 
 __all__ = [
@@ -96,5 +97,6 @@ __all__ = [
     "StubReasoningSession",
     "build_reasoning_context",
     "make_stub_backend",
+    "render_markdown_report",
     "synthesize_evidence",
 ]
