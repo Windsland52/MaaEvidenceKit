@@ -50,6 +50,7 @@ from .models import (
 )
 from .mse_preflight import synthesize_mse_evidence, synthesize_mse_task_evidence
 from .runtime_identity import extract_runtime_identity, synthesize_runtime_identity_evidence
+from .source_guidance import synthesize_source_guidance_evidence
 from .tooling import ToolCaller, ToolInvocationError
 
 
@@ -219,6 +220,7 @@ def synthesize_inspection_evidence(
         *synthesize_evidence(inspection.mla_runtime_inspections),
         *synthesize_mse_evidence(inspection.mse_project_inspections),
         *synthesize_mse_task_evidence(inspection.mse_task_resolutions),
+        *synthesize_source_guidance_evidence(inspection.source_guidance_inspections),
     ]
     return inspection.model_copy(update={"synthesized_evidence": evidence})
 

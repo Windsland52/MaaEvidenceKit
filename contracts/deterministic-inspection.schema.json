@@ -3433,6 +3433,120 @@
       "title": "RuntimeVersionObservation",
       "type": "object"
     },
+    "SourceGuidance": {
+      "additionalProperties": false,
+      "description": "AGENTS.md guidance resolved for one repository revision and target path.",
+      "properties": {
+        "api_version": {
+          "default": "source-guidance/v1",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "source_id": {
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_role": {
+          "$ref": "#/$defs/SourceRole"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision"
+        },
+        "target_path": {
+          "minLength": 1,
+          "title": "Target Path",
+          "type": "string"
+        },
+        "guidance_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Guidance Refs",
+          "type": "array"
+        },
+        "required_checks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Checks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "source_id",
+        "source_role",
+        "target_path"
+      ],
+      "title": "SourceGuidance",
+      "type": "object"
+    },
+    "SourceGuidanceDocument": {
+      "additionalProperties": false,
+      "properties": {
+        "relative_path": {
+          "minLength": 1,
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "line_count": {
+          "minimum": 1,
+          "title": "Line Count",
+          "type": "integer"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "relative_path",
+        "content",
+        "line_count"
+      ],
+      "title": "SourceGuidanceDocument",
+      "type": "object"
+    },
+    "SourceGuidanceInspection": {
+      "additionalProperties": false,
+      "properties": {
+        "source_root": {
+          "format": "path",
+          "title": "Source Root",
+          "type": "string"
+        },
+        "guidance": {
+          "$ref": "#/$defs/SourceGuidance"
+        },
+        "documents": {
+          "items": {
+            "$ref": "#/$defs/SourceGuidanceDocument"
+          },
+          "title": "Documents",
+          "type": "array"
+        }
+      },
+      "required": [
+        "source_root",
+        "guidance"
+      ],
+      "title": "SourceGuidanceInspection",
+      "type": "object"
+    },
     "SourceInput": {
       "additionalProperties": false,
       "properties": {
@@ -3559,7 +3673,7 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
-      "default": "deterministic-inspection/v7",
+      "default": "deterministic-inspection/v8",
       "title": "Api Version",
       "type": "string"
     },
@@ -3604,6 +3718,13 @@
         "$ref": "#/$defs/MseTaskResolutionInspection"
       },
       "title": "Mse Task Resolutions",
+      "type": "array"
+    },
+    "source_guidance_inspections": {
+      "items": {
+        "$ref": "#/$defs/SourceGuidanceInspection"
+      },
+      "title": "Source Guidance Inspections",
       "type": "array"
     },
     "synthesized_evidence": {

@@ -14,6 +14,7 @@ from maa_diagnostic_expert.contracts.workflow import (
     IncidentSelection,
     IncidentSelectionStatus,
     RuntimeIdentity,
+    SourceGuidance,
 )
 
 from .log_overview import LogOverviewCollection
@@ -43,6 +44,19 @@ class MseTaskResolutionInspection(ContractModel):
     resolution: MseTaskResolutionResult
 
 
+class SourceGuidanceDocument(ContractModel):
+    relative_path: str = Field(min_length=1)
+    content: str
+    line_count: int = Field(ge=1)
+    truncated: bool = False
+
+
+class SourceGuidanceInspection(ContractModel):
+    source_root: Path
+    guidance: SourceGuidance
+    documents: list[SourceGuidanceDocument] = Field(default_factory=list[SourceGuidanceDocument])
+
+
 def _new_mla_preflights() -> list[MlaArtifactInspection]:
     return []
 
@@ -63,6 +77,10 @@ def _new_mse_task_resolutions() -> list[MseTaskResolutionInspection]:
     return []
 
 
+def _new_source_guidance_inspections() -> list[SourceGuidanceInspection]:
+    return []
+
+
 def _new_incident_selection() -> IncidentSelection:
     return IncidentSelection(status=IncidentSelectionStatus.NOT_FOUND)
 
@@ -72,7 +90,7 @@ def _new_incident_comparison() -> IncidentComparison:
 
 
 class DeterministicInspection(ContractModel):
-    api_version: str = "deterministic-inspection/v7"
+    api_version: str = "deterministic-inspection/v8"
     prepared: PreparedAnalysis
     log_overviews: LogOverviewCollection = Field(default_factory=LogOverviewCollection)
     runtime_identity: RuntimeIdentity = Field(default_factory=RuntimeIdentity)
@@ -87,6 +105,9 @@ class DeterministicInspection(ContractModel):
     )
     mse_task_resolutions: list[MseTaskResolutionInspection] = Field(
         default_factory=_new_mse_task_resolutions,
+    )
+    source_guidance_inspections: list[SourceGuidanceInspection] = Field(
+        default_factory=_new_source_guidance_inspections,
     )
     synthesized_evidence: list[Evidence] = Field(
         default_factory=_new_synthesized_evidence,

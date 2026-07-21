@@ -107,6 +107,8 @@ from .inspection.models import (
     MlaRuntimeInspectionArtifact,
     MseProjectInspection,
     MseTaskResolutionInspection,
+    SourceGuidanceDocument,
+    SourceGuidanceInspection,
 )
 from .inspection.mse_preflight import (
     synthesize_mse_evidence,
@@ -116,6 +118,11 @@ from .inspection.mse_resolution import resolve_incident_pipeline_tasks
 from .inspection.runtime_identity import (
     extract_runtime_identity,
     synthesize_runtime_identity_evidence,
+)
+from .inspection.source_guidance import (
+    resolve_focused_source_guidance,
+    source_guidance_evidence_id,
+    synthesize_source_guidance_evidence,
 )
 from .interfaces.report import render_markdown_report
 from .reasoning.langchain import (
@@ -237,6 +244,8 @@ __all__ = [
     "SourceRole",
     "SourceSnapshot",
     "SourceGuidance",
+    "SourceGuidanceDocument",
+    "SourceGuidanceInspection",
     "StubReasoningBackend",
     "StubReasoningSession",
     "StructuredOutputMethod",
@@ -258,11 +267,14 @@ __all__ = [
     "make_langchain_backend",
     "render_markdown_report",
     "resolve_incident_pipeline_tasks",
+    "resolve_focused_source_guidance",
     "synthesize_evidence",
     "synthesize_log_overview_evidence",
     "synthesize_mse_evidence",
     "synthesize_mse_task_evidence",
     "synthesize_runtime_identity_evidence",
+    "synthesize_source_guidance_evidence",
+    "source_guidance_evidence_id",
     "validate_result_against_inspection",
     "validate_incident_correlation",
 ]

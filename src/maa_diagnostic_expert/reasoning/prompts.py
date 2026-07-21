@@ -100,6 +100,8 @@ def render_instruction(
         "7. Respect the validated incident correlation: prioritize a selected candidate, keep",
         "   ambiguous candidates separate, and do not present not-found candidates as the",
         "   reported incident.",
+        "8. Treat source_guidance evidence as scoped instructions for source investigation,",
+        "   not as proof of a runtime failure or root cause.",
     ]
     if incident_selection is not None:
         lines.extend(_render_incident_candidates(incident_selection))

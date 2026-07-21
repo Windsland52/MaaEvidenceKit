@@ -53,6 +53,9 @@ from maa_diagnostic_expert.inspection.service import (
     inspect_prepared_analysis,
     synthesize_inspection_evidence,
 )
+from maa_diagnostic_expert.inspection.source_guidance import (
+    resolve_focused_source_guidance,
+)
 from maa_diagnostic_expert.inspection.tooling import ToolCaller
 from maa_diagnostic_expert.reasoning.prompts import (
     build_incident_correlation_context,
@@ -656,6 +659,42 @@ class DiagnosticWorkflow:
     @staticmethod
     def _after_inspect_expected_pipeline(
         state: DiagnosticState,
+    ) -> Literal["inspect_source_guidance", "fail"]:
+        return "fail" if "error_message" in state else "inspect_source_guidance"
+
+    @staticmethod
+    def _inspect_source_guidance_node(
+        state: DiagnosticState,
+    ) -> _DiagnosticStateUpdate:
+        try:
+            inspection = state.get("inspection")
+            if inspection is None:
+                raise RuntimeError("source guidance inspection requires deterministic inspection")
+            inspection = resolve_focused_source_guidance(inspection)
+            inspection = synthesize_inspection_evidence(inspection)
+            evidence = collect_inspection_evidence(inspection)
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("inspect_source_guidance", error)
+
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.STAGE_COMPLETED,
+                stage="inspect_source_guidance",
+                message="Scoped source guidance resolved",
+                data={
+                    "targets": len(inspection.source_guidance_inspections),
+                    "documents": sum(
+                        len(item.documents) for item in inspection.source_guidance_inspections
+                    ),
+                    "evidence": len(evidence),
+                },
+            )
+        )
+        return {"inspection": inspection, "evidence": evidence}
+
+    @staticmethod
+    def _after_inspect_source_guidance(
+        state: DiagnosticState,
     ) -> Literal["compare_incident", "fail"]:
         return "fail" if "error_message" in state else "compare_incident"
 
@@ -841,6 +880,11 @@ class DiagnosticWorkflow:
             "inspect_expected_pipeline",
             self._inspect_expected_pipeline_node,
         )
+        _add_graph_node(
+            graph,
+            "inspect_source_guidance",
+            self._inspect_source_guidance_node,
+        )
         _add_graph_node(graph, "compare_incident", self._compare_incident_node)
         _add_graph_node(graph, "reason", self._reason_node)
         _add_graph_node(graph, "validate", self._validate_node)
@@ -861,6 +905,10 @@ class DiagnosticWorkflow:
         graph.add_conditional_edges(
             "inspect_expected_pipeline",
             self._after_inspect_expected_pipeline,
+        )
+        graph.add_conditional_edges(
+            "inspect_source_guidance",
+            self._after_inspect_source_guidance,
         )
         graph.add_conditional_edges("compare_incident", self._after_compare_incident)
         graph.add_conditional_edges("reason", self._after_reason)

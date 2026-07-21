@@ -62,7 +62,9 @@ For relevant candidates that identify a MaaFramework task or pipeline node, the 
 node performs bounded MSE resolution and adds version-matched, line-backed source evidence before
 final reasoning. Python then builds a structured actual/expected comparison that links runtime
 failure, outcome, and high-priority signal evidence to resolved task configuration evidence
-without declaring that the configuration caused the runtime behavior.
+without declaring that the configuration caused the runtime behavior. Applicable AGENTS.md files
+from the project source root to each focused pipeline file are loaded under bounded limits and
+provided as source-investigation guidance.
 Inputs that are unrelated to MaaFramework logs can therefore bypass MLA. Explicit graph state
 keeps the plan, inspection facts, authoritative evidence, model drafts, failures, and final
 results separate.

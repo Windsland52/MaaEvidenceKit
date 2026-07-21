@@ -170,7 +170,8 @@ def plan_initial_investigation(
                     AnalysisRelevance.USEFUL if project_source else AnalysisRelevance.NOT_RELEVANT
                 ),
                 reason=(
-                    "Project source is resolved; scoped AGENTS.md analysis is pending."
+                    "Project source is resolved; focused AGENTS.md guidance is available "
+                    "after task resolution, while general source search remains deferred."
                     if project_source
                     else "No version-resolved project source is available."
                 ),

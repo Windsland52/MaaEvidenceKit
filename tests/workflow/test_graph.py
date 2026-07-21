@@ -279,6 +279,7 @@ def test_stream_emits_events_in_order(tmp_path: Path) -> None:
         "synthesize",
         "identify_incident",
         "inspect_expected_pipeline",
+        "inspect_source_guidance",
         "compare_incident",
         "validate",
     ]

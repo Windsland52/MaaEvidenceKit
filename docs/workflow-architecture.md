@@ -141,6 +141,7 @@ Implemented now:
   configuration, references, and source-line evidence;
 - deterministic actual/expected comparison that links correlated MLA observations to focused MSE
   task evidence without inferring a root cause;
+- bounded scoped `AGENTS.md` resolution for focused version-matched project files;
 - empty deterministic inspection when neither MLA nor MSE has an eligible input;
 - evidence synthesis, pluggable model reasoning, citation validation, and diagnostic events.
 
@@ -149,7 +150,6 @@ Represented by contracts but deferred:
 - additional real-world GUI/custom source profiles;
 - dump analysis;
 - project/GUI version extraction and revision-matched source investigation;
-- scoped `AGENTS.md` resolution;
 - knowledge/Wiki search;
 - bounded evidence-query loops, fix execution, and verification nodes.
 
