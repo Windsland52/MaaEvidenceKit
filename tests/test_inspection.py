@@ -5,6 +5,7 @@ from pydantic import JsonValue
 from maa_diagnostic_expert.domain import AnalysisRequest, ArtifactInput, ArtifactKind
 from maa_diagnostic_expert.inspection import inspect_analysis
 from maa_diagnostic_expert.tool_adapter_client import ToolAdapterInvocationError
+from maa_diagnostic_expert.workflow_contracts import IncidentSelectionStatus
 
 
 def _empty_preflight() -> dict[str, JsonValue]:
@@ -227,3 +228,5 @@ def test_inspect_builds_custom_overview_without_calling_mla(tmp_path: Path) -> N
         "log_overview_summary",
         "log_occurrence:error",
     ]
+    assert inspection.incident_selection.status is IncidentSelectionStatus.AMBIGUOUS
+    assert len(inspection.incident_selection.candidates) == 1

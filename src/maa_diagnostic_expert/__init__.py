@@ -35,6 +35,7 @@ from .domain import (
     SourceSnapshot,
 )
 from .evidence_synthesis import synthesize_evidence
+from .incident_selection import MAX_INCIDENT_CANDIDATES, generate_incident_selection
 from .inspection import (
     DeterministicInspection,
     MlaArtifactInspection,
@@ -139,6 +140,7 @@ __all__ = [
     "IncidentCandidate",
     "IncidentSelection",
     "IncidentSelectionStatus",
+    "MAX_INCIDENT_CANDIDATES",
     "InvestigationBranch",
     "InvestigationPlan",
     "MissingEvidence",
@@ -192,6 +194,7 @@ __all__ = [
     "collect_log_overview_missing_evidence",
     "classify_artifact_sources",
     "finalize_diagnosis_draft",
+    "generate_incident_selection",
     "extract_runtime_identity",
     "make_stub_backend",
     "make_langchain_backend",

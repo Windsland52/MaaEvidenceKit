@@ -266,6 +266,161 @@
       "title": "EvidenceReliability",
       "type": "string"
     },
+    "IncidentCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "minLength": 1,
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Id"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        },
+        "task_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Name"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Started At"
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ended At"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Reasons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "confidence",
+        "evidence_ids",
+        "reasons"
+      ],
+      "title": "IncidentCandidate",
+      "type": "object"
+    },
+    "IncidentSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "default": "incident-selection/v1",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/IncidentSelectionStatus"
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/IncidentCandidate"
+          },
+          "title": "Candidates",
+          "type": "array"
+        },
+        "selected_candidate_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selected Candidate Id"
+        },
+        "missing_evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Evidence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "IncidentSelection",
+      "type": "object"
+    },
+    "IncidentSelectionStatus": {
+      "enum": [
+        "selected",
+        "ambiguous",
+        "not_found"
+      ],
+      "title": "IncidentSelectionStatus",
+      "type": "string"
+    },
     "LogArtifactOverview": {
       "additionalProperties": false,
       "properties": {
@@ -2577,7 +2732,7 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
-      "default": "deterministic-inspection/v3",
+      "default": "deterministic-inspection/v4",
       "title": "Api Version",
       "type": "string"
     },
@@ -2589,6 +2744,9 @@
     },
     "runtime_identity": {
       "$ref": "#/$defs/RuntimeIdentity"
+    },
+    "incident_selection": {
+      "$ref": "#/$defs/IncidentSelection"
     },
     "mla_preflights": {
       "items": {

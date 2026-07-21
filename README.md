@@ -42,7 +42,9 @@ The diagnostic workflow uses LangGraph behind a single `DiagnosticWorkflow`. Its
 prepares the input, classifies log sources from bounded samples, records an initial investigation
 plan, conditionally runs MLA when a supplied artifact is eligible, extracts source- and
 session-scoped MaaFramework versions, synthesizes authoritative evidence, reasons, and validates
-the result.
+the result. Before reasoning it generates bounded, evidence-backed incident candidates from
+notable MLA tasks and GUI/custom log occurrences; it does not automatically claim that a
+candidate matches the reported symptom.
 Inputs that are unrelated to MaaFramework logs can therefore bypass MLA. Explicit graph state
 keeps the plan, inspection facts, authoritative evidence, model drafts, failures, and final
 results separate.
@@ -82,7 +84,7 @@ session, timestamp, and source line where available. Run `pnpm build` first; use
 
 `diagnose` runs the currently implemented pipeline end to end: prepare, classify log sources,
 plan the overview, conditionally inspect with MLA, identify runtime versions, synthesize evidence,
-reason, and validate. It
+generate incident candidates, reason, and validate. It
 uses the deterministic stub reasoning backend by default (no model credentials required). Pass `--events
 <path>` to write the diagnostic event stream as JSON lines alongside the result. When MLA runs,
 the produced `DiagnosisResult` cites evidence IDs that trace back to MLA runtime facts. A request

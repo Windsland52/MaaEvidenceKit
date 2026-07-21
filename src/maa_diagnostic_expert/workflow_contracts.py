@@ -103,8 +103,14 @@ class IncidentCandidate(ContractModel):
     started_at: datetime | None = None
     ended_at: datetime | None = None
     confidence: float = Field(ge=0, le=1)
-    evidence_ids: list[str] = Field(default_factory=_new_strings)
-    reasons: list[str] = Field(default_factory=_new_strings)
+    evidence_ids: list[str] = Field(min_length=1)
+    reasons: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def require_unique_evidence_ids(self) -> IncidentCandidate:
+        if len(self.evidence_ids) != len(set(self.evidence_ids)):
+            raise ValueError("Incident candidate evidence IDs must be unique")
+        return self
 
 
 def _new_incident_candidates() -> list[IncidentCandidate]:

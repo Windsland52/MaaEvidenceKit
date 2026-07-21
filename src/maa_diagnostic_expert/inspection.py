@@ -18,6 +18,7 @@ from .domain import (
     PreparedAnalysis,
 )
 from .evidence_synthesis import synthesize_evidence
+from .incident_selection import generate_incident_selection
 from .log_overview import (
     LogOverviewCollection,
     build_log_overviews,
@@ -32,7 +33,13 @@ from .mla_contracts import (
 from .preparation import prepare_analysis
 from .runtime_identity import extract_runtime_identity, synthesize_runtime_identity_evidence
 from .tool_adapter_client import ToolAdapterInvocationError
-from .workflow_contracts import ArtifactSourceInventory, ArtifactSourceKind, RuntimeIdentity
+from .workflow_contracts import (
+    ArtifactSourceInventory,
+    ArtifactSourceKind,
+    IncidentSelection,
+    IncidentSelectionStatus,
+    RuntimeIdentity,
+)
 
 
 class ToolCaller(Protocol):
@@ -63,11 +70,16 @@ def _new_synthesized_evidence() -> list[Evidence]:
     return []
 
 
+def _new_incident_selection() -> IncidentSelection:
+    return IncidentSelection(status=IncidentSelectionStatus.NOT_FOUND)
+
+
 class DeterministicInspection(ContractModel):
-    api_version: str = "deterministic-inspection/v3"
+    api_version: str = "deterministic-inspection/v4"
     prepared: PreparedAnalysis
     log_overviews: LogOverviewCollection = Field(default_factory=LogOverviewCollection)
     runtime_identity: RuntimeIdentity = Field(default_factory=RuntimeIdentity)
+    incident_selection: IncidentSelection = Field(default_factory=_new_incident_selection)
     mla_preflights: list[MlaArtifactInspection] = Field(default_factory=_new_mla_preflights)
     mla_runtime_inspections: list[MlaRuntimeInspectionArtifact] = Field(
         default_factory=_new_mla_runtime_inspections,
@@ -100,7 +112,8 @@ def inspect_analysis(
     overviews = build_log_overviews(prepared, inventory)
     inspection = inspect_prepared_analysis(prepared, tool_caller, overviews, inventory)
     inspection = attach_runtime_identity(inspection)
-    return synthesize_inspection_evidence(inspection)
+    inspection = synthesize_inspection_evidence(inspection)
+    return attach_incident_selection(inspection)
 
 
 def inspect_prepared_analysis(
@@ -205,3 +218,8 @@ def synthesize_inspection_evidence(
 def attach_runtime_identity(inspection: DeterministicInspection) -> DeterministicInspection:
     identity = extract_runtime_identity(inspection.mla_preflights)
     return inspection.model_copy(update={"runtime_identity": identity})
+
+
+def attach_incident_selection(inspection: DeterministicInspection) -> DeterministicInspection:
+    selection = generate_incident_selection(inspection)
+    return inspection.model_copy(update={"incident_selection": selection})

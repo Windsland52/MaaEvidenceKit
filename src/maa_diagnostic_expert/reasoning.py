@@ -11,6 +11,7 @@ from .domain import (
     Evidence,
     EvidenceReliability,
 )
+from .workflow_contracts import IncidentSelection
 
 _REASONING_RELIABILITY_ORDER: dict[EvidenceReliability, int] = {
     EvidenceReliability.PRIMARY: 0,
@@ -34,7 +35,33 @@ def _evidence_counts(evidence: list[Evidence]) -> dict[str, int]:
     return counts
 
 
-def render_instruction(question: str, evidence: list[Evidence]) -> str:
+def _render_incident_candidates(selection: IncidentSelection, limit: int = 20) -> list[str]:
+    lines = [
+        "",
+        f"Deterministic incident selection: {selection.status.value}; "
+        f"candidates={len(selection.candidates)}.",
+    ]
+    for candidate in selection.candidates[:limit]:
+        scope = candidate.task_name or candidate.session_id or "unscoped log occurrence"
+        lines.append(
+            f"- {candidate.candidate_id}: {scope}; confidence={candidate.confidence}; "
+            f"time={candidate.started_at or 'unknown'}..{candidate.ended_at or 'unknown'}; "
+            f"evidence={', '.join(candidate.evidence_ids)}; "
+            f"reasons={'; '.join(candidate.reasons)}"
+        )
+    if len(selection.candidates) > limit:
+        lines.append(
+            f"- {len(selection.candidates) - limit} additional lower-priority candidate(s) "
+            "remain in the deterministic inspection."
+        )
+    return lines
+
+
+def render_instruction(
+    question: str,
+    evidence: list[Evidence],
+    incident_selection: IncidentSelection | None = None,
+) -> str:
     """Render the reasoning instruction for the diagnostic stage."""
     counts = _evidence_counts(evidence)
     lines = [
@@ -61,7 +88,10 @@ def render_instruction(question: str, evidence: list[Evidence]) -> str:
         "4. If primary evidence is insufficient to form a confident diagnosis,",
         "   set status to 'insufficient_evidence'.",
         "5. Do not invent evidence IDs; only reference IDs present in the evidence list.",
+        "6. Incident candidates are leads, not proof that they match the reported symptom.",
     ]
+    if incident_selection is not None:
+        lines.extend(_render_incident_candidates(incident_selection))
     return "\n".join(lines)
 
 
@@ -83,12 +113,16 @@ def render_evidence_block(evidence: list[Evidence]) -> str:
     return "\n\n".join(blocks)
 
 
-def build_reasoning_context(question: str, evidence: list[Evidence]) -> ReasoningContext:
+def build_reasoning_context(
+    question: str,
+    evidence: list[Evidence],
+    incident_selection: IncidentSelection | None = None,
+) -> ReasoningContext:
     """Build a reasoning context with evidence ordered for model consumption."""
     ordered = order_evidence_for_reasoning(evidence)
     return ReasoningContext(
         stage="diagnose",
-        instruction=render_instruction(question, ordered),
+        instruction=render_instruction(question, ordered, incident_selection),
         evidence=ordered,
     )
 

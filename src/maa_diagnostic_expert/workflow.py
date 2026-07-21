@@ -29,6 +29,7 @@ from .domain import (
 from .inspection import (
     DeterministicInspection,
     ToolCaller,
+    attach_incident_selection,
     attach_runtime_identity,
     inspect_prepared_analysis,
     synthesize_inspection_evidence,
@@ -480,7 +481,37 @@ class DiagnosticWorkflow:
         return {"inspection": inspection, "evidence": evidence}
 
     @staticmethod
-    def _after_synthesize(state: DiagnosticState) -> Literal["reason", "fail"]:
+    def _after_synthesize(state: DiagnosticState) -> Literal["identify_incident", "fail"]:
+        return "fail" if "error_message" in state else "identify_incident"
+
+    @staticmethod
+    def _identify_incident_node(state: DiagnosticState) -> _DiagnosticStateUpdate:
+        try:
+            inspection = state.get("inspection")
+            if inspection is None:
+                raise RuntimeError(
+                    "incident candidate generation requires deterministic inspection"
+                )
+            inspection = attach_incident_selection(inspection)
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("identify_incident", error)
+
+        selection = inspection.incident_selection
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.STAGE_COMPLETED,
+                stage="identify_incident",
+                message="Deterministic incident candidates generated",
+                data={
+                    "status": selection.status.value,
+                    "candidates": len(selection.candidates),
+                },
+            )
+        )
+        return {"inspection": inspection}
+
+    @staticmethod
+    def _after_identify_incident(state: DiagnosticState) -> Literal["reason", "fail"]:
         return "fail" if "error_message" in state else "reason"
 
     async def _reason_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
@@ -492,7 +523,9 @@ class DiagnosticWorkflow:
                 raise RuntimeError("reasoning requires deterministic inspection")
             evidence = state.get("evidence", [])
             question = state["request"].question or _DEFAULT_QUESTION
-            context: ReasoningContext = build_reasoning_context(question, evidence)
+            context: ReasoningContext = build_reasoning_context(
+                question, evidence, inspection.incident_selection
+            )
 
             _emit(
                 _WorkflowUpdate(
@@ -615,6 +648,7 @@ class DiagnosticWorkflow:
         _add_graph_node(graph, "initialize_inspection", self._initialize_inspection_node)
         _add_graph_node(graph, "identify_runtime", self._identify_runtime_node)
         _add_graph_node(graph, "synthesize", self._synthesize_node)
+        _add_graph_node(graph, "identify_incident", self._identify_incident_node)
         _add_graph_node(graph, "reason", self._reason_node)
         _add_graph_node(graph, "validate", self._validate_node)
         _add_graph_node(graph, "fail", self._fail_node)
@@ -629,6 +663,7 @@ class DiagnosticWorkflow:
         graph.add_conditional_edges("inspect", self._after_inspect)
         graph.add_conditional_edges("identify_runtime", self._after_identify_runtime)
         graph.add_conditional_edges("synthesize", self._after_synthesize)
+        graph.add_conditional_edges("identify_incident", self._after_identify_incident)
         graph.add_conditional_edges("reason", self._after_reason)
         graph.add_conditional_edges("validate", self._after_validate)
         graph.add_edge("fail", END)

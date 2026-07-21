@@ -27,6 +27,22 @@ if TYPE_CHECKING:
 _SOURCE_COMPONENT = "mla:runtime-inspection"
 
 
+def runtime_failure_evidence_id(artifact_id: str, failure_id: str) -> str:
+    return f"mla-ri:{artifact_id}:failure:{failure_id}"
+
+
+def runtime_outcome_evidence_id(artifact_id: str, outcome_id: str) -> str:
+    return f"mla-ri:{artifact_id}:outcome:{outcome_id}"
+
+
+def runtime_signal_evidence_id(artifact_id: str, signal_id: str) -> str:
+    return f"mla-ri:{artifact_id}:signal:{signal_id}"
+
+
+def runtime_task_evidence_id(artifact_id: str, execution_id: str) -> str:
+    return f"mla-ri:{artifact_id}:task:{execution_id}"
+
+
 def _source_locator(source: str | None, path: str | None, fallback: str) -> str:
     if source:
         if source.startswith("file:"):
@@ -106,7 +122,7 @@ def _format_failure(artifact_id: str, artifact_path: str, failure: MlaRuntimeFai
         lines.append(f"  vision images: {len(failure.vision_images)} referenced")
     line = _position_line(failure.evidence)
     return Evidence(
-        id=f"mla-ri:{artifact_id}:failure:{failure.failure_id}",
+        id=runtime_failure_evidence_id(artifact_id, failure.failure_id),
         kind="runtime_failure",
         source_component=_SOURCE_COMPONENT,
         source_path=_position_path(failure.evidence, artifact_path),
@@ -140,7 +156,7 @@ def _format_outcome(
         lines.append(f"  related failures: {', '.join(outcome.direct_failure_ids)}")
     line = _position_line(outcome.evidence)
     return Evidence(
-        id=f"mla-ri:{artifact_id}:outcome:{outcome.outcome_id}",
+        id=runtime_outcome_evidence_id(artifact_id, outcome.outcome_id),
         kind="runtime_outcome",
         source_component=_SOURCE_COMPONENT,
         source_path=_position_path(outcome.evidence, artifact_path),
@@ -184,7 +200,7 @@ def _format_recognition_signal(
     worst = signal.representatives.worst
     start_line, end_line = _range_lines(worst.evidence)
     return Evidence(
-        id=f"mla-ri:{artifact_id}:signal:{signal.signal_id}",
+        id=runtime_signal_evidence_id(artifact_id, signal.signal_id),
         kind="recognition_activity_signal",
         source_component=_SOURCE_COMPONENT,
         source_path=_position_path(worst.evidence.start, artifact_path),
@@ -221,7 +237,7 @@ def _format_repeated_node_signal(
     longest = signal.representatives.longest
     line = _position_line(longest.evidence)
     return Evidence(
-        id=f"mla-ri:{artifact_id}:signal:{signal.signal_id}",
+        id=runtime_signal_evidence_id(artifact_id, signal.signal_id),
         kind="repeated_node_signal",
         source_component=_SOURCE_COMPONENT,
         source_path=_position_path(longest.evidence, artifact_path),
@@ -271,7 +287,7 @@ def _format_task_summary(
     )
     start_line, end_line = _range_lines(task.evidence)
     return Evidence(
-        id=f"mla-ri:{artifact_id}:task:{task.execution_id}",
+        id=runtime_task_evidence_id(artifact_id, task.execution_id),
         kind="task_execution_summary",
         source_component=_SOURCE_COMPONENT,
         source_path=_position_path(task.evidence.start, artifact_path),

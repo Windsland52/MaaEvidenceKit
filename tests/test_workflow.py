@@ -236,6 +236,7 @@ def test_stream_emits_events_in_order(tmp_path: Path) -> None:
         "inspect",
         "identify_runtime",
         "synthesize",
+        "identify_incident",
         "validate",
     ]
     assert kinds[-1] is DiagnosticEventKind.RUN_COMPLETED

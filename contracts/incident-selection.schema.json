@@ -80,6 +80,7 @@
           "items": {
             "type": "string"
           },
+          "minItems": 1,
           "title": "Evidence Ids",
           "type": "array"
         },
@@ -87,13 +88,16 @@
           "items": {
             "type": "string"
           },
+          "minItems": 1,
           "title": "Reasons",
           "type": "array"
         }
       },
       "required": [
         "candidate_id",
-        "confidence"
+        "confidence",
+        "evidence_ids",
+        "reasons"
       ],
       "title": "IncidentCandidate",
       "type": "object"

@@ -292,6 +292,18 @@ def _evidence_id(kind: str, path: Path, discriminator: str) -> str:
     return f"evidence:log-overview:{digest}"
 
 
+def log_overview_summary_evidence_id(overview: LogArtifactOverview) -> str:
+    return _evidence_id("summary", overview.path, overview.artifact_id)
+
+
+def log_occurrence_evidence_id(overview: LogArtifactOverview, occurrence: LogOccurrence) -> str:
+    return _evidence_id(
+        occurrence.severity,
+        overview.path,
+        f"{occurrence.byte_offset}|{occurrence.excerpt}",
+    )
+
+
 def synthesize_log_overview_evidence(collection: LogOverviewCollection) -> list[Evidence]:
     evidence: list[Evidence] = []
     for overview in collection.overviews:
@@ -301,7 +313,7 @@ def synthesize_log_overview_evidence(collection: LogOverviewCollection) -> list[
         )
         evidence.append(
             Evidence(
-                id=_evidence_id("summary", overview.path, overview.artifact_id),
+                id=log_overview_summary_evidence_id(overview),
                 kind="log_overview_summary",
                 source_component=f"log-overview:{overview.source_kind.value}",
                 source_path=str(overview.path),
@@ -319,11 +331,7 @@ def synthesize_log_overview_evidence(collection: LogOverviewCollection) -> list[
         for occurrence in overview.notable_occurrences:
             evidence.append(
                 Evidence(
-                    id=_evidence_id(
-                        occurrence.severity,
-                        overview.path,
-                        f"{occurrence.byte_offset}|{occurrence.excerpt}",
-                    ),
+                    id=log_occurrence_evidence_id(overview, occurrence),
                     kind=f"log_occurrence:{occurrence.severity}",
                     source_component=f"log-overview:{overview.source_kind.value}",
                     source_path=str(overview.path),

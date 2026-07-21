@@ -108,7 +108,12 @@ def test_plan_exposes_mse_when_project_revision_is_resolved(tmp_path: Path) -> N
 
 
 def test_incident_selection_requires_known_unique_candidate() -> None:
-    candidate = IncidentCandidate(candidate_id="incident-1", confidence=0.8)
+    candidate = IncidentCandidate(
+        candidate_id="incident-1",
+        confidence=0.8,
+        evidence_ids=["evidence-1"],
+        reasons=["A source-backed failure was observed."],
+    )
     selected = IncidentSelection(
         status=IncidentSelectionStatus.SELECTED,
         candidates=[candidate],

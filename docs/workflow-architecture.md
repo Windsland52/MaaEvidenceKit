@@ -120,13 +120,14 @@ Implemented now:
 - typed initial investigation planning;
 - conditional MLA preflight/runtime inspection;
 - source- and session-scoped MaaFramework runtime-version extraction with line-backed evidence;
+- bounded incident candidate generation from notable MLA tasks and GUI/custom log occurrences;
 - empty deterministic inspection for non-MLA inputs;
 - evidence synthesis, pluggable model reasoning, citation validation, and diagnostic events.
 
 Represented by contracts but deferred:
 
 - additional real-world GUI/custom source profiles;
-- incident candidate generation and selection nodes;
+- incident correlation and final selection nodes;
 - MSE project and pipeline preflight;
 - dump analysis;
 - project/GUI version extraction and revision-matched source investigation;
