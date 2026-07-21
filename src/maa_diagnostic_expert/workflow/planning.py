@@ -98,6 +98,22 @@ def _has_usable_mse_project(prepared: PreparedAnalysis) -> bool:
     )
 
 
+def _has_usable_knowledge_source(prepared: PreparedAnalysis) -> bool:
+    knowledge_roles = {
+        SourceRole.MAA_FRAMEWORK,
+        SourceRole.DOCUMENTATION,
+        SourceRole.WIKI,
+    }
+    return any(
+        snapshot.role in knowledge_roles
+        and source_snapshot_matches_checkout(
+            snapshot,
+            require_requested_revision=prepared.request.issue is not None,
+        )
+        for snapshot in prepared.source_snapshots
+    )
+
+
 def plan_initial_investigation(
     prepared: PreparedAnalysis,
     inventory: ArtifactSourceInventory | None = None,
@@ -110,6 +126,7 @@ def plan_initial_investigation(
     gui_source = _has_resolved_source(prepared, SourceRole.GUI)
     framework_source = _has_resolved_source(prepared, SourceRole.MAA_FRAMEWORK)
     has_dump = _has_available_dump(prepared)
+    knowledge_source = _has_usable_knowledge_source(prepared)
 
     return InvestigationPlan(
         decisions=[
@@ -207,9 +224,15 @@ def plan_initial_investigation(
             ),
             BranchDecision(
                 branch=InvestigationBranch.KNOWLEDGE_RESEARCH,
-                disposition=BranchDisposition.DEFERRED,
-                relevance=AnalysisRelevance.UNDETERMINED,
-                reason="Version-matched document search is not implemented yet.",
+                disposition=(BranchDisposition.RUN if knowledge_source else BranchDisposition.SKIP),
+                relevance=(
+                    AnalysisRelevance.USEFUL if knowledge_source else AnalysisRelevance.NOT_RELEVANT
+                ),
+                reason=(
+                    "Explicit version-matched documentation or Wiki input is available."
+                    if knowledge_source
+                    else "No usable explicit documentation or Wiki source is available."
+                ),
             ),
         ]
     )

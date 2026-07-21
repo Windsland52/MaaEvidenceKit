@@ -93,6 +93,20 @@ def test_finalize_draft_rejects_model_invented_evidence_id() -> None:
         finalize_diagnosis_draft(_draft("ev:invented"), _inspection())
 
 
+def test_finalize_draft_rejects_wiki_navigation_citation() -> None:
+    wiki = Evidence(
+        id="ev:wiki",
+        kind="wiki_navigation_match",
+        source_component="source:wiki",
+        source_path="git:wiki@abc:topics/ocr.md",
+        content="See the original MaaFramework OCR documentation.",
+    )
+    inspection = _inspection().model_copy(update={"synthesized_evidence": [_evidence(), wiki]})
+
+    with pytest.raises(ValueError, match="navigation-only evidence IDs"):
+        finalize_diagnosis_draft(_draft("ev:wiki"), inspection)
+
+
 def test_validation_rejects_altered_authoritative_evidence() -> None:
     result = DiagnosisResult(
         status=DiagnosisStatus.COMPLETE,

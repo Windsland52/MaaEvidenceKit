@@ -133,6 +133,26 @@ def test_plan_skips_mse_when_resolved_revision_is_not_checked_out(tmp_path: Path
     assert mse.disposition is BranchDisposition.SKIP
 
 
+def test_plan_runs_knowledge_research_for_explicit_documentation(tmp_path: Path) -> None:
+    prepared = PreparedAnalysis(
+        request=AnalysisRequest(question="How does OCR replace work?"),
+        source_snapshots=[
+            SourceSnapshot(
+                source_id="maafw-docs",
+                role=SourceRole.DOCUMENTATION,
+                path=tmp_path,
+                current_revision="abc123",
+                resolution_status=RevisionResolutionStatus.NOT_REQUESTED,
+            )
+        ],
+    )
+
+    knowledge = _decision(prepared, InvestigationBranch.KNOWLEDGE_RESEARCH)
+
+    assert knowledge.disposition is BranchDisposition.RUN
+    assert knowledge.relevance is AnalysisRelevance.USEFUL
+
+
 def test_incident_selection_requires_known_unique_candidate() -> None:
     candidate = IncidentCandidate(
         candidate_id="incident-1",

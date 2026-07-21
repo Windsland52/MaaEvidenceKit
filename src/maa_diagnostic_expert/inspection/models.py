@@ -2,7 +2,12 @@ from pathlib import Path
 
 from pydantic import Field
 
-from maa_diagnostic_expert.contracts.domain import ContractModel, Evidence, PreparedAnalysis
+from maa_diagnostic_expert.contracts.domain import (
+    ContractModel,
+    Evidence,
+    PreparedAnalysis,
+    SourceRole,
+)
 from maa_diagnostic_expert.contracts.mla import MlaPreflightResult, MlaRuntimeInspectionResult
 from maa_diagnostic_expert.contracts.mse import (
     MseProjectPreflightResult,
@@ -60,6 +65,7 @@ class SourceGuidanceInspection(ContractModel):
 class SourceSearchMatch(ContractModel):
     query_id: str = Field(min_length=1)
     source_id: str = Field(min_length=1)
+    source_role: SourceRole
     relative_path: str = Field(min_length=1)
     source_locator: str = Field(min_length=1)
     line: int = Field(ge=1)
@@ -107,7 +113,7 @@ def _new_incident_comparison() -> IncidentComparison:
 
 
 class DeterministicInspection(ContractModel):
-    api_version: str = "deterministic-inspection/v9"
+    api_version: str = "deterministic-inspection/v10"
     prepared: PreparedAnalysis
     log_overviews: LogOverviewCollection = Field(default_factory=LogOverviewCollection)
     runtime_identity: RuntimeIdentity = Field(default_factory=RuntimeIdentity)
@@ -127,6 +133,9 @@ class DeterministicInspection(ContractModel):
         default_factory=_new_source_guidance_inspections,
     )
     source_search_matches: list[SourceSearchMatch] = Field(
+        default_factory=_new_source_search_matches,
+    )
+    knowledge_search_matches: list[SourceSearchMatch] = Field(
         default_factory=_new_source_search_matches,
     )
     synthesized_evidence: list[Evidence] = Field(

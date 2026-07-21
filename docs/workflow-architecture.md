@@ -107,6 +107,11 @@ deterministic layer returns focused passages. A future Wiki may live in a separa
 published online and cached locally at a pinned revision. It is navigation knowledge, not runtime
 evidence; conclusions must return to the original document or source before citing a fact.
 
+The first implemented knowledge surface accepts explicit local Git inputs. `documentation` marks
+original passages that may be cited as context; `wiki` marks navigation passages that cannot be
+cited by a conclusion. MDE never updates or downloads these repositories during diagnosis. Online
+synchronization and an automatic Wiki-to-original-document follow-up loop remain separate work.
+
 ## Repair and verification
 
 A repair targets the first observed divergence and minimizes regression risk. For OCR pipeline
@@ -144,6 +149,8 @@ Implemented now:
 - bounded scoped `AGENTS.md` resolution for focused version-matched project files;
 - model-planned, bounded literal Git search over version-matched focused project source, with
   deterministic line-window evidence;
+- model-planned, bounded literal Git search over explicit MaaFramework/documentation/Wiki inputs,
+  with navigation-only Wiki citation enforcement;
 - empty deterministic inspection when neither MLA nor MSE has an eligible input;
 - evidence synthesis, pluggable model reasoning, citation validation, and diagnostic events.
 
@@ -152,7 +159,7 @@ Represented by contracts but deferred:
 - additional real-world GUI/custom source profiles;
 - dump analysis;
 - project/GUI version extraction and revision-matched source investigation;
-- knowledge/Wiki search;
+- online knowledge synchronization and Wiki-to-original-document follow-up search;
 - bounded evidence-query loops, fix execution, and verification nodes.
 
 `deferred` is an implementation status, not evidence that a branch is irrelevant. Benchmarks and

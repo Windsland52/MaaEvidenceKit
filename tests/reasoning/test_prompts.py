@@ -10,6 +10,7 @@ from maa_diagnostic_expert.contracts.domain import (
     DiagnosisStatus,
     Evidence,
     EvidenceReliability,
+    SourceRole,
 )
 from maa_diagnostic_expert.contracts.workflow import (
     IncidentCandidate,
@@ -21,6 +22,7 @@ from maa_diagnostic_expert.contracts.workflow import (
     IncidentExpectedTask,
     IncidentSelection,
     IncidentSelectionStatus,
+    KnowledgeResearchPlan,
     SourceResearchPlan,
     SourceResearchStatus,
 )
@@ -28,6 +30,7 @@ from maa_diagnostic_expert.reasoning.prompts import (
     StubReasoningBackend,
     StubReasoningSession,
     build_incident_correlation_context,
+    build_knowledge_research_context,
     build_reasoning_context,
     build_source_research_context,
     order_evidence_for_reasoning,
@@ -249,6 +252,46 @@ def test_stub_backend_skips_semantic_source_research() -> None:
     )
 
     result = asyncio.run(session.reason(context, SourceResearchPlan))
+
+    assert result.status is SourceResearchStatus.SKIP
+    assert result.queries == []
+
+
+def test_knowledge_research_context_focuses_diagnostic_evidence() -> None:
+    context = build_knowledge_research_context(
+        "How does OCR replace work?",
+        [
+            _evidence("runtime", EvidenceReliability.PRIMARY),
+            _evidence(
+                "pipeline",
+                EvidenceReliability.SECONDARY,
+                kind="mse_task_resolution",
+            ),
+            _evidence("unrelated", EvidenceReliability.CONTEXT),
+        ],
+        IncidentComparison(status=IncidentComparisonStatus.PARTIAL),
+        [
+            ("maafw-docs", SourceRole.DOCUMENTATION),
+            ("wiki", SourceRole.WIKI),
+        ],
+    )
+
+    assert context.stage == "plan_knowledge_research"
+    assert [item.id for item in context.evidence] == ["pipeline"]
+    assert "maafw-docs (documentation)" in context.instruction
+    assert "wiki results are navigation only" in context.instruction
+
+
+def test_stub_backend_skips_semantic_knowledge_research() -> None:
+    session = StubReasoningSession(run_id="run-knowledge-research")
+    context = build_knowledge_research_context(
+        "Diagnose",
+        [],
+        IncidentComparison(status=IncidentComparisonStatus.UNAVAILABLE),
+        [("docs", SourceRole.DOCUMENTATION)],
+    )
+
+    result = asyncio.run(session.reason(context, KnowledgeResearchPlan))
 
     assert result.status is SourceResearchStatus.SKIP
     assert result.queries == []

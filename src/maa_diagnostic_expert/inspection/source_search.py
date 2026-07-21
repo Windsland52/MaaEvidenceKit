@@ -9,9 +9,11 @@ from maa_diagnostic_expert.contracts.domain import (
     EvidenceReliability,
     MissingEvidence,
     RevisionResolutionStatus,
+    SourceRole,
     SourceSnapshot,
 )
 from maa_diagnostic_expert.contracts.workflow import (
+    KnowledgeResearchPlan,
     SourceResearchPlan,
     SourceSearchQuery,
 )
@@ -23,6 +25,26 @@ from .evidence_query import query_evidence
 from .models import DeterministicInspection, SourceSearchMatch
 
 _MAX_TOTAL_MATCHES = 50
+_FRAMEWORK_DOCUMENTATION_DIRECTORIES = {"doc", "docs", "documentation"}
+_DEFAULT_FRAMEWORK_DOCUMENTATION_PATHS = [
+    "docs",
+    "doc",
+    "documentation",
+    "README.md",
+]
+
+
+def _is_framework_documentation_path(path: str) -> bool:
+    candidate = Path(path)
+    first_part = candidate.parts[0].casefold()
+    if first_part in _FRAMEWORK_DOCUMENTATION_DIRECTORIES:
+        return True
+    filename = candidate.name.casefold()
+    return filename.startswith("readme") and candidate.suffix.casefold() in {
+        ".md",
+        ".rst",
+        ".txt",
+    }
 
 
 def _git(repository: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -235,6 +257,7 @@ def execute_source_research(
                 SourceSearchMatch(
                     query_id=query.query_id,
                     source_id=snapshot.source_id,
+                    source_role=snapshot.role,
                     relative_path=relative_path,
                     source_locator=window.evidence.source_path,
                     line=line_number,
@@ -250,6 +273,71 @@ def execute_source_research(
         update={
             "prepared": inspection.prepared.model_copy(update={"missing_evidence": missing}),
             "source_search_matches": matches,
+        }
+    )
+
+
+def execute_knowledge_research(
+    inspection: DeterministicInspection,
+    plan: KnowledgeResearchPlan,
+) -> DeterministicInspection:
+    """Search explicit versioned documentation and Wiki repositories."""
+    snapshots = {snapshot.source_id: snapshot for snapshot in inspection.prepared.source_snapshots}
+    eligible_roles = {
+        SourceRole.MAA_FRAMEWORK,
+        SourceRole.DOCUMENTATION,
+        SourceRole.WIKI,
+    }
+    missing = list(inspection.prepared.missing_evidence)
+    eligible_queries: list[SourceSearchQuery] = []
+    for query in plan.queries:
+        snapshot = snapshots.get(query.source_id)
+        if snapshot is None or snapshot.role not in eligible_roles:
+            missing.append(
+                MissingEvidence(
+                    code="knowledge_search_source_unavailable",
+                    message=(
+                        f"Knowledge search query '{query.query_id}' references a source "
+                        "that is not explicit MaaFramework documentation or Wiki input."
+                    ),
+                    source_id=query.source_id,
+                )
+            )
+            continue
+        if snapshot.role is SourceRole.MAA_FRAMEWORK:
+            requested_paths = query.paths or _DEFAULT_FRAMEWORK_DOCUMENTATION_PATHS
+            if not all(_is_framework_documentation_path(path) for path in requested_paths):
+                missing.append(
+                    MissingEvidence(
+                        code="knowledge_search_path_unavailable",
+                        message=(
+                            f"Knowledge search query '{query.query_id}' requested a "
+                            "non-documentation MaaFramework path."
+                        ),
+                        source_id=query.source_id,
+                        source_path=snapshot.path,
+                    )
+                )
+                continue
+            eligible_queries.append(query.model_copy(update={"paths": requested_paths}))
+        else:
+            eligible_queries.append(query)
+
+    prepared = inspection.prepared.model_copy(update={"missing_evidence": missing})
+    inspection_with_missing = inspection.model_copy(update={"prepared": prepared})
+    if not eligible_queries:
+        return inspection_with_missing.model_copy(update={"knowledge_search_matches": []})
+
+    source_plan = SourceResearchPlan(
+        status=plan.status,
+        queries=eligible_queries,
+        rationale=plan.rationale,
+    )
+    searched = execute_source_research(inspection_with_missing, source_plan)
+    return searched.model_copy(
+        update={
+            "source_search_matches": inspection.source_search_matches,
+            "knowledge_search_matches": searched.source_search_matches,
         }
     )
 
@@ -270,6 +358,28 @@ def synthesize_source_search_evidence(
                 line_start=match.line_start,
                 line_end=match.line_end,
                 reliability=EvidenceReliability.SECONDARY,
+            ),
+        )
+    return list(evidence_by_id.values())
+
+
+def synthesize_knowledge_search_evidence(
+    matches: list[SourceSearchMatch],
+) -> list[Evidence]:
+    evidence_by_id: dict[str, Evidence] = {}
+    for match in matches:
+        is_wiki = match.source_role is SourceRole.WIKI
+        evidence_by_id.setdefault(
+            match.evidence_id,
+            Evidence(
+                id=match.evidence_id,
+                kind=("wiki_navigation_match" if is_wiki else "knowledge_document_match"),
+                source_component=f"source:{match.source_id}",
+                source_path=match.source_locator,
+                content=match.content,
+                line_start=match.line_start,
+                line_end=match.line_end,
+                reliability=EvidenceReliability.CONTEXT,
             ),
         )
     return list(evidence_by_id.values())

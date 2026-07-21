@@ -70,6 +70,7 @@ from .contracts.workflow import (
     IncidentSelectionStatus,
     InvestigationBranch,
     InvestigationPlan,
+    KnowledgeResearchPlan,
     RuntimeComponent,
     RuntimeIdentity,
     RuntimeVersionObservation,
@@ -129,7 +130,9 @@ from .inspection.source_guidance import (
     synthesize_source_guidance_evidence,
 )
 from .inspection.source_search import (
+    execute_knowledge_research,
     execute_source_research,
+    synthesize_knowledge_search_evidence,
     synthesize_source_search_evidence,
 )
 from .interfaces.report import render_markdown_report
@@ -143,6 +146,7 @@ from .reasoning.prompts import (
     StubReasoningBackend,
     StubReasoningSession,
     build_incident_correlation_context,
+    build_knowledge_research_context,
     build_reasoning_context,
     build_source_research_context,
     make_stub_backend,
@@ -203,6 +207,7 @@ __all__ = [
     "MAX_INCIDENT_CANDIDATES",
     "InvestigationBranch",
     "InvestigationPlan",
+    "KnowledgeResearchPlan",
     "MissingEvidence",
     "LangChainReasoningBackend",
     "LangChainReasoningSession",
@@ -269,6 +274,7 @@ __all__ = [
     "build_reasoning_context",
     "build_source_research_context",
     "build_incident_correlation_context",
+    "build_knowledge_research_context",
     "build_log_overviews",
     "collect_inspection_evidence",
     "collect_log_overview_missing_evidence",
@@ -278,6 +284,7 @@ __all__ = [
     "generate_incident_selection",
     "extract_runtime_identity",
     "execute_source_research",
+    "execute_knowledge_research",
     "make_stub_backend",
     "make_langchain_backend",
     "render_markdown_report",
@@ -289,6 +296,7 @@ __all__ = [
     "synthesize_mse_task_evidence",
     "synthesize_runtime_identity_evidence",
     "synthesize_source_guidance_evidence",
+    "synthesize_knowledge_search_evidence",
     "synthesize_source_search_evidence",
     "source_guidance_evidence_id",
     "validate_result_against_inspection",

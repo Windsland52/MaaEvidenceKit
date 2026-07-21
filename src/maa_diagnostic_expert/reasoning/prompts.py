@@ -9,12 +9,14 @@ from maa_diagnostic_expert.contracts.domain import (
     DiagnosisStatus,
     Evidence,
     EvidenceReliability,
+    SourceRole,
 )
 from maa_diagnostic_expert.contracts.workflow import (
     IncidentComparison,
     IncidentCorrelationDraft,
     IncidentSelection,
     IncidentSelectionStatus,
+    KnowledgeResearchPlan,
     SourceResearchPlan,
     SourceResearchStatus,
 )
@@ -104,6 +106,8 @@ def render_instruction(
         "   reported incident.",
         "8. Treat source_guidance evidence as scoped instructions for source investigation,",
         "   not as proof of a runtime failure or root cause.",
+        "9. Wiki navigation matches may guide investigation but MUST NOT be cited by a",
+        "   conclusion; cite the original documentation or source passage instead.",
     ]
     if incident_selection is not None:
         lines.extend(_render_incident_candidates(incident_selection))
@@ -282,6 +286,64 @@ def build_source_research_context(
     )
 
 
+def build_knowledge_research_context(
+    question: str,
+    evidence: list[Evidence],
+    incident_comparison: IncidentComparison,
+    sources: list[tuple[str, SourceRole]],
+) -> ReasoningContext:
+    comparison_evidence_ids = {
+        evidence_id
+        for finding in incident_comparison.findings
+        for evidence_id in [
+            *finding.observed_evidence_ids,
+            *finding.expected_evidence_ids,
+        ]
+    }
+    focused = order_evidence_for_reasoning(
+        [
+            item
+            for item in evidence
+            if item.id in comparison_evidence_ids
+            or item.kind
+            in {
+                "mse_task_resolution",
+                "mse_task_not_found",
+                "source_search_match",
+            }
+        ]
+    )
+    rendered_sources = ", ".join(f"{source_id} ({role.value})" for source_id, role in sources)
+    lines = [
+        "Plan a bounded search of explicit version-matched Maa documentation sources.",
+        "Return a structured knowledge research plan, not a diagnosis.",
+        "",
+        f"Diagnostic question: {question}",
+        f"Available knowledge sources: {rendered_sources}",
+        f"Actual/expected comparison status: {incident_comparison.status.value}",
+        "",
+        "Rules:",
+        "1. Use only the listed source IDs.",
+        "2. Search for concrete MaaFramework concepts, pipeline fields, lifecycle semantics,",
+        "   or diagnostic guidance needed to interpret the current evidence.",
+        "3. Terms are literal case-sensitive strings; use separate queries for alternatives.",
+        "4. Paths are optional relative file or directory hints, not glob patterns.",
+        "5. Do not use absolute paths, parent traversal, or .git paths.",
+        "6. Keep the plan small: at most five queries; use skip when documents are unlikely",
+        "   to change the diagnosis or repair choice.",
+        "7. documentation and maa_framework results are original context that may be cited.",
+        "8. wiki results are navigation only; they cannot support a conclusion directly.",
+        "9. maa_framework searches are limited to docs/doc/documentation directories and",
+        "   README files; framework implementation requires a separate source branch.",
+    ]
+    return ReasoningContext(
+        stage="plan_knowledge_research",
+        instruction="\n".join(lines),
+        evidence=focused,
+        incident_comparison=incident_comparison,
+    )
+
+
 def _stub_diagnose(context: ReasoningContext) -> DiagnosisDraft:
     """Produce a deterministic diagnosis from the evidence without a model.
 
@@ -351,6 +413,13 @@ def _stub_plan_source_research() -> SourceResearchPlan:
     )
 
 
+def _stub_plan_knowledge_research() -> KnowledgeResearchPlan:
+    return KnowledgeResearchPlan(
+        status=SourceResearchStatus.SKIP,
+        rationale=("The deterministic stub cannot choose semantic documentation search terms."),
+    )
+
+
 class StubReasoningSession:
     """Deterministic reasoning session for testing without a model."""
 
@@ -379,6 +448,8 @@ class StubReasoningSession:
             return cast(ResultT, _stub_correlate(context))
         if result_type is SourceResearchPlan:
             return cast(ResultT, _stub_plan_source_research())
+        if result_type is KnowledgeResearchPlan:
+            return cast(ResultT, _stub_plan_knowledge_research())
         raise TypeError(f"Stub backend cannot produce {result_type.__name__}")
 
     async def close(self) -> None:

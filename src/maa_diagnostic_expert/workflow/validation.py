@@ -10,6 +10,24 @@ from maa_diagnostic_expert.contracts.workflow import (
 )
 from maa_diagnostic_expert.inspection.models import DeterministicInspection
 
+_NON_CITABLE_EVIDENCE_KINDS = {"wiki_navigation_match"}
+
+
+def _reject_non_citable_evidence(
+    referenced_ids: set[str],
+    ledger: dict[str, Evidence],
+) -> None:
+    non_citable = {
+        evidence_id
+        for evidence_id in referenced_ids
+        if evidence_id in ledger and ledger[evidence_id].kind in _NON_CITABLE_EVIDENCE_KINDS
+    }
+    if non_citable:
+        invalid = ", ".join(sorted(non_citable))
+        raise ValueError(
+            "Diagnosis conclusions cannot cite navigation-only evidence IDs: " + invalid
+        )
+
 
 def validate_incident_correlation(
     draft: IncidentCorrelationDraft,
@@ -87,6 +105,7 @@ def finalize_diagnosis_draft(
     if unknown_ids:
         unknown = ", ".join(sorted(unknown_ids))
         raise ValueError(f"Diagnosis draft references unknown evidence IDs: {unknown}")
+    _reject_non_citable_evidence(referenced_ids, ledger)
     cited_evidence = [item for item in authoritative if item.id in referenced_ids]
     deterministic_missing = [item.code for item in inspection.prepared.missing_evidence]
     correlation_missing = (
@@ -118,6 +137,11 @@ def validate_result_against_inspection(
             raise ValueError(f"Diagnosis result contains unknown evidence ID: {item.id}")
         if expected != item:
             raise ValueError(f"Diagnosis result altered authoritative evidence: {item.id}")
+
+    referenced_ids = {
+        evidence_id for conclusion in result.conclusions for evidence_id in conclusion.evidence_ids
+    }
+    _reject_non_citable_evidence(referenced_ids, ledger)
 
     required_missing = {item.code for item in inspection.prepared.missing_evidence if item.required}
     omitted_missing = required_missing - set(result.missing_evidence)

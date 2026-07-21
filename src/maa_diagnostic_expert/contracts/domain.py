@@ -48,6 +48,8 @@ class SourceRole(StrEnum):
     MAA_FRAMEWORK = "maa_framework"
     GUI = "gui"
     AGENT = "agent"
+    DOCUMENTATION = "documentation"
+    WIKI = "wiki"
     AUXILIARY = "auxiliary"
 
 

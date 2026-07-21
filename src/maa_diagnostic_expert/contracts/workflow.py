@@ -443,3 +443,24 @@ class SourceResearchPlan(ContractModel):
         if self.status is SourceResearchStatus.SKIP and self.queries:
             raise ValueError("A skipped source research plan cannot contain queries")
         return self
+
+
+class KnowledgeResearchPlan(ContractModel):
+    api_version: str = "knowledge-research-plan/v1"
+    status: SourceResearchStatus
+    queries: list[SourceSearchQuery] = Field(
+        default_factory=_new_source_search_queries,
+        max_length=5,
+    )
+    rationale: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_plan(self) -> KnowledgeResearchPlan:
+        query_ids = [query.query_id for query in self.queries]
+        if len(query_ids) != len(set(query_ids)):
+            raise ValueError("Knowledge search query IDs must be unique")
+        if self.status is SourceResearchStatus.RUN and not self.queries:
+            raise ValueError("A running knowledge research plan requires at least one query")
+        if self.status is SourceResearchStatus.SKIP and self.queries:
+            raise ValueError("A skipped knowledge research plan cannot contain queries")
+        return self

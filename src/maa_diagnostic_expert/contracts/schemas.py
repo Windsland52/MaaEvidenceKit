@@ -27,6 +27,7 @@ from .workflow import (
     IncidentCorrelationDraft,
     IncidentSelection,
     InvestigationPlan,
+    KnowledgeResearchPlan,
     RuntimeIdentity,
     SourceGuidance,
     SourceResearchPlan,
@@ -60,6 +61,7 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "verification-plan.schema.json": VerificationPlan,
     "source-guidance.schema.json": SourceGuidance,
     "source-research-plan.schema.json": SourceResearchPlan,
+    "knowledge-research-plan.schema.json": KnowledgeResearchPlan,
 }
 
 

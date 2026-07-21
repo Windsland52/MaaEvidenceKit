@@ -22,6 +22,7 @@ from maa_diagnostic_expert.contracts.domain import (
     Evidence,
     JsonValue,
     PreparedAnalysis,
+    SourceRole,
 )
 from maa_diagnostic_expert.contracts.workflow import (
     ArtifactSourceInventory,
@@ -29,6 +30,7 @@ from maa_diagnostic_expert.contracts.workflow import (
     IncidentCorrelationDraft,
     InvestigationBranch,
     InvestigationPlan,
+    KnowledgeResearchPlan,
     SourceResearchPlan,
     SourceResearchStatus,
 )
@@ -37,6 +39,9 @@ from maa_diagnostic_expert.discovery.artifact_classification import (
     classify_artifact_sources,
 )
 from maa_diagnostic_expert.discovery.preparation import prepare_analysis
+from maa_diagnostic_expert.discovery.source_preparation import (
+    source_snapshot_matches_checkout,
+)
 from maa_diagnostic_expert.inspection.incident_comparison import (
     compare_incident_execution,
 )
@@ -58,10 +63,14 @@ from maa_diagnostic_expert.inspection.service import (
 from maa_diagnostic_expert.inspection.source_guidance import (
     resolve_focused_source_guidance,
 )
-from maa_diagnostic_expert.inspection.source_search import execute_source_research
+from maa_diagnostic_expert.inspection.source_search import (
+    execute_knowledge_research,
+    execute_source_research,
+)
 from maa_diagnostic_expert.inspection.tooling import ToolCaller
 from maa_diagnostic_expert.reasoning.prompts import (
     build_incident_correlation_context,
+    build_knowledge_research_context,
     build_reasoning_context,
     build_source_research_context,
 )
@@ -75,6 +84,27 @@ from .validation import (
 )
 
 _DEFAULT_QUESTION = "Diagnose the runtime failures and their likely causes."
+
+_KNOWLEDGE_SOURCE_ROLES = {
+    SourceRole.MAA_FRAMEWORK,
+    SourceRole.DOCUMENTATION,
+    SourceRole.WIKI,
+}
+
+
+def _available_knowledge_sources(
+    inspection: DeterministicInspection,
+) -> list[tuple[str, SourceRole]]:
+    require_revision = inspection.prepared.request.issue is not None
+    return [
+        (snapshot.source_id, snapshot.role)
+        for snapshot in inspection.prepared.source_snapshots
+        if snapshot.role in _KNOWLEDGE_SOURCE_ROLES
+        and source_snapshot_matches_checkout(
+            snapshot,
+            require_requested_revision=require_revision,
+        )
+    ]
 
 
 def _new_run_id() -> str:
@@ -93,6 +123,7 @@ class DiagnosticState(TypedDict):
     evidence: NotRequired[list[Evidence]]
     incident_correlation: NotRequired[IncidentCorrelationDraft]
     source_research_plan: NotRequired[SourceResearchPlan]
+    knowledge_research_plan: NotRequired[KnowledgeResearchPlan]
     draft: NotRequired[DiagnosisDraft]
     result: NotRequired[DiagnosisResult]
     error_message: NotRequired[str]
@@ -109,6 +140,7 @@ class _DiagnosticStateUpdate(TypedDict, total=False):
     evidence: list[Evidence]
     incident_correlation: IncidentCorrelationDraft
     source_research_plan: SourceResearchPlan
+    knowledge_research_plan: KnowledgeResearchPlan
     draft: DiagnosisDraft
     result: DiagnosisResult
     error_message: str
@@ -553,12 +585,14 @@ class DiagnosticWorkflow:
     @staticmethod
     def _after_identify_incident(
         state: DiagnosticState,
-    ) -> Literal["correlate_incident", "reason", "fail"]:
+    ) -> Literal["correlate_incident", "plan_knowledge_research", "reason", "fail"]:
         if "error_message" in state:
             return "fail"
         inspection = state.get("inspection")
         if inspection is not None and inspection.incident_selection.candidates:
             return "correlate_incident"
+        if inspection is not None and _available_knowledge_sources(inspection):
+            return "plan_knowledge_research"
         return "reason"
 
     async def _correlate_incident_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
@@ -734,12 +768,14 @@ class DiagnosticWorkflow:
     @staticmethod
     def _after_compare_incident(
         state: DiagnosticState,
-    ) -> Literal["plan_source_research", "reason", "fail"]:
+    ) -> Literal["plan_source_research", "plan_knowledge_research", "reason", "fail"]:
         if "error_message" in state:
             return "fail"
         inspection = state.get("inspection")
         if inspection is not None and inspection.source_guidance_inspections:
             return "plan_source_research"
+        if inspection is not None and _available_knowledge_sources(inspection):
+            return "plan_knowledge_research"
         return "reason"
 
     async def _plan_source_research_node(
@@ -804,12 +840,15 @@ class DiagnosticWorkflow:
     @staticmethod
     def _after_plan_source_research(
         state: DiagnosticState,
-    ) -> Literal["search_source", "reason", "fail"]:
+    ) -> Literal["search_source", "plan_knowledge_research", "reason", "fail"]:
         if "error_message" in state:
             return "fail"
         plan = state.get("source_research_plan")
         if plan is not None and plan.status is SourceResearchStatus.RUN:
             return "search_source"
+        inspection = state.get("inspection")
+        if inspection is not None and _available_knowledge_sources(inspection):
+            return "plan_knowledge_research"
         return "reason"
 
     @staticmethod
@@ -843,6 +882,110 @@ class DiagnosticWorkflow:
 
     @staticmethod
     def _after_search_source(
+        state: DiagnosticState,
+    ) -> Literal["plan_knowledge_research", "reason", "fail"]:
+        if "error_message" in state:
+            return "fail"
+        inspection = state.get("inspection")
+        if inspection is not None and _available_knowledge_sources(inspection):
+            return "plan_knowledge_research"
+        return "reason"
+
+    async def _plan_knowledge_research_node(
+        self,
+        state: DiagnosticState,
+    ) -> _DiagnosticStateUpdate:
+        try:
+            if self.run_id in self._cancelled:
+                raise RuntimeError("workflow cancelled before knowledge research planning")
+            inspection = state.get("inspection")
+            if inspection is None:
+                raise RuntimeError("knowledge research planning requires deterministic inspection")
+            sources = _available_knowledge_sources(inspection)
+            context = build_knowledge_research_context(
+                state["request"].question or _DEFAULT_QUESTION,
+                state.get("evidence", []),
+                inspection.incident_comparison,
+                sources,
+            )
+            _emit(
+                _WorkflowUpdate(
+                    kind=DiagnosticEventKind.MODEL_REQUESTED,
+                    stage="plan_knowledge_research",
+                    message="Requesting bounded knowledge research plan",
+                    data={
+                        "sources": len(sources),
+                        "evidence_count": len(context.evidence),
+                    },
+                )
+            )
+            session = await self.reasoning_backend.start(run_id=self.run_id)
+            try:
+                plan = await session.reason(context, KnowledgeResearchPlan)
+            finally:
+                await session.close()
+            source_ids = {source_id for source_id, _ in sources}
+            unknown_sources = {query.source_id for query in plan.queries} - source_ids
+            if unknown_sources:
+                raise ValueError(
+                    "Knowledge research plan references unknown source IDs: "
+                    + ", ".join(sorted(unknown_sources))
+                )
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("plan_knowledge_research", error)
+
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.MODEL_COMPLETED,
+                stage="plan_knowledge_research",
+                message="Knowledge research plan complete",
+                data={"status": plan.status.value, "queries": len(plan.queries)},
+            )
+        )
+        return {"knowledge_research_plan": plan}
+
+    @staticmethod
+    def _after_plan_knowledge_research(
+        state: DiagnosticState,
+    ) -> Literal["search_knowledge", "reason", "fail"]:
+        if "error_message" in state:
+            return "fail"
+        plan = state.get("knowledge_research_plan")
+        if plan is not None and plan.status is SourceResearchStatus.RUN:
+            return "search_knowledge"
+        return "reason"
+
+    @staticmethod
+    def _search_knowledge_node(state: DiagnosticState) -> _DiagnosticStateUpdate:
+        try:
+            inspection = state.get("inspection")
+            plan = state.get("knowledge_research_plan")
+            if inspection is None or plan is None:
+                raise RuntimeError(
+                    "knowledge search requires deterministic inspection and research plan"
+                )
+            inspection = execute_knowledge_research(inspection, plan)
+            inspection = synthesize_inspection_evidence(inspection)
+            evidence = collect_inspection_evidence(inspection)
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("search_knowledge", error)
+
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.STAGE_COMPLETED,
+                stage="search_knowledge",
+                message="Version-matched knowledge search complete",
+                data={
+                    "queries": len(plan.queries),
+                    "matches": len(inspection.knowledge_search_matches),
+                    "evidence": len(evidence),
+                },
+            )
+        )
+        return {"inspection": inspection, "evidence": evidence}
+
+    @staticmethod
+    def _after_search_knowledge(
         state: DiagnosticState,
     ) -> Literal["reason", "fail"]:
         return "fail" if "error_message" in state else "reason"
@@ -1008,6 +1151,12 @@ class DiagnosticWorkflow:
             self._plan_source_research_node,
         )
         _add_graph_node(graph, "search_source", self._search_source_node)
+        _add_graph_node(
+            graph,
+            "plan_knowledge_research",
+            self._plan_knowledge_research_node,
+        )
+        _add_graph_node(graph, "search_knowledge", self._search_knowledge_node)
         _add_graph_node(graph, "reason", self._reason_node)
         _add_graph_node(graph, "validate", self._validate_node)
         _add_graph_node(graph, "fail", self._fail_node)
@@ -1038,6 +1187,11 @@ class DiagnosticWorkflow:
             self._after_plan_source_research,
         )
         graph.add_conditional_edges("search_source", self._after_search_source)
+        graph.add_conditional_edges(
+            "plan_knowledge_research",
+            self._after_plan_knowledge_research,
+        )
+        graph.add_conditional_edges("search_knowledge", self._after_search_knowledge)
         graph.add_conditional_edges("reason", self._after_reason)
         graph.add_conditional_edges("validate", self._after_validate)
         graph.add_edge("fail", END)

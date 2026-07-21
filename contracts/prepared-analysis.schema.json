@@ -362,6 +362,8 @@
         "maa_framework",
         "gui",
         "agent",
+        "documentation",
+        "wiki",
         "auxiliary"
       ],
       "title": "SourceRole",

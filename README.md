@@ -67,6 +67,9 @@ from the project source root to each focused pipeline file are loaded under boun
 provided as source-investigation guidance. When a model is configured, a separate planning stage
 may request up to five literal, path-scoped searches of the version-matched project repository;
 Python executes them with Git and returns only bounded line windows as secondary evidence.
+Explicit `documentation`, `wiki`, and MaaFramework source inputs can also enter a separate bounded
+knowledge-search stage. Original documentation passages are context evidence; Wiki passages are
+navigation-only and validation rejects conclusions that cite them directly.
 Inputs that are unrelated to MaaFramework logs can therefore bypass MLA. Explicit graph state
 keeps the plan, inspection facts, authoritative evidence, model drafts, failures, and final
 results separate.
@@ -122,8 +125,8 @@ keeps incident candidates ambiguous and reports that free-form correlation was u
 MaaFramework logs have a built-in classifier; files under a `custom/` directory receive a
 conservative custom-log classification. Known GUI and project formats plug in through
 `LogSourceProfile`, while unmatched logs remain `unknown` instead of being guessed or sent to MLA.
-Dump inspection, unrestricted general source investigation, and knowledge/Wiki search remain
-deferred. See
+Dump inspection, unrestricted general source investigation, online knowledge synchronization,
+and Wiki-to-original-document follow-up search remain deferred. See
 [the workflow architecture](docs/workflow-architecture.md) for the target flow and implementation
 status.
 
@@ -162,9 +165,12 @@ that Git commit rather than the current checkout or dirty worktree. Versioned ev
 `git:<source-id>@<commit>:<path>` locator in the resulting `Evidence` record.
 
 `AnalysisRequest.sources` contains named entries with a `source_id`, role, path, and optional
-revision. Roles `project`, `maa_framework`, `gui`, and `agent` are independently versioned;
-`auxiliary` is reserved for non-versioned reference source. GUI and agent roles do not assume MXU,
-a programming language, or a fixed repository layout. Optional source adapters handle discovery.
+revision. Roles `project`, `maa_framework`, `gui`, `agent`, `documentation`, and `wiki` are
+independently versioned. `documentation` marks original local Git documentation that conclusions
+may cite, while `wiki` marks a local pinned navigation repository. MDE does not fetch or update
+either repository implicitly. `auxiliary` is reserved for other non-versioned reference source.
+GUI and agent roles do not assume MXU, a programming language, or a fixed repository layout.
+Optional source adapters handle discovery.
 
 ## Host-agent integration
 

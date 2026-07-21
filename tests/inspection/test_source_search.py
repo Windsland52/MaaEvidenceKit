@@ -11,6 +11,7 @@ from maa_diagnostic_expert.contracts.domain import (
     SourceRole,
 )
 from maa_diagnostic_expert.contracts.workflow import (
+    KnowledgeResearchPlan,
     SourceResearchPlan,
     SourceResearchStatus,
     SourceSearchQuery,
@@ -18,7 +19,9 @@ from maa_diagnostic_expert.contracts.workflow import (
 from maa_diagnostic_expert.discovery.preparation import prepare_analysis
 from maa_diagnostic_expert.inspection.models import DeterministicInspection
 from maa_diagnostic_expert.inspection.source_search import (
+    execute_knowledge_research,
     execute_source_research,
+    synthesize_knowledge_search_evidence,
     synthesize_source_search_evidence,
 )
 
@@ -50,14 +53,18 @@ def _repository(tmp_path: Path) -> tuple[Path, str]:
     return repository, _git(repository, "rev-parse", "HEAD")
 
 
-def _inspection(repository: Path, revision: str) -> DeterministicInspection:
+def _inspection(
+    repository: Path,
+    revision: str,
+    role: SourceRole = SourceRole.PROJECT,
+) -> DeterministicInspection:
     prepared = prepare_analysis(
         AnalysisRequest(
             question="Inspect login behavior.",
             sources=[
                 SourceInput(
                     source_id="project",
-                    role=SourceRole.PROJECT,
+                    role=role,
                     path=repository,
                     revision=revision,
                 )
@@ -226,3 +233,77 @@ def test_source_search_query_rejects_parent_traversal() -> None:
             paths=["../other"],
             reason="Invalid path.",
         )
+
+
+@pytest.mark.parametrize(
+    ("role", "expected_kind"),
+    [
+        (SourceRole.DOCUMENTATION, "knowledge_document_match"),
+        (SourceRole.WIKI, "wiki_navigation_match"),
+    ],
+)
+def test_knowledge_search_classifies_document_and_wiki_evidence(
+    tmp_path: Path,
+    role: SourceRole,
+    expected_kind: str,
+) -> None:
+    repository, revision = _repository(tmp_path)
+    source_plan = _plan("LoginButton")
+    plan = KnowledgeResearchPlan(
+        status=SourceResearchStatus.RUN,
+        rationale="Find relevant documentation.",
+        queries=source_plan.queries,
+    )
+
+    inspection = execute_knowledge_research(
+        _inspection(repository, revision, role),
+        plan,
+    )
+    evidence = synthesize_knowledge_search_evidence(inspection.knowledge_search_matches)
+
+    assert len(inspection.knowledge_search_matches) == 1
+    assert inspection.source_search_matches == []
+    assert evidence[0].kind == expected_kind
+    assert evidence[0].reliability is EvidenceReliability.CONTEXT
+
+
+def test_knowledge_search_rejects_project_source(tmp_path: Path) -> None:
+    repository, revision = _repository(tmp_path)
+    source_plan = _plan("LoginButton")
+    plan = KnowledgeResearchPlan(
+        status=SourceResearchStatus.RUN,
+        rationale="Project source is not a knowledge input.",
+        queries=source_plan.queries,
+    )
+
+    inspection = execute_knowledge_research(
+        _inspection(repository, revision),
+        plan,
+    )
+
+    assert inspection.knowledge_search_matches == []
+    assert "knowledge_search_source_unavailable" in {
+        item.code for item in inspection.prepared.missing_evidence
+    }
+
+
+def test_knowledge_search_rejects_framework_implementation_path(
+    tmp_path: Path,
+) -> None:
+    repository, revision = _repository(tmp_path)
+    source_plan = _plan("LoginButton")
+    plan = KnowledgeResearchPlan(
+        status=SourceResearchStatus.RUN,
+        rationale="Framework implementation is not documentation.",
+        queries=source_plan.queries,
+    )
+
+    inspection = execute_knowledge_research(
+        _inspection(repository, revision, SourceRole.MAA_FRAMEWORK),
+        plan,
+    )
+
+    assert inspection.knowledge_search_matches == []
+    assert "knowledge_search_path_unavailable" in {
+        item.code for item in inspection.prepared.missing_evidence
+    }

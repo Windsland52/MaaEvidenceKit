@@ -89,6 +89,26 @@ def test_issue_source_must_be_checked_out_at_resolved_revision(tmp_path: Path) -
     )
 
 
+def test_issue_documentation_requires_explicit_revision(tmp_path: Path) -> None:
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            issue="Interpret behavior from the issue-time documentation.",
+            sources=[
+                SourceInput(
+                    source_id="docs",
+                    role=SourceRole.DOCUMENTATION,
+                    path=tmp_path,
+                )
+            ],
+        )
+    )
+
+    assert any(
+        item.code == "issue_revision_unresolved" and item.source_id == "docs"
+        for item in prepared.missing_evidence
+    )
+
+
 def test_prepare_reports_resolved_revision_that_is_not_checked_out(tmp_path: Path) -> None:
     subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
     subprocess.run(

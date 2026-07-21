@@ -105,6 +105,8 @@ def _missing_evidence(snapshot: SourceSnapshot, *, issue_diagnosis: bool) -> lis
         SourceRole.MAA_FRAMEWORK,
         SourceRole.GUI,
         SourceRole.AGENT,
+        SourceRole.DOCUMENTATION,
+        SourceRole.WIKI,
     }
     if issue_diagnosis and versioned_role and snapshot.requested_revision is None:
         missing.append(

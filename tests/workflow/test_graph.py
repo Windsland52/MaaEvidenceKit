@@ -24,6 +24,7 @@ from maa_diagnostic_expert.contracts.domain import (
 from maa_diagnostic_expert.contracts.workflow import (
     IncidentCorrelationDraft,
     IncidentSelectionStatus,
+    KnowledgeResearchPlan,
     SourceResearchPlan,
     SourceResearchStatus,
     SourceSearchQuery,
@@ -317,6 +318,65 @@ class _SourceResearchBackend:
         return _SourceResearchSession(self.contexts)
 
 
+class _KnowledgeResearchSession:
+    def __init__(self, contexts: list[ReasoningContext]) -> None:
+        self.contexts = contexts
+
+    async def reason[ResultT: ContractModel](
+        self, context: ReasoningContext, result_type: type[ResultT]
+    ) -> ResultT:
+        self.contexts.append(context)
+        if result_type is KnowledgeResearchPlan:
+            return cast(
+                ResultT,
+                KnowledgeResearchPlan(
+                    status=SourceResearchStatus.RUN,
+                    rationale="Find the original OCR normalization documentation.",
+                    queries=[
+                        SourceSearchQuery(
+                            query_id="ocr-replace",
+                            source_id="docs",
+                            terms=["replace"],
+                            paths=["docs"],
+                            reason="Read the documented OCR normalization behavior.",
+                            context_lines=1,
+                        )
+                    ],
+                ),
+            )
+        if result_type is DiagnosisDraft:
+            document = next(
+                item for item in context.evidence if item.kind == "knowledge_document_match"
+            )
+            return cast(
+                ResultT,
+                DiagnosisDraft(
+                    status=DiagnosisStatus.COMPLETE,
+                    summary="The documentation describes OCR replacement normalization.",
+                    conclusions=[
+                        Conclusion(
+                            statement="OCR replace normalizes known recognition variants.",
+                            evidence_ids=[document.id],
+                            confidence=0.9,
+                        )
+                    ],
+                ),
+            )
+        raise TypeError(result_type.__name__)
+
+    async def close(self) -> None:
+        pass
+
+
+class _KnowledgeResearchBackend:
+    def __init__(self) -> None:
+        self.contexts: list[ReasoningContext] = []
+
+    async def start(self, *, run_id: str) -> _KnowledgeResearchSession:
+        del run_id
+        return _KnowledgeResearchSession(self.contexts)
+
+
 def _make_directory_with_log(tmp_path: Path) -> Path:
     debug_path = tmp_path / "debug"
     debug_path.mkdir()
@@ -595,3 +655,58 @@ def test_workflow_runs_model_planned_versioned_source_search(
     diagnose_context = next(context for context in backend.contexts if context.stage == "diagnose")
     assert any(evidence.kind == "source_search_match" for evidence in diagnose_context.evidence)
     assert any(name == "mse.resolve-tasks" for name, _ in caller.calls)
+
+
+def test_workflow_runs_document_search_without_runtime_incident(tmp_path: Path) -> None:
+    repository = tmp_path / "documentation"
+    docs = repository / "docs"
+    docs.mkdir(parents=True)
+    (docs / "pipeline.md").write_text(
+        "OCR replace normalizes known recognition variants before expected matching.\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "-C", str(repository), "init"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repository), "config", "user.name", "MDE Test"],
+        check=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repository),
+            "config",
+            "user.email",
+            "mde-test@example.invalid",
+        ],
+        check=True,
+    )
+    subprocess.run(["git", "-C", str(repository), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(repository), "commit", "-m", "documentation"],
+        check=True,
+        capture_output=True,
+    )
+    backend = _KnowledgeResearchBackend()
+    workflow = DiagnosticWorkflow(_ToolCaller(), backend)
+    request = AnalysisRequest(
+        question="How should known OCR recognition variants be normalized?",
+        sources=[
+            SourceInput(
+                source_id="docs",
+                role=SourceRole.DOCUMENTATION,
+                path=repository,
+            )
+        ],
+    )
+
+    events = _collect_events(workflow, request)
+
+    assert workflow.result is not None
+    assert workflow.result.status is DiagnosisStatus.COMPLETE
+    assert any(event.stage == "plan_knowledge_research" for event in events)
+    assert any(event.stage == "search_knowledge" for event in events)
+    diagnose_context = next(context for context in backend.contexts if context.stage == "diagnose")
+    assert any(
+        evidence.kind == "knowledge_document_match" for evidence in diagnose_context.evidence
+    )
