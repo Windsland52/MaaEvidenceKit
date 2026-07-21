@@ -139,6 +139,8 @@ Implemented now:
 - conditional model-assisted incident correlation with candidate/evidence reference validation;
 - bounded focused MSE task/node resolution after incident correlation, including effective
   configuration, references, and source-line evidence;
+- deterministic actual/expected comparison that links correlated MLA observations to focused MSE
+  task evidence without inferring a root cause;
 - empty deterministic inspection when neither MLA nor MSE has an eligible input;
 - evidence synthesis, pluggable model reasoning, citation validation, and diagnostic events.
 

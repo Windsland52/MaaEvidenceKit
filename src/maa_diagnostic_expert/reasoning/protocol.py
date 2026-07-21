@@ -12,7 +12,7 @@ from maa_diagnostic_expert.contracts.domain import (
     Evidence,
     ReasoningRequest,
 )
-from maa_diagnostic_expert.contracts.workflow import IncidentSelection
+from maa_diagnostic_expert.contracts.workflow import IncidentComparison, IncidentSelection
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +28,7 @@ class ReasoningContext:
     instruction: str
     evidence: list[Evidence] = field(default_factory=list[Evidence])
     incident_selection: IncidentSelection | None = None
+    incident_comparison: IncidentComparison | None = None
 
     def to_request(self) -> ReasoningRequest:
         return ReasoningRequest(

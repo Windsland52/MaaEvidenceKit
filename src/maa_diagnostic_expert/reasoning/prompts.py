@@ -11,6 +11,7 @@ from maa_diagnostic_expert.contracts.domain import (
     EvidenceReliability,
 )
 from maa_diagnostic_expert.contracts.workflow import (
+    IncidentComparison,
     IncidentCorrelationDraft,
     IncidentSelection,
     IncidentSelectionStatus,
@@ -67,6 +68,7 @@ def render_instruction(
     evidence: list[Evidence],
     incident_selection: IncidentSelection | None = None,
     incident_correlation: IncidentCorrelationDraft | None = None,
+    incident_comparison: IncidentComparison | None = None,
 ) -> str:
     """Render the reasoning instruction for the diagnostic stage."""
     counts = _evidence_counts(evidence)
@@ -113,6 +115,35 @@ def render_instruction(
                 "the underlying evidence IDs.",
             ]
         )
+    if incident_comparison is not None:
+        lines.extend(
+            [
+                "",
+                f"Deterministic actual/expected comparison: {incident_comparison.status.value}.",
+                (
+                    "Comparison findings describe evidence availability and observed "
+                    "runtime/configuration relationships; they are not root-cause conclusions."
+                ),
+            ]
+        )
+        for finding in incident_comparison.findings:
+            lines.append(
+                f"- {finding.kind.value}: {finding.statement} "
+                f"observed={', '.join(finding.observed_evidence_ids) or 'none'}; "
+                f"expected={', '.join(finding.expected_evidence_ids) or 'none'}"
+            )
+        for expected in incident_comparison.expected_tasks:
+            lines.append(
+                f"- expected task {expected.task_name} from {expected.source_id}: "
+                f"variants={expected.found_variants}; "
+                f"recognition={', '.join(expected.recognition_types) or 'unspecified'}; "
+                f"action={', '.join(expected.action_types) or 'unspecified'}; "
+                f"next={', '.join(expected.next_targets) or 'none'}"
+            )
+        if incident_comparison.missing_evidence:
+            lines.append(
+                "Comparison missing evidence: " + "; ".join(incident_comparison.missing_evidence)
+            )
     return "\n".join(lines)
 
 
@@ -139,6 +170,7 @@ def build_reasoning_context(
     evidence: list[Evidence],
     incident_selection: IncidentSelection | None = None,
     incident_correlation: IncidentCorrelationDraft | None = None,
+    incident_comparison: IncidentComparison | None = None,
 ) -> ReasoningContext:
     """Build a reasoning context with evidence ordered for model consumption."""
     ordered = order_evidence_for_reasoning(evidence)
@@ -149,9 +181,11 @@ def build_reasoning_context(
             ordered,
             incident_selection,
             incident_correlation,
+            incident_comparison,
         ),
         evidence=ordered,
         incident_selection=incident_selection,
+        incident_comparison=incident_comparison,
     )
 
 

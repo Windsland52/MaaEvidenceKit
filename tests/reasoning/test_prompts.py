@@ -13,7 +13,12 @@ from maa_diagnostic_expert.contracts.domain import (
 )
 from maa_diagnostic_expert.contracts.workflow import (
     IncidentCandidate,
+    IncidentComparison,
+    IncidentComparisonFinding,
+    IncidentComparisonFindingKind,
+    IncidentComparisonStatus,
     IncidentCorrelationDraft,
+    IncidentExpectedTask,
     IncidentSelection,
     IncidentSelectionStatus,
 )
@@ -150,6 +155,47 @@ def test_diagnosis_context_includes_validated_incident_correlation() -> None:
 
     assert "Model incident correlation: selected" in context.instruction
     assert "interpretation" in context.instruction
+
+
+def test_diagnosis_context_includes_deterministic_actual_expected_comparison() -> None:
+    comparison = IncidentComparison(
+        status=IncidentComparisonStatus.COMPLETE,
+        candidate_ids=["incident-1"],
+        expected_tasks=[
+            IncidentExpectedTask(
+                source_id="project",
+                task_name="LoginButton",
+                found_variants=1,
+                recognition_types=["OCR"],
+                next_targets=["Home"],
+                evidence_ids=["mse-task"],
+            )
+        ],
+        findings=[
+            IncidentComparisonFinding(
+                kind=(IncidentComparisonFindingKind.NEXT_LIST_TIMEOUT_AT_RESOLVED_NODE),
+                statement="A timeout was observed at a resolved node.",
+                observed_evidence_ids=["candidate-evidence"],
+                expected_evidence_ids=["mse-task"],
+            )
+        ],
+    )
+
+    context = build_reasoning_context(
+        "Diagnose",
+        [
+            _evidence("candidate-evidence", EvidenceReliability.PRIMARY),
+            _evidence("mse-task", EvidenceReliability.SECONDARY),
+        ],
+        _incident_selection(),
+        None,
+        comparison,
+    )
+
+    assert context.incident_comparison == comparison
+    assert "Deterministic actual/expected comparison: complete" in context.instruction
+    assert "not root-cause conclusions" in context.instruction
+    assert "recognition=OCR" in context.instruction
 
 
 def test_stub_backend_produces_complete_draft_with_primary_evidence() -> None:

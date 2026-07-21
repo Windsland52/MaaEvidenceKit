@@ -6,13 +6,34 @@ from collections import defaultdict
 from pathlib import Path
 
 from maa_diagnostic_expert.contracts.domain import Evidence, EvidenceReliability
-from maa_diagnostic_expert.contracts.mse import MseDiagnostic
+from maa_diagnostic_expert.contracts.mse import (
+    MseCompatibilityStatus,
+    MseDiagnostic,
+)
 
 from .models import MseProjectInspection, MseTaskResolutionInspection
 
 _SOURCE_COMPONENT = "mse:project-preflight"
 _MAX_DIAGNOSTIC_EVIDENCE = 100
 _MAX_TASK_RESOLUTION_EVIDENCE = 100
+
+
+def mse_task_evidence_id(
+    source_id: str,
+    source_path: str,
+    line: int,
+    task_name: str,
+    controller: str | None,
+    resource: str | None,
+) -> str:
+    key = (source_id, source_path, line, task_name, controller, resource)
+    digest = hashlib.sha256(repr(key).encode()).hexdigest()[:16]
+    return f"mse:{source_id}:task:{digest}"
+
+
+def mse_task_not_found_evidence_id(source_id: str, task_name: str) -> str:
+    digest = hashlib.sha256(f"{source_id}|{task_name}".encode()).hexdigest()[:16]
+    return f"mse:{source_id}:task-not-found:{digest}"
 
 
 def _summary_evidence(inspection: MseProjectInspection) -> Evidence:
@@ -113,6 +134,8 @@ def synthesize_mse_task_evidence(
     evidence: list[Evidence] = []
     seen: set[tuple[str, str, int, str, str | None, str | None]] = set()
     for inspection in inspections:
+        if inspection.resolution.compatibility.status is MseCompatibilityStatus.UNSUPPORTED:
+            continue
         for resolved in inspection.resolution.resolutions:
             if not resolved.found:
                 continue
@@ -137,7 +160,6 @@ def synthesize_mse_task_evidence(
                 if key in seen:
                     continue
                 seen.add(key)
-                digest = hashlib.sha256(repr(key).encode()).hexdigest()[:16]
                 lines = [
                     f"MSE resolved MaaFramework task '{resolved.name}'",
                     (
@@ -151,7 +173,14 @@ def synthesize_mse_task_evidence(
                     lines.append(f"  references: {reference_summary}")
                 evidence.append(
                     Evidence(
-                        id=f"mse:{inspection.source_id}:task:{digest}",
+                        id=mse_task_evidence_id(
+                            inspection.source_id,
+                            definition.source_path,
+                            definition.line,
+                            resolved.name,
+                            resolved.controller,
+                            resolved.resource,
+                        ),
                         kind="mse_task_resolution",
                         source_component="mse:resolve-tasks",
                         source_path=str(inspection.path / Path(definition.source_path)),
@@ -163,4 +192,39 @@ def synthesize_mse_task_evidence(
                 )
                 if len(evidence) >= _MAX_TASK_RESOLUTION_EVIDENCE:
                     return evidence
+        for task_name in inspection.resolution.requested_tasks:
+            variants = [
+                item for item in inspection.resolution.resolutions if item.name == task_name
+            ]
+            if any(item.found for item in variants):
+                continue
+            evidence.append(
+                Evidence(
+                    id=mse_task_not_found_evidence_id(
+                        inspection.source_id,
+                        task_name,
+                    ),
+                    kind="mse_task_not_found",
+                    source_component="mse:resolve-tasks",
+                    source_path=str(inspection.path),
+                    content=chr(10).join(
+                        [
+                            f"MSE did not find MaaFramework task '{task_name}'",
+                            (
+                                "  inspected configurations: "
+                                f"{len(variants)}"
+                                + (
+                                    " (truncated)"
+                                    if inspection.resolution.configurations_truncated
+                                    else ""
+                                )
+                            ),
+                            (f"  interface: {inspection.resolution.interface_path or 'unknown'}"),
+                        ]
+                    ),
+                    reliability=EvidenceReliability.CONTEXT,
+                )
+            )
+            if len(evidence) >= _MAX_TASK_RESOLUTION_EVIDENCE:
+                return evidence
     return evidence

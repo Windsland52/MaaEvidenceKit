@@ -157,6 +157,11 @@ def test_resolve_incident_pipeline_tasks_prefers_node_then_task(tmp_path: Path) 
     assert task_evidence[0].reliability is EvidenceReliability.SECONDARY
     assert "expected" in task_evidence[0].content
     assert "mse_tasks_not_found" in {item.code for item in inspection.prepared.missing_evidence}
+    not_found = [
+        item for item in inspection.synthesized_evidence if item.kind == "mse_task_not_found"
+    ]
+    assert len(not_found) == 1
+    assert not_found[0].reliability is EvidenceReliability.CONTEXT
 
 
 def test_resolve_incident_pipeline_tasks_records_missing_names(tmp_path: Path) -> None:

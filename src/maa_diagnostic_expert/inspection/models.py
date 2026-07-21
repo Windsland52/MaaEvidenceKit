@@ -9,6 +9,8 @@ from maa_diagnostic_expert.contracts.mse import (
     MseTaskResolutionResult,
 )
 from maa_diagnostic_expert.contracts.workflow import (
+    IncidentComparison,
+    IncidentComparisonStatus,
     IncidentSelection,
     IncidentSelectionStatus,
     RuntimeIdentity,
@@ -65,12 +67,17 @@ def _new_incident_selection() -> IncidentSelection:
     return IncidentSelection(status=IncidentSelectionStatus.NOT_FOUND)
 
 
+def _new_incident_comparison() -> IncidentComparison:
+    return IncidentComparison(status=IncidentComparisonStatus.UNAVAILABLE)
+
+
 class DeterministicInspection(ContractModel):
-    api_version: str = "deterministic-inspection/v6"
+    api_version: str = "deterministic-inspection/v7"
     prepared: PreparedAnalysis
     log_overviews: LogOverviewCollection = Field(default_factory=LogOverviewCollection)
     runtime_identity: RuntimeIdentity = Field(default_factory=RuntimeIdentity)
     incident_selection: IncidentSelection = Field(default_factory=_new_incident_selection)
+    incident_comparison: IncidentComparison = Field(default_factory=_new_incident_comparison)
     mla_preflights: list[MlaArtifactInspection] = Field(default_factory=_new_mla_preflights)
     mla_runtime_inspections: list[MlaRuntimeInspectionArtifact] = Field(
         default_factory=_new_mla_runtime_inspections,

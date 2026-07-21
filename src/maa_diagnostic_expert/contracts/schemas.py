@@ -23,6 +23,7 @@ from .mse import MseProjectPreflightResult, MseTaskResolutionResult
 from .workflow import (
     ArtifactSourceInventory,
     FixCandidate,
+    IncidentComparison,
     IncidentCorrelationDraft,
     IncidentSelection,
     InvestigationPlan,
@@ -52,6 +53,7 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "runtime-identity.schema.json": RuntimeIdentity,
     "incident-selection.schema.json": IncidentSelection,
     "incident-correlation-draft.schema.json": IncidentCorrelationDraft,
+    "incident-comparison.schema.json": IncidentComparison,
     "investigation-plan.schema.json": InvestigationPlan,
     "fix-candidate.schema.json": FixCandidate,
     "verification-plan.schema.json": VerificationPlan,

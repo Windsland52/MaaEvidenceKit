@@ -1,0 +1,270 @@
+{
+  "$defs": {
+    "IncidentComparisonFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/IncidentComparisonFindingKind"
+        },
+        "statement": {
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        },
+        "observed_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Observed Evidence Ids",
+          "type": "array"
+        },
+        "expected_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Expected Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "statement"
+      ],
+      "title": "IncidentComparisonFinding",
+      "type": "object"
+    },
+    "IncidentComparisonFindingKind": {
+      "enum": [
+        "actual_and_expected_available",
+        "expected_task_not_found",
+        "actual_execution_only",
+        "next_list_timeout_at_resolved_node",
+        "action_failure_at_resolved_node",
+        "recognition_activity_at_resolved_node",
+        "repetition_at_resolved_node"
+      ],
+      "title": "IncidentComparisonFindingKind",
+      "type": "string"
+    },
+    "IncidentComparisonStatus": {
+      "enum": [
+        "complete",
+        "partial",
+        "unavailable"
+      ],
+      "title": "IncidentComparisonStatus",
+      "type": "string"
+    },
+    "IncidentExpectedTask": {
+      "additionalProperties": false,
+      "properties": {
+        "source_id": {
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "task_name": {
+          "minLength": 1,
+          "title": "Task Name",
+          "type": "string"
+        },
+        "found_variants": {
+          "minimum": 0,
+          "title": "Found Variants",
+          "type": "integer"
+        },
+        "controllers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Controllers",
+          "type": "array"
+        },
+        "resources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Resources",
+          "type": "array"
+        },
+        "recognition_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Recognition Types",
+          "type": "array"
+        },
+        "action_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Action Types",
+          "type": "array"
+        },
+        "next_targets": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Next Targets",
+          "type": "array"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "source_id",
+        "task_name",
+        "found_variants"
+      ],
+      "title": "IncidentExpectedTask",
+      "type": "object"
+    },
+    "IncidentObservedExecution": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "minLength": 1,
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Id"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        },
+        "task_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Name"
+        },
+        "node_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Node Name"
+        },
+        "failure_kinds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Failure Kinds",
+          "type": "array"
+        },
+        "outcome_kinds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Outcome Kinds",
+          "type": "array"
+        },
+        "signal_kinds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Signal Kinds",
+          "type": "array"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "candidate_id"
+      ],
+      "title": "IncidentObservedExecution",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "default": "incident-comparison/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/IncidentComparisonStatus"
+    },
+    "candidate_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Candidate Ids",
+      "type": "array"
+    },
+    "observed_executions": {
+      "items": {
+        "$ref": "#/$defs/IncidentObservedExecution"
+      },
+      "title": "Observed Executions",
+      "type": "array"
+    },
+    "expected_tasks": {
+      "items": {
+        "$ref": "#/$defs/IncidentExpectedTask"
+      },
+      "title": "Expected Tasks",
+      "type": "array"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/IncidentComparisonFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "missing_evidence": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Evidence",
+      "type": "array"
+    }
+  },
+  "required": [
+    "status"
+  ],
+  "title": "IncidentComparison",
+  "type": "object"
+}

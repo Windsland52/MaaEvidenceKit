@@ -174,6 +174,77 @@ class IncidentCorrelationDraft(ContractModel):
         return self
 
 
+class IncidentComparisonStatus(StrEnum):
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    UNAVAILABLE = "unavailable"
+
+
+class IncidentComparisonFindingKind(StrEnum):
+    ACTUAL_AND_EXPECTED_AVAILABLE = "actual_and_expected_available"
+    EXPECTED_TASK_NOT_FOUND = "expected_task_not_found"
+    ACTUAL_EXECUTION_ONLY = "actual_execution_only"
+    NEXT_LIST_TIMEOUT_AT_RESOLVED_NODE = "next_list_timeout_at_resolved_node"
+    ACTION_FAILURE_AT_RESOLVED_NODE = "action_failure_at_resolved_node"
+    RECOGNITION_ACTIVITY_AT_RESOLVED_NODE = "recognition_activity_at_resolved_node"
+    REPETITION_AT_RESOLVED_NODE = "repetition_at_resolved_node"
+
+
+class IncidentObservedExecution(ContractModel):
+    candidate_id: str = Field(min_length=1)
+    session_id: str | None = None
+    task_id: int | None = None
+    task_name: str | None = None
+    node_name: str | None = None
+    failure_kinds: list[str] = Field(default_factory=_new_strings)
+    outcome_kinds: list[str] = Field(default_factory=_new_strings)
+    signal_kinds: list[str] = Field(default_factory=_new_strings)
+    evidence_ids: list[str] = Field(default_factory=_new_strings)
+
+
+class IncidentExpectedTask(ContractModel):
+    source_id: str = Field(min_length=1)
+    task_name: str = Field(min_length=1)
+    found_variants: int = Field(ge=0)
+    controllers: list[str] = Field(default_factory=_new_strings)
+    resources: list[str] = Field(default_factory=_new_strings)
+    recognition_types: list[str] = Field(default_factory=_new_strings)
+    action_types: list[str] = Field(default_factory=_new_strings)
+    next_targets: list[str] = Field(default_factory=_new_strings)
+    evidence_ids: list[str] = Field(default_factory=_new_strings)
+
+
+class IncidentComparisonFinding(ContractModel):
+    kind: IncidentComparisonFindingKind
+    statement: str = Field(min_length=1)
+    observed_evidence_ids: list[str] = Field(default_factory=_new_strings)
+    expected_evidence_ids: list[str] = Field(default_factory=_new_strings)
+
+
+def _new_observed_executions() -> list[IncidentObservedExecution]:
+    return []
+
+
+def _new_expected_tasks() -> list[IncidentExpectedTask]:
+    return []
+
+
+def _new_comparison_findings() -> list[IncidentComparisonFinding]:
+    return []
+
+
+class IncidentComparison(ContractModel):
+    api_version: str = "incident-comparison/v1"
+    status: IncidentComparisonStatus
+    candidate_ids: list[str] = Field(default_factory=_new_strings)
+    observed_executions: list[IncidentObservedExecution] = Field(
+        default_factory=_new_observed_executions
+    )
+    expected_tasks: list[IncidentExpectedTask] = Field(default_factory=_new_expected_tasks)
+    findings: list[IncidentComparisonFinding] = Field(default_factory=_new_comparison_findings)
+    missing_evidence: list[str] = Field(default_factory=_new_strings)
+
+
 class InvestigationBranch(StrEnum):
     GUI_LOG_OVERVIEW = "gui_log_overview"
     CUSTOM_LOG_OVERVIEW = "custom_log_overview"

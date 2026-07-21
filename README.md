@@ -60,7 +60,9 @@ notable MLA tasks and GUI/custom log occurrences. When candidates exist, a separ
 correlates them with the reported context; Python rejects invented candidate or evidence IDs.
 For relevant candidates that identify a MaaFramework task or pipeline node, the next deterministic
 node performs bounded MSE resolution and adds version-matched, line-backed source evidence before
-final reasoning.
+final reasoning. Python then builds a structured actual/expected comparison that links runtime
+failure, outcome, and high-priority signal evidence to resolved task configuration evidence
+without declaring that the configuration caused the runtime behavior.
 Inputs that are unrelated to MaaFramework logs can therefore bypass MLA. Explicit graph state
 keeps the plan, inspection facts, authoritative evidence, model drafts, failures, and final
 results separate.
@@ -102,7 +104,8 @@ facts to the evidence ledger. Run `pnpm build` first; use `--tool-adapter <path>
 `diagnose` runs the currently implemented pipeline end to end: prepare, classify log sources,
 plan the overview, conditionally inspect with MLA/MSE, identify runtime versions, synthesize evidence,
 generate incident candidates, conditionally correlate the reported issue, resolve focused expected
-pipeline configuration, reason, and validate. It
+pipeline configuration, compare actual execution with expected configuration, reason, and
+validate. It
 uses the deterministic stub reasoning backend by default (no model credentials required). Pass `--events
 <path>` to write the diagnostic event stream as JSON lines alongside the result. When MLA runs,
 the produced `DiagnosisResult` cites evidence IDs that trace back to MLA runtime facts. A request

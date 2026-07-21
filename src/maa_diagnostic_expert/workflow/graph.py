@@ -35,6 +35,9 @@ from maa_diagnostic_expert.discovery.artifact_classification import (
     classify_artifact_sources,
 )
 from maa_diagnostic_expert.discovery.preparation import prepare_analysis
+from maa_diagnostic_expert.inspection.incident_comparison import (
+    compare_incident_execution,
+)
 from maa_diagnostic_expert.inspection.log_overview import (
     LogOverviewCollection,
     build_log_overviews,
@@ -653,6 +656,39 @@ class DiagnosticWorkflow:
     @staticmethod
     def _after_inspect_expected_pipeline(
         state: DiagnosticState,
+    ) -> Literal["compare_incident", "fail"]:
+        return "fail" if "error_message" in state else "compare_incident"
+
+    @staticmethod
+    def _compare_incident_node(state: DiagnosticState) -> _DiagnosticStateUpdate:
+        try:
+            inspection = state.get("inspection")
+            correlation = state.get("incident_correlation")
+            if inspection is None or correlation is None:
+                raise RuntimeError("incident comparison requires inspection and correlation")
+            inspection = compare_incident_execution(inspection, correlation)
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("compare_incident", error)
+
+        comparison = inspection.incident_comparison
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.STAGE_COMPLETED,
+                stage="compare_incident",
+                message="Actual execution and expected pipeline facts compared",
+                data={
+                    "status": comparison.status.value,
+                    "observed": len(comparison.observed_executions),
+                    "expected": len(comparison.expected_tasks),
+                    "findings": len(comparison.findings),
+                },
+            )
+        )
+        return {"inspection": inspection}
+
+    @staticmethod
+    def _after_compare_incident(
+        state: DiagnosticState,
     ) -> Literal["reason", "fail"]:
         return "fail" if "error_message" in state else "reason"
 
@@ -670,6 +706,7 @@ class DiagnosticWorkflow:
                 evidence,
                 inspection.incident_selection,
                 state.get("incident_correlation"),
+                inspection.incident_comparison,
             )
 
             _emit(
@@ -804,6 +841,7 @@ class DiagnosticWorkflow:
             "inspect_expected_pipeline",
             self._inspect_expected_pipeline_node,
         )
+        _add_graph_node(graph, "compare_incident", self._compare_incident_node)
         _add_graph_node(graph, "reason", self._reason_node)
         _add_graph_node(graph, "validate", self._validate_node)
         _add_graph_node(graph, "fail", self._fail_node)
@@ -824,6 +862,7 @@ class DiagnosticWorkflow:
             "inspect_expected_pipeline",
             self._after_inspect_expected_pipeline,
         )
+        graph.add_conditional_edges("compare_incident", self._after_compare_incident)
         graph.add_conditional_edges("reason", self._after_reason)
         graph.add_conditional_edges("validate", self._after_validate)
         graph.add_edge("fail", END)
