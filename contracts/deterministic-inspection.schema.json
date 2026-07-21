@@ -2336,6 +2336,121 @@
       "title": "RevisionResolutionStatus",
       "type": "string"
     },
+    "RuntimeComponent": {
+      "enum": [
+        "project",
+        "gui",
+        "maa_framework"
+      ],
+      "title": "RuntimeComponent",
+      "type": "string"
+    },
+    "RuntimeIdentity": {
+      "additionalProperties": false,
+      "description": "Version observations remain scoped to their source and optional session.",
+      "properties": {
+        "api_version": {
+          "default": "runtime-identity/v1",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "versions": {
+          "items": {
+            "$ref": "#/$defs/RuntimeVersionObservation"
+          },
+          "title": "Versions",
+          "type": "array"
+        }
+      },
+      "title": "RuntimeIdentity",
+      "type": "object"
+    },
+    "RuntimeVersionObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "component": {
+          "$ref": "#/$defs/RuntimeComponent"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/VersionObservationKind"
+        },
+        "source_ref": {
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "line_number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line Number"
+        },
+        "evidence_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Id"
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Id"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        }
+      },
+      "required": [
+        "component",
+        "version",
+        "kind",
+        "source_ref",
+        "confidence"
+      ],
+      "title": "RuntimeVersionObservation",
+      "type": "object"
+    },
     "SourceInput": {
       "additionalProperties": false,
       "properties": {
@@ -2448,12 +2563,21 @@
       ],
       "title": "SourceSnapshot",
       "type": "object"
+    },
+    "VersionObservationKind": {
+      "enum": [
+        "observed",
+        "resolved",
+        "user_declared"
+      ],
+      "title": "VersionObservationKind",
+      "type": "string"
     }
   },
   "additionalProperties": false,
   "properties": {
     "api_version": {
-      "default": "deterministic-inspection/v2",
+      "default": "deterministic-inspection/v3",
       "title": "Api Version",
       "type": "string"
     },
@@ -2462,6 +2586,9 @@
     },
     "log_overviews": {
       "$ref": "#/$defs/LogOverviewCollection"
+    },
+    "runtime_identity": {
+      "$ref": "#/$defs/RuntimeIdentity"
     },
     "mla_preflights": {
       "items": {

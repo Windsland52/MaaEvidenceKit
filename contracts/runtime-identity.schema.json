@@ -28,6 +28,19 @@
           "title": "Source Ref",
           "type": "string"
         },
+        "line_number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line Number"
+        },
         "evidence_id": {
           "anyOf": [
             {

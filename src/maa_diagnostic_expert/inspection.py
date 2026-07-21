@@ -30,8 +30,9 @@ from .mla_contracts import (
     MlaRuntimeInspectionResult,
 )
 from .preparation import prepare_analysis
+from .runtime_identity import extract_runtime_identity, synthesize_runtime_identity_evidence
 from .tool_adapter_client import ToolAdapterInvocationError
-from .workflow_contracts import ArtifactSourceInventory, ArtifactSourceKind
+from .workflow_contracts import ArtifactSourceInventory, ArtifactSourceKind, RuntimeIdentity
 
 
 class ToolCaller(Protocol):
@@ -63,9 +64,10 @@ def _new_synthesized_evidence() -> list[Evidence]:
 
 
 class DeterministicInspection(ContractModel):
-    api_version: str = "deterministic-inspection/v2"
+    api_version: str = "deterministic-inspection/v3"
     prepared: PreparedAnalysis
     log_overviews: LogOverviewCollection = Field(default_factory=LogOverviewCollection)
+    runtime_identity: RuntimeIdentity = Field(default_factory=RuntimeIdentity)
     mla_preflights: list[MlaArtifactInspection] = Field(default_factory=_new_mla_preflights)
     mla_runtime_inspections: list[MlaRuntimeInspectionArtifact] = Field(
         default_factory=_new_mla_runtime_inspections,
@@ -97,6 +99,7 @@ def inspect_analysis(
     inventory = classify_artifact_sources(prepared)
     overviews = build_log_overviews(prepared, inventory)
     inspection = inspect_prepared_analysis(prepared, tool_caller, overviews, inventory)
+    inspection = attach_runtime_identity(inspection)
     return synthesize_inspection_evidence(inspection)
 
 
@@ -192,7 +195,13 @@ def synthesize_inspection_evidence(
 ) -> DeterministicInspection:
     """Attach project-owned evidence records derived from deterministic facts."""
     evidence = [
+        *synthesize_runtime_identity_evidence(inspection.runtime_identity),
         *synthesize_log_overview_evidence(inspection.log_overviews),
         *synthesize_evidence(inspection.mla_runtime_inspections),
     ]
     return inspection.model_copy(update={"synthesized_evidence": evidence})
+
+
+def attach_runtime_identity(inspection: DeterministicInspection) -> DeterministicInspection:
+    identity = extract_runtime_identity(inspection.mla_preflights)
+    return inspection.model_copy(update={"runtime_identity": identity})

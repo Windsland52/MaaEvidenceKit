@@ -60,6 +60,7 @@ class RuntimeVersionObservation(ContractModel):
     version: str = Field(min_length=1)
     kind: VersionObservationKind
     source_ref: str = Field(min_length=1)
+    line_number: int | None = Field(default=None, ge=1)
     evidence_id: str | None = None
     session_id: str | None = None
     observed_at: datetime | None = None
@@ -75,6 +76,13 @@ class RuntimeIdentity(ContractModel):
 
     api_version: str = "runtime-identity/v1"
     versions: list[RuntimeVersionObservation] = Field(default_factory=_new_version_observations)
+
+    @model_validator(mode="after")
+    def require_unique_evidence_ids(self) -> RuntimeIdentity:
+        evidence_ids = [item.evidence_id for item in self.versions if item.evidence_id is not None]
+        if len(evidence_ids) != len(set(evidence_ids)):
+            raise ValueError("Runtime version evidence IDs must be unique")
+        return self
 
 
 class IncidentSelectionStatus(StrEnum):

@@ -29,6 +29,7 @@ from .domain import (
 from .inspection import (
     DeterministicInspection,
     ToolCaller,
+    attach_runtime_identity,
     inspect_prepared_analysis,
     synthesize_inspection_evidence,
 )
@@ -413,7 +414,31 @@ class DiagnosticWorkflow:
         return {"inspection": inspection}
 
     @staticmethod
-    def _after_inspect(state: DiagnosticState) -> Literal["synthesize", "fail"]:
+    def _after_inspect(state: DiagnosticState) -> Literal["identify_runtime", "fail"]:
+        return "fail" if "error_message" in state else "identify_runtime"
+
+    @staticmethod
+    def _identify_runtime_node(state: DiagnosticState) -> _DiagnosticStateUpdate:
+        try:
+            inspection = state.get("inspection")
+            if inspection is None:
+                raise RuntimeError("runtime identity extraction requires deterministic inspection")
+            inspection = attach_runtime_identity(inspection)
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("identify_runtime", error)
+
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.STAGE_COMPLETED,
+                stage="identify_runtime",
+                message="Runtime version observations extracted",
+                data={"versions": len(inspection.runtime_identity.versions)},
+            )
+        )
+        return {"inspection": inspection}
+
+    @staticmethod
+    def _after_identify_runtime(state: DiagnosticState) -> Literal["synthesize", "fail"]:
         return "fail" if "error_message" in state else "synthesize"
 
     def _synthesize_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
@@ -588,6 +613,7 @@ class DiagnosticWorkflow:
         _add_graph_node(graph, "overview_logs", self._overview_logs_node)
         _add_graph_node(graph, "inspect", self._inspect_node)
         _add_graph_node(graph, "initialize_inspection", self._initialize_inspection_node)
+        _add_graph_node(graph, "identify_runtime", self._identify_runtime_node)
         _add_graph_node(graph, "synthesize", self._synthesize_node)
         _add_graph_node(graph, "reason", self._reason_node)
         _add_graph_node(graph, "validate", self._validate_node)
@@ -599,8 +625,9 @@ class DiagnosticWorkflow:
         graph.add_conditional_edges("classify_artifacts", self._after_classify_artifacts)
         graph.add_conditional_edges("plan_overview", self._after_plan_overview)
         graph.add_conditional_edges("overview_logs", self._after_overview_logs)
-        graph.add_edge("initialize_inspection", "synthesize")
+        graph.add_edge("initialize_inspection", "identify_runtime")
         graph.add_conditional_edges("inspect", self._after_inspect)
+        graph.add_conditional_edges("identify_runtime", self._after_identify_runtime)
         graph.add_conditional_edges("synthesize", self._after_synthesize)
         graph.add_conditional_edges("reason", self._after_reason)
         graph.add_conditional_edges("validate", self._after_validate)

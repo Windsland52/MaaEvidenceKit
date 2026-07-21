@@ -23,8 +23,9 @@ start -> prepare -> classify_artifacts -> plan_overview
                                              |-> overview_logs -> inspect-+
                                              |                    |       |
                                              +--------------------+-> initialize_inspection
-                                                                      |-> synthesize -> reason -> validate -> complete
-                                             +-----------------------------------------------> fail
+                                                                      |-> identify_runtime
+                                                                          |-> synthesize -> reason -> validate -> complete
+                                             +-----------------------------------------------------> fail
 ```
 
 `classify_artifacts` reads only bounded head/tail samples and records the classifier and signals
@@ -34,6 +35,10 @@ classified GUI/custom log selects bounded `overview_logs`. A classified MaaFrame
 eligible ZIP then selects `inspect`; otherwise
 `initialize_inspection` creates an empty deterministic inspection and bypasses MLA. This prevents
 the workflow from treating every issue as a MaaFramework-log problem.
+
+Both paths then enter `identify_runtime`. MLA-backed inspections retain MaaFramework version
+observations by source, session, timestamp, and line instead of flattening a log containing
+multiple runtime versions. The empty path produces an empty identity without inventing a version.
 
 Future MSE, dump, source, and knowledge branches are present in the planning contract before they
 have executable nodes. Such decisions use `deferred`; a branch may

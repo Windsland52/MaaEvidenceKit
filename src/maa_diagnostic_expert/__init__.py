@@ -77,6 +77,10 @@ from .reasoning import (
     make_stub_backend,
 )
 from .report import render_markdown_report
+from .runtime_identity import (
+    extract_runtime_identity,
+    synthesize_runtime_identity_evidence,
+)
 from .workflow import DiagnosticWorkflow
 from .workflow_contracts import (
     AnalysisRelevance,
@@ -188,10 +192,12 @@ __all__ = [
     "collect_log_overview_missing_evidence",
     "classify_artifact_sources",
     "finalize_diagnosis_draft",
+    "extract_runtime_identity",
     "make_stub_backend",
     "make_langchain_backend",
     "render_markdown_report",
     "synthesize_evidence",
     "synthesize_log_overview_evidence",
+    "synthesize_runtime_identity_evidence",
     "validate_result_against_inspection",
 ]

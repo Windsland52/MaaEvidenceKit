@@ -234,6 +234,7 @@ def test_stream_emits_events_in_order(tmp_path: Path) -> None:
         "classify_artifacts",
         "plan_overview",
         "inspect",
+        "identify_runtime",
         "synthesize",
         "validate",
     ]

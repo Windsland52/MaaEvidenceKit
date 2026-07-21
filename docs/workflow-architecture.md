@@ -119,6 +119,7 @@ Implemented now:
 - bounded GUI/custom overview statistics and traceable warning/error occurrences;
 - typed initial investigation planning;
 - conditional MLA preflight/runtime inspection;
+- source- and session-scoped MaaFramework runtime-version extraction with line-backed evidence;
 - empty deterministic inspection for non-MLA inputs;
 - evidence synthesis, pluggable model reasoning, citation validation, and diagnostic events.
 
@@ -128,7 +129,7 @@ Represented by contracts but deferred:
 - incident candidate generation and selection nodes;
 - MSE project and pipeline preflight;
 - dump analysis;
-- version extraction and revision-matched source investigation;
+- project/GUI version extraction and revision-matched source investigation;
 - scoped `AGENTS.md` resolution;
 - knowledge/Wiki search;
 - bounded evidence-query loops, fix execution, and verification nodes.

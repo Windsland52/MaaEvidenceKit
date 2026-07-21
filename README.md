@@ -40,8 +40,9 @@ secondary signals, context task/session summaries).
 
 The diagnostic workflow uses LangGraph behind a single `DiagnosticWorkflow`. Its current graph
 prepares the input, classifies log sources from bounded samples, records an initial investigation
-plan, conditionally runs MLA when a supplied artifact is eligible, synthesizes authoritative
-evidence, reasons, and validates the result.
+plan, conditionally runs MLA when a supplied artifact is eligible, extracts source- and
+session-scoped MaaFramework versions, synthesizes authoritative evidence, reasons, and validates
+the result.
 Inputs that are unrelated to MaaFramework logs can therefore bypass MLA. Explicit graph state
 keeps the plan, inspection facts, authoritative evidence, model drafts, failures, and final
 results separate.
@@ -75,11 +76,13 @@ characters from an authorized path.
 `inspect` is the single-command deterministic path. It prepares the request, classifies log
 sources, builds bounded GUI/custom overviews, and calls MLA only for classified MaaFramework logs,
 their containing input directories, or explicit ZIP inputs. It validates returned MLA facts with
-the Python `MlaPreflightResult` contract. Run `pnpm build` first; use `--tool-adapter <path>` or
+the Python `MlaPreflightResult` contract and retains each MaaFramework version with its source,
+session, timestamp, and source line where available. Run `pnpm build` first; use `--tool-adapter <path>` or
 `MDE_TOOL_ADAPTER_PATH` for a non-default adapter location.
 
 `diagnose` runs the currently implemented pipeline end to end: prepare, classify log sources,
-plan the overview, conditionally inspect with MLA, synthesize evidence, reason, and validate. It
+plan the overview, conditionally inspect with MLA, identify runtime versions, synthesize evidence,
+reason, and validate. It
 uses the deterministic stub reasoning backend by default (no model credentials required). Pass `--events
 <path>` to write the diagnostic event stream as JSON lines alongside the result. When MLA runs,
 the produced `DiagnosisResult` cites evidence IDs that trace back to MLA runtime facts. A request
