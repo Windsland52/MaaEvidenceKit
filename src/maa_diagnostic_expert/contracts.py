@@ -18,6 +18,7 @@ from .inspection import DeterministicInspection
 from .mla_contracts import MlaPreflightResult, MlaRuntimeInspectionResult
 from .model_config import ModelConfig
 from .workflow_contracts import (
+    ArtifactSourceInventory,
     FixCandidate,
     IncidentSelection,
     InvestigationPlan,
@@ -40,6 +41,7 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "mla-preflight.schema.json": MlaPreflightResult,
     "mla-runtime-inspection.schema.json": MlaRuntimeInspectionResult,
     "model-config.schema.json": ModelConfig,
+    "artifact-source-inventory.schema.json": ArtifactSourceInventory,
     "runtime-identity.schema.json": RuntimeIdentity,
     "incident-selection.schema.json": IncidentSelection,
     "investigation-plan.schema.json": InvestigationPlan,

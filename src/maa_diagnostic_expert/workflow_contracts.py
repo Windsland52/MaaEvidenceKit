@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from pathlib import Path
 
 from pydantic import Field, model_validator
 
@@ -12,6 +13,40 @@ class RuntimeComponent(StrEnum):
     PROJECT = "project"
     GUI = "gui"
     MAA_FRAMEWORK = "maa_framework"
+
+
+class ArtifactSourceKind(StrEnum):
+    MAA_FRAMEWORK = "maa_framework"
+    GUI = "gui"
+    CUSTOM = "custom"
+    UNKNOWN = "unknown"
+
+
+class ArtifactSourceClassification(ContractModel):
+    artifact_id: str = Field(min_length=1)
+    path: Path
+    source_kind: ArtifactSourceKind
+    confidence: float = Field(ge=0, le=1)
+    classifier_id: str = Field(min_length=1)
+    signals: list[str] = Field(min_length=1)
+
+
+def _new_artifact_classifications() -> list[ArtifactSourceClassification]:
+    return []
+
+
+class ArtifactSourceInventory(ContractModel):
+    api_version: str = "artifact-source-inventory/v1"
+    classifications: list[ArtifactSourceClassification] = Field(
+        default_factory=_new_artifact_classifications
+    )
+
+    @model_validator(mode="after")
+    def require_unique_artifacts(self) -> ArtifactSourceInventory:
+        artifact_ids = [item.artifact_id for item in self.classifications]
+        if len(artifact_ids) != len(set(artifact_ids)):
+            raise ValueError("Artifact source classifications must be unique by artifact ID")
+        return self
 
 
 class VersionObservationKind(StrEnum):

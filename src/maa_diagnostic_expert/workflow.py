@@ -13,6 +13,7 @@ from langgraph.graph.state import (  # pyright: ignore[reportMissingTypeStubs]
 )
 
 from .agent import ReasoningBackend, ReasoningContext
+from .artifact_classification import LogSourceProfile, classify_artifact_sources
 from .diagnosis_validation import collect_inspection_evidence, finalize_diagnosis_draft
 from .domain import (
     AnalysisRequest,
@@ -34,6 +35,7 @@ from .inspection import (
 from .preparation import prepare_analysis
 from .reasoning import build_reasoning_context
 from .workflow_contracts import (
+    ArtifactSourceInventory,
     BranchDisposition,
     InvestigationBranch,
     InvestigationPlan,
@@ -52,6 +54,7 @@ class DiagnosticState(TypedDict):
 
     request: AnalysisRequest
     prepared: NotRequired[PreparedAnalysis]
+    artifact_sources: NotRequired[ArtifactSourceInventory]
     plan: NotRequired[InvestigationPlan]
     inspection: NotRequired[DeterministicInspection]
     evidence: NotRequired[list[Evidence]]
@@ -64,6 +67,7 @@ class DiagnosticState(TypedDict):
 
 class _DiagnosticStateUpdate(TypedDict, total=False):
     prepared: PreparedAnalysis
+    artifact_sources: ArtifactSourceInventory
     plan: InvestigationPlan
     inspection: DeterministicInspection
     evidence: list[Evidence]
@@ -145,6 +149,7 @@ class DiagnosticWorkflow:
 
     tool_caller: ToolCaller
     reasoning_backend: ReasoningBackend
+    source_profiles: tuple[LogSourceProfile, ...] = ()
     run_id: str = field(default_factory=_new_run_id)
     _cancelled: set[str] = field(default_factory=set[str], init=False, repr=False)
     _result: DiagnosisResult | None = field(default=None, init=False, repr=False)
@@ -211,7 +216,36 @@ class DiagnosticWorkflow:
         return {"prepared": prepared}
 
     @staticmethod
-    def _after_prepare(state: DiagnosticState) -> Literal["plan_overview", "fail"]:
+    def _after_prepare(state: DiagnosticState) -> Literal["classify_artifacts", "fail"]:
+        return "fail" if "error_message" in state else "classify_artifacts"
+
+    def _classify_artifacts_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
+        try:
+            prepared = state.get("prepared")
+            if prepared is None:
+                raise RuntimeError("artifact classification requires prepared diagnostic inputs")
+            inventory = classify_artifact_sources(prepared, self.source_profiles)
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("classify_artifacts", error)
+
+        counts: dict[str, JsonValue] = {
+            kind: sum(item.source_kind.value == kind for item in inventory.classifications)
+            for kind in ("maa_framework", "gui", "custom", "unknown")
+        }
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.STAGE_COMPLETED,
+                stage="classify_artifacts",
+                message="Log artifact sources classified",
+                data=counts,
+            )
+        )
+        return {"artifact_sources": inventory}
+
+    @staticmethod
+    def _after_classify_artifacts(
+        state: DiagnosticState,
+    ) -> Literal["plan_overview", "fail"]:
         return "fail" if "error_message" in state else "plan_overview"
 
     def _plan_overview_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
@@ -219,7 +253,10 @@ class DiagnosticWorkflow:
             prepared = state.get("prepared")
             if prepared is None:
                 raise RuntimeError("overview planning requires prepared diagnostic inputs")
-            plan = plan_initial_investigation(prepared)
+            inventory = state.get("artifact_sources")
+            if inventory is None:
+                raise RuntimeError("overview planning requires artifact source classification")
+            plan = plan_initial_investigation(prepared, inventory)
         except Exception as error:  # noqa: BLE001
             return _failure_update("plan_overview", error)
 
@@ -473,6 +510,7 @@ class DiagnosticWorkflow:
         graph = StateGraph(DiagnosticState)
         _add_graph_node(graph, "start", self._start_node)
         _add_graph_node(graph, "prepare", self._prepare_node)
+        _add_graph_node(graph, "classify_artifacts", self._classify_artifacts_node)
         _add_graph_node(graph, "plan_overview", self._plan_overview_node)
         _add_graph_node(graph, "inspect", self._inspect_node)
         _add_graph_node(graph, "initialize_inspection", self._initialize_inspection_node)
@@ -484,6 +522,7 @@ class DiagnosticWorkflow:
         graph.add_edge(START, "start")
         graph.add_edge("start", "prepare")
         graph.add_conditional_edges("prepare", self._after_prepare)
+        graph.add_conditional_edges("classify_artifacts", self._after_classify_artifacts)
         graph.add_conditional_edges("plan_overview", self._after_plan_overview)
         graph.add_edge("initialize_inspection", "synthesize")
         graph.add_conditional_edges("inspect", self._after_inspect)

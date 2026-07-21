@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .artifact_classification import classify_artifact_sources
 from .domain import (
     ArtifactAvailability,
     ArtifactMediaKind,
@@ -9,6 +10,8 @@ from .domain import (
 )
 from .workflow_contracts import (
     AnalysisRelevance,
+    ArtifactSourceInventory,
+    ArtifactSourceKind,
     BranchDecision,
     BranchDisposition,
     InvestigationBranch,
@@ -16,18 +19,52 @@ from .workflow_contracts import (
 )
 
 
-def _has_mla_candidate(prepared: PreparedAnalysis) -> bool:
+def _has_mla_candidate(
+    prepared: PreparedAnalysis,
+    inventory: ArtifactSourceInventory,
+) -> bool:
+    if any(
+        item.source_kind is ArtifactSourceKind.MAA_FRAMEWORK for item in inventory.classifications
+    ):
+        return True
     for artifact in prepared.artifacts:
         if artifact.availability is not ArtifactAvailability.AVAILABLE:
             continue
-        if artifact.media_kind is ArtifactMediaKind.LOG:
-            return True
         if (
             artifact.media_kind is ArtifactMediaKind.ARCHIVE
             and artifact.path.suffix.lower() == ".zip"
         ):
             return True
     return False
+
+
+def _log_branch_decision(
+    inventory: ArtifactSourceInventory,
+    *,
+    branch: InvestigationBranch,
+    source_kind: ArtifactSourceKind,
+    label: str,
+) -> BranchDecision:
+    if any(item.source_kind is source_kind for item in inventory.classifications):
+        return BranchDecision(
+            branch=branch,
+            disposition=BranchDisposition.DEFERRED,
+            relevance=AnalysisRelevance.USEFUL,
+            reason=f"At least one {label} log was classified; overview analysis is pending.",
+        )
+    if any(item.source_kind is ArtifactSourceKind.UNKNOWN for item in inventory.classifications):
+        return BranchDecision(
+            branch=branch,
+            disposition=BranchDisposition.UNAVAILABLE,
+            relevance=AnalysisRelevance.UNDETERMINED,
+            reason=f"Unclassified logs remain; a {label} source profile may be required.",
+        )
+    return BranchDecision(
+        branch=branch,
+        disposition=BranchDisposition.SKIP,
+        relevance=AnalysisRelevance.NOT_RELEVANT,
+        reason=f"No supplied log was classified as {label}.",
+    )
 
 
 def _has_available_dump(prepared: PreparedAnalysis) -> bool:
@@ -45,9 +82,13 @@ def _has_resolved_source(prepared: PreparedAnalysis, role: SourceRole) -> bool:
     )
 
 
-def plan_initial_investigation(prepared: PreparedAnalysis) -> InvestigationPlan:
+def plan_initial_investigation(
+    prepared: PreparedAnalysis,
+    inventory: ArtifactSourceInventory | None = None,
+) -> InvestigationPlan:
     """Plan the currently available overview branches without inferring a diagnosis."""
-    mla_candidate = _has_mla_candidate(prepared)
+    source_inventory = classify_artifact_sources(prepared) if inventory is None else inventory
+    mla_candidate = _has_mla_candidate(prepared, source_inventory)
     project_source = _has_resolved_source(prepared, SourceRole.PROJECT)
     gui_source = _has_resolved_source(prepared, SourceRole.GUI)
     framework_source = _has_resolved_source(prepared, SourceRole.MAA_FRAMEWORK)
@@ -55,17 +96,17 @@ def plan_initial_investigation(prepared: PreparedAnalysis) -> InvestigationPlan:
 
     return InvestigationPlan(
         decisions=[
-            BranchDecision(
+            _log_branch_decision(
+                source_inventory,
                 branch=InvestigationBranch.GUI_LOG_OVERVIEW,
-                disposition=BranchDisposition.DEFERRED,
-                relevance=AnalysisRelevance.UNDETERMINED,
-                reason="GUI log source classification is not implemented yet.",
+                source_kind=ArtifactSourceKind.GUI,
+                label="GUI",
             ),
-            BranchDecision(
+            _log_branch_decision(
+                source_inventory,
                 branch=InvestigationBranch.CUSTOM_LOG_OVERVIEW,
-                disposition=BranchDisposition.DEFERRED,
-                relevance=AnalysisRelevance.UNDETERMINED,
-                reason="Custom log source classification is not implemented yet.",
+                source_kind=ArtifactSourceKind.CUSTOM,
+                label="custom",
             ),
             BranchDecision(
                 branch=InvestigationBranch.MLA_GLOBAL_OVERVIEW,
@@ -74,7 +115,7 @@ def plan_initial_investigation(prepared: PreparedAnalysis) -> InvestigationPlan:
                     AnalysisRelevance.USEFUL if mla_candidate else AnalysisRelevance.NOT_RELEVANT
                 ),
                 reason=(
-                    "An explicit directory, log, or zip artifact can be checked by MLA."
+                    "A classified MaaFramework log or explicit ZIP can be checked by MLA."
                     if mla_candidate
                     else "No explicit artifact is eligible for MLA inspection."
                 ),

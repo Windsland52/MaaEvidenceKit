@@ -1,4 +1,9 @@
 from .agent import DiagnosticAgent, ReasoningBackend, ReasoningContext, ReasoningSession
+from .artifact_classification import (
+    LogClassificationMatch,
+    LogSourceProfile,
+    classify_artifact_sources,
+)
 from .diagnosis_validation import (
     collect_inspection_evidence,
     finalize_diagnosis_draft,
@@ -64,6 +69,9 @@ from .report import render_markdown_report
 from .workflow import DiagnosticWorkflow
 from .workflow_contracts import (
     AnalysisRelevance,
+    ArtifactSourceClassification,
+    ArtifactSourceInventory,
+    ArtifactSourceKind,
     BranchDecision,
     BranchDisposition,
     FixCandidate,
@@ -87,6 +95,9 @@ from .workflow_contracts import (
 __all__ = [
     "AnalysisRequest",
     "AnalysisRelevance",
+    "ArtifactSourceClassification",
+    "ArtifactSourceInventory",
+    "ArtifactSourceKind",
     "ArtifactAvailability",
     "ArtifactInput",
     "ArtifactKind",
@@ -119,6 +130,8 @@ __all__ = [
     "LangChainReasoningBackend",
     "LangChainReasoningSession",
     "ModelConfig",
+    "LogClassificationMatch",
+    "LogSourceProfile",
     "PreparedAnalysis",
     "ReasoningBackend",
     "ReasoningContext",
@@ -154,6 +167,7 @@ __all__ = [
     "VersionObservationKind",
     "build_reasoning_context",
     "collect_inspection_evidence",
+    "classify_artifact_sources",
     "finalize_diagnosis_draft",
     "make_stub_backend",
     "make_langchain_backend",

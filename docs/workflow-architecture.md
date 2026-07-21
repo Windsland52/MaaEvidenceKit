@@ -115,6 +115,7 @@ checks adjacent scenarios for regressions.
 Implemented now:
 
 - explicit artifact and source preparation;
+- bounded log-source classification with MaaFramework signatures and optional source profiles;
 - typed initial investigation planning;
 - conditional MLA preflight/runtime inspection;
 - empty deterministic inspection for non-MLA inputs;
@@ -122,7 +123,7 @@ Implemented now:
 
 Represented by contracts but deferred:
 
-- GUI/custom-log classification and overview;
+- GUI/custom-log overview and additional real-world source profiles;
 - incident candidate generation and selection nodes;
 - MSE project and pipeline preflight;
 - dump analysis;

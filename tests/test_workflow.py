@@ -231,6 +231,7 @@ def test_stream_emits_events_in_order(tmp_path: Path) -> None:
     assert DiagnosticEventKind.MODEL_COMPLETED in kinds
     assert completed_stages == [
         "prepare",
+        "classify_artifacts",
         "plan_overview",
         "inspect",
         "synthesize",
@@ -299,3 +300,23 @@ def test_workflow_skips_mla_when_only_image_is_supplied(tmp_path: Path) -> None:
     assert any(event.stage == "inspect" and "skipped" in event.message for event in events)
     assert workflow.result is not None
     assert workflow.result.status is DiagnosisStatus.INSUFFICIENT_EVIDENCE
+
+
+def test_workflow_does_not_send_custom_log_to_mla(tmp_path: Path) -> None:
+    custom = tmp_path / "custom"
+    custom.mkdir()
+    log = custom / "agent.log"
+    log.write_text("custom agent event\n", encoding="utf-8")
+    caller = _ToolCaller()
+    workflow = DiagnosticWorkflow(caller, StubReasoningBackend())
+    request = AnalysisRequest(
+        question="Inspect the custom agent failure.",
+        artifacts=[ArtifactInput(path=log, kind=ArtifactKind.FILE)],
+    )
+
+    events = _collect_events(workflow, request)
+
+    assert caller.calls == []
+    assert any(
+        event.stage == "classify_artifacts" and event.data["custom"] == 1 for event in events
+    )

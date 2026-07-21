@@ -19,17 +19,18 @@ inspection, authoritative evidence, model-produced draft, final result, and fail
 The current graph introduces explicit overview planning and makes MLA conditional:
 
 ```text
-start -> prepare -> plan_overview -> inspect -------------+-> synthesize -> reason -> validate -> complete
-                           |                              |
-                           +-> initialize_inspection -----+
-                           |
-                           +-----------------------------------------------> fail
+start -> prepare -> classify_artifacts -> plan_overview
+                                             |-> inspect -----------------+
+                                             +-> initialize_inspection ---+-> synthesize -> reason -> validate -> complete
+                                             +-----------------------------------------------> fail
 ```
 
-`plan_overview` records typed branch decisions before executing an analyzer. An eligible explicit
-log, ZIP, or directory input selects `inspect`; otherwise `initialize_inspection` creates an empty
-deterministic inspection and bypasses MLA. This prevents the workflow from treating every issue as
-a MaaFramework-log problem.
+`classify_artifacts` reads only bounded head/tail samples and records the classifier and signals
+for each log. Known project or GUI formats are supplied through source profiles; unmatched logs
+remain unknown. `plan_overview` records typed branch decisions before executing an analyzer. A
+classified MaaFramework log or eligible ZIP selects `inspect`; otherwise
+`initialize_inspection` creates an empty deterministic inspection and bypasses MLA. This prevents
+the workflow from treating every issue as a MaaFramework-log problem.
 
 Future GUI/custom-log overview, MSE, dump, source, and knowledge branches are present in the
 planning contract before they have executable nodes. Such decisions use `deferred`; a branch may
