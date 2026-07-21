@@ -33,6 +33,12 @@ from .inspection import (
 )
 from .preparation import prepare_analysis
 from .reasoning import build_reasoning_context
+from .workflow_contracts import (
+    BranchDisposition,
+    InvestigationBranch,
+    InvestigationPlan,
+)
+from .workflow_planning import plan_initial_investigation
 
 _DEFAULT_QUESTION = "Diagnose the runtime failures and their likely causes."
 
@@ -46,6 +52,7 @@ class DiagnosticState(TypedDict):
 
     request: AnalysisRequest
     prepared: NotRequired[PreparedAnalysis]
+    plan: NotRequired[InvestigationPlan]
     inspection: NotRequired[DeterministicInspection]
     evidence: NotRequired[list[Evidence]]
     draft: NotRequired[DiagnosisDraft]
@@ -57,6 +64,7 @@ class DiagnosticState(TypedDict):
 
 class _DiagnosticStateUpdate(TypedDict, total=False):
     prepared: PreparedAnalysis
+    plan: InvestigationPlan
     inspection: DeterministicInspection
     evidence: list[Evidence]
     draft: DiagnosisDraft
@@ -203,8 +211,64 @@ class DiagnosticWorkflow:
         return {"prepared": prepared}
 
     @staticmethod
-    def _after_prepare(state: DiagnosticState) -> Literal["inspect", "fail"]:
-        return "fail" if "error_message" in state else "inspect"
+    def _after_prepare(state: DiagnosticState) -> Literal["plan_overview", "fail"]:
+        return "fail" if "error_message" in state else "plan_overview"
+
+    def _plan_overview_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
+        try:
+            prepared = state.get("prepared")
+            if prepared is None:
+                raise RuntimeError("overview planning requires prepared diagnostic inputs")
+            plan = plan_initial_investigation(prepared)
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("plan_overview", error)
+
+        run_count = sum(
+            decision.disposition is BranchDisposition.RUN for decision in plan.decisions
+        )
+        deferred_count = sum(
+            decision.disposition is BranchDisposition.DEFERRED for decision in plan.decisions
+        )
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.STAGE_COMPLETED,
+                stage="plan_overview",
+                message="Initial investigation branches planned",
+                data={"run": run_count, "deferred": deferred_count},
+            )
+        )
+        return {"plan": plan}
+
+    @staticmethod
+    def _after_plan_overview(
+        state: DiagnosticState,
+    ) -> Literal["inspect", "initialize_inspection", "fail"]:
+        if "error_message" in state:
+            return "fail"
+        plan = state.get("plan")
+        if plan is None:
+            return "fail"
+        mla = plan.decision_for(InvestigationBranch.MLA_GLOBAL_OVERVIEW)
+        return "inspect" if mla.disposition is BranchDisposition.RUN else "initialize_inspection"
+
+    @staticmethod
+    def _initialize_inspection_node(state: DiagnosticState) -> _DiagnosticStateUpdate:
+        prepared = state.get("prepared")
+        if prepared is None:
+            return _failure_update(
+                "initialize_inspection",
+                RuntimeError("inspection initialization requires prepared inputs"),
+            )
+        inspection = DeterministicInspection(prepared=prepared)
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.STAGE_COMPLETED,
+                stage="inspect",
+                message="MLA inspection skipped because no eligible artifact was found",
+                data={"preflights": 0, "runtime_inspections": 0, "missing": 0},
+            )
+        )
+        return {"inspection": inspection}
 
     def _inspect_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
         try:
@@ -409,7 +473,9 @@ class DiagnosticWorkflow:
         graph = StateGraph(DiagnosticState)
         _add_graph_node(graph, "start", self._start_node)
         _add_graph_node(graph, "prepare", self._prepare_node)
+        _add_graph_node(graph, "plan_overview", self._plan_overview_node)
         _add_graph_node(graph, "inspect", self._inspect_node)
+        _add_graph_node(graph, "initialize_inspection", self._initialize_inspection_node)
         _add_graph_node(graph, "synthesize", self._synthesize_node)
         _add_graph_node(graph, "reason", self._reason_node)
         _add_graph_node(graph, "validate", self._validate_node)
@@ -418,6 +484,8 @@ class DiagnosticWorkflow:
         graph.add_edge(START, "start")
         graph.add_edge("start", "prepare")
         graph.add_conditional_edges("prepare", self._after_prepare)
+        graph.add_conditional_edges("plan_overview", self._after_plan_overview)
+        graph.add_edge("initialize_inspection", "synthesize")
         graph.add_conditional_edges("inspect", self._after_inspect)
         graph.add_conditional_edges("synthesize", self._after_synthesize)
         graph.add_conditional_edges("reason", self._after_reason)

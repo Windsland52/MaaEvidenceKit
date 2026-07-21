@@ -14,4 +14,9 @@ Generated contracts cover:
 - `DiagnosticEvent`
 - `MlaPreflightResult`, including source-backed MaaFramework runtime sessions
 - `ReasoningRequest`
+- `RuntimeIdentity`, keeping version observations scoped to their artifact and optional session
+- `IncidentSelection`, retaining candidate evidence and explicit ambiguous/not-found outcomes
+- `InvestigationPlan`, with run, skip, and deferred decisions for each diagnostic branch
+- `FixCandidate` and `VerificationPlan`, separating a proposed change from proof of its outcome
+- `SourceGuidance`, representing revision- and path-scoped `AGENTS.md` instructions
 - the JSONL tool-adapter request and response envelopes

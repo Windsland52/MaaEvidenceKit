@@ -38,10 +38,12 @@ validation, MLA preflight, and MLA runtime inspection through the JSONL adapter.
 inspection results are synthesized into typed `Evidence` records (primary failures/outcomes,
 secondary signals, context task/session summaries).
 
-The diagnostic workflow uses LangGraph to orchestrate the full pipeline — prepare, inspect,
-synthesize evidence, reason, validate — behind a single `DiagnosticWorkflow`. Explicit graph
-state keeps inspection facts, authoritative evidence, model drafts, failures, and final results
-separate.
+The diagnostic workflow uses LangGraph behind a single `DiagnosticWorkflow`. Its current graph
+prepares the input, records an initial investigation plan, conditionally runs MLA when a supplied
+artifact is eligible, synthesizes authoritative evidence, reasons, and validates the result.
+Inputs that are unrelated to MaaFramework logs can therefore bypass MLA. Explicit graph state
+keeps the plan, inspection facts, authoritative evidence, model drafts, failures, and final
+results separate.
 The reasoning stage is delegated to a pluggable `ReasoningBackend` protocol. A deterministic
 `StubReasoningBackend` ships with the project for model-free testing; LangChain model providers
 can plug in without changing graph transitions or evidence validation.
@@ -74,12 +76,21 @@ log, ZIP, or directory input once, calls `mla.preflight` through the internal JS
 validates the returned facts with the Python `MlaPreflightResult` contract. Run `pnpm build` first;
 use `--tool-adapter <path>` or `MDE_TOOL_ADAPTER_PATH` for a non-default adapter location.
 
-`diagnose` runs the complete pipeline end to end: prepare, inspect, synthesize evidence, reason,
-and validate. It uses the deterministic stub reasoning backend by default (no model credentials
-required). Pass `--events <path>` to write the diagnostic event stream as JSON lines alongside the
-result. The produced `DiagnosisResult` cites evidence IDs that trace back to MLA runtime facts.
+`diagnose` runs the currently implemented pipeline end to end: prepare, plan the overview,
+conditionally inspect with MLA, synthesize evidence, reason, and validate. It uses the
+deterministic stub reasoning backend by default (no model credentials required). Pass `--events
+<path>` to write the diagnostic event stream as JSON lines alongside the result. When MLA runs,
+the produced `DiagnosisResult` cites evidence IDs that trace back to MLA runtime facts. A request
+without an MLA-eligible artifact continues with an empty deterministic inspection rather than
+pretending that MaaFramework analysis was relevant.
 The reasoning backend produces a `DiagnosisDraft` without evidence objects; the workflow attaches
 only cited evidence from the deterministic inspection ledger.
+
+GUI/custom-log classification, MSE project preflight, dump inspection, revision-matched source
+investigation, and knowledge/Wiki search are represented by planning contracts but are not yet
+executed by graph nodes. The plan marks these capabilities as `deferred` instead of reporting
+them as completed. See [the workflow architecture](docs/workflow-architecture.md) for the target
+flow and implementation status.
 
 Pass `--model-config <path>` to use a LangChain chat model instead of the stub. Install only the
 provider integrations needed by the deployment, for example `uv sync --extra openai`,

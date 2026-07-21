@@ -229,7 +229,13 @@ def test_stream_emits_events_in_order(tmp_path: Path) -> None:
     assert DiagnosticEventKind.STAGE_COMPLETED in kinds
     assert DiagnosticEventKind.MODEL_REQUESTED in kinds
     assert DiagnosticEventKind.MODEL_COMPLETED in kinds
-    assert completed_stages == ["prepare", "inspect", "synthesize", "validate"]
+    assert completed_stages == [
+        "prepare",
+        "plan_overview",
+        "inspect",
+        "synthesize",
+        "validate",
+    ]
     assert kinds[-1] is DiagnosticEventKind.RUN_COMPLETED
     assert workflow.result is not None
     assert workflow.result.status is DiagnosisStatus.COMPLETE
@@ -275,3 +281,21 @@ def test_run_id_is_deterministic_when_provided(tmp_path: Path) -> None:
 
     events = _collect_events(workflow, _request(debug_path))
     assert all(event.run_id == "fixed-run-id" for event in events)
+
+
+def test_workflow_skips_mla_when_only_image_is_supplied(tmp_path: Path) -> None:
+    image = tmp_path / "on_error.png"
+    image.write_bytes(b"image")
+    caller = _ToolCaller()
+    workflow = DiagnosticWorkflow(caller, StubReasoningBackend())
+    request = AnalysisRequest(
+        question="Inspect the failure screenshot.",
+        artifacts=[ArtifactInput(path=image, kind=ArtifactKind.FILE)],
+    )
+
+    events = _collect_events(workflow, request)
+
+    assert caller.calls == []
+    assert any(event.stage == "inspect" and "skipped" in event.message for event in events)
+    assert workflow.result is not None
+    assert workflow.result.status is DiagnosisStatus.INSUFFICIENT_EVIDENCE

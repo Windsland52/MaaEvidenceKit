@@ -1,0 +1,70 @@
+{
+  "$defs": {
+    "SourceRole": {
+      "enum": [
+        "project",
+        "maa_framework",
+        "gui",
+        "agent",
+        "auxiliary"
+      ],
+      "title": "SourceRole",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "AGENTS.md guidance resolved for one repository revision and target path.",
+  "properties": {
+    "api_version": {
+      "default": "source-guidance/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "source_id": {
+      "minLength": 1,
+      "title": "Source Id",
+      "type": "string"
+    },
+    "source_role": {
+      "$ref": "#/$defs/SourceRole"
+    },
+    "revision": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Revision"
+    },
+    "target_path": {
+      "minLength": 1,
+      "title": "Target Path",
+      "type": "string"
+    },
+    "guidance_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Guidance Refs",
+      "type": "array"
+    },
+    "required_checks": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Checks",
+      "type": "array"
+    }
+  },
+  "required": [
+    "source_id",
+    "source_role",
+    "target_path"
+  ],
+  "title": "SourceGuidance",
+  "type": "object"
+}

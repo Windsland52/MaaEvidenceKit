@@ -17,6 +17,14 @@ from .domain import (
 from .inspection import DeterministicInspection
 from .mla_contracts import MlaPreflightResult, MlaRuntimeInspectionResult
 from .model_config import ModelConfig
+from .workflow_contracts import (
+    FixCandidate,
+    IncidentSelection,
+    InvestigationPlan,
+    RuntimeIdentity,
+    SourceGuidance,
+    VerificationPlan,
+)
 
 CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "analysis-request.schema.json": AnalysisRequest,
@@ -32,6 +40,12 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "mla-preflight.schema.json": MlaPreflightResult,
     "mla-runtime-inspection.schema.json": MlaRuntimeInspectionResult,
     "model-config.schema.json": ModelConfig,
+    "runtime-identity.schema.json": RuntimeIdentity,
+    "incident-selection.schema.json": IncidentSelection,
+    "investigation-plan.schema.json": InvestigationPlan,
+    "fix-candidate.schema.json": FixCandidate,
+    "verification-plan.schema.json": VerificationPlan,
+    "source-guidance.schema.json": SourceGuidance,
 }
 
 

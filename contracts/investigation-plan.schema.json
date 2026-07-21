@@ -1,0 +1,85 @@
+{
+  "$defs": {
+    "AnalysisRelevance": {
+      "enum": [
+        "required",
+        "useful",
+        "not_relevant",
+        "unavailable",
+        "undetermined"
+      ],
+      "title": "AnalysisRelevance",
+      "type": "string"
+    },
+    "BranchDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "$ref": "#/$defs/InvestigationBranch"
+        },
+        "disposition": {
+          "$ref": "#/$defs/BranchDisposition"
+        },
+        "relevance": {
+          "$ref": "#/$defs/AnalysisRelevance"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "branch",
+        "disposition",
+        "relevance",
+        "reason"
+      ],
+      "title": "BranchDecision",
+      "type": "object"
+    },
+    "BranchDisposition": {
+      "enum": [
+        "run",
+        "skip",
+        "unavailable",
+        "deferred"
+      ],
+      "title": "BranchDisposition",
+      "type": "string"
+    },
+    "InvestigationBranch": {
+      "enum": [
+        "gui_log_overview",
+        "custom_log_overview",
+        "mla_global_overview",
+        "mse_project_preflight",
+        "crash_preflight",
+        "project_source",
+        "gui_source",
+        "framework_source",
+        "knowledge_research"
+      ],
+      "title": "InvestigationBranch",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Deterministic plan for available, skipped, and not-yet-implemented branches.",
+  "properties": {
+    "api_version": {
+      "default": "investigation-plan/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "decisions": {
+      "items": {
+        "$ref": "#/$defs/BranchDecision"
+      },
+      "title": "Decisions",
+      "type": "array"
+    }
+  },
+  "title": "InvestigationPlan",
+  "type": "object"
+}
