@@ -22,6 +22,7 @@ from .mla import MlaPreflightResult, MlaRuntimeInspectionResult
 from .workflow import (
     ArtifactSourceInventory,
     FixCandidate,
+    IncidentCorrelationDraft,
     IncidentSelection,
     InvestigationPlan,
     RuntimeIdentity,
@@ -47,6 +48,7 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "log-overview.schema.json": LogOverviewCollection,
     "runtime-identity.schema.json": RuntimeIdentity,
     "incident-selection.schema.json": IncidentSelection,
+    "incident-correlation-draft.schema.json": IncidentCorrelationDraft,
     "investigation-plan.schema.json": InvestigationPlan,
     "fix-candidate.schema.json": FixCandidate,
     "verification-plan.schema.json": VerificationPlan,

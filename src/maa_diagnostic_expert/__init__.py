@@ -47,6 +47,7 @@ from .contracts.workflow import (
     FixMethod,
     FixScope,
     IncidentCandidate,
+    IncidentCorrelationDraft,
     IncidentSelection,
     IncidentSelectionStatus,
     InvestigationBranch,
@@ -100,6 +101,7 @@ from .reasoning.model_config import ModelConfig, StructuredOutputMethod
 from .reasoning.prompts import (
     StubReasoningBackend,
     StubReasoningSession,
+    build_incident_correlation_context,
     build_reasoning_context,
     make_stub_backend,
 )
@@ -113,6 +115,7 @@ from .workflow.graph import DiagnosticWorkflow
 from .workflow.validation import (
     collect_inspection_evidence,
     finalize_diagnosis_draft,
+    validate_incident_correlation,
     validate_result_against_inspection,
 )
 
@@ -146,6 +149,7 @@ __all__ = [
     "FixMethod",
     "FixScope",
     "IncidentCandidate",
+    "IncidentCorrelationDraft",
     "IncidentSelection",
     "IncidentSelectionStatus",
     "MAX_INCIDENT_CANDIDATES",
@@ -197,6 +201,7 @@ __all__ = [
     "VerificationStatus",
     "VersionObservationKind",
     "build_reasoning_context",
+    "build_incident_correlation_context",
     "build_log_overviews",
     "collect_inspection_evidence",
     "collect_log_overview_missing_evidence",
@@ -211,4 +216,5 @@ __all__ = [
     "synthesize_log_overview_evidence",
     "synthesize_runtime_identity_evidence",
     "validate_result_against_inspection",
+    "validate_incident_correlation",
 ]

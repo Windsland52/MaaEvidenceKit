@@ -20,6 +20,8 @@ Generated contracts cover:
   with source-line evidence when MLA reports it
 - `IncidentSelection`, retaining bounded candidate evidence and explicit ambiguous/not-found
   outcomes without treating candidate confidence as diagnosis correctness
+- `IncidentCorrelationDraft`, the model-produced selected/ambiguous/not-found interpretation whose
+  candidate and evidence references are validated by Python
 - `InvestigationPlan`, with run, skip, and deferred decisions for each diagnostic branch
 - `FixCandidate` and `VerificationPlan`, separating a proposed change from proof of its outcome
 - `SourceGuidance`, representing revision- and path-scoped `AGENTS.md` instructions

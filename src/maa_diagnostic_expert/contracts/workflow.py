@@ -137,6 +137,42 @@ class IncidentSelection(ContractModel):
         return self
 
 
+class IncidentCorrelationDraft(ContractModel):
+    """Model interpretation that references deterministic incident candidates."""
+
+    api_version: str = "incident-correlation-draft/v1"
+    status: IncidentSelectionStatus
+    selected_candidate_id: str | None = None
+    relevant_candidate_ids: list[str] = Field(default_factory=_new_strings)
+    evidence_ids: list[str] = Field(default_factory=_new_strings)
+    rationale: str = Field(min_length=1)
+    missing_evidence: list[str] = Field(default_factory=_new_strings)
+
+    @model_validator(mode="after")
+    def validate_draft_shape(self) -> IncidentCorrelationDraft:
+        if len(self.relevant_candidate_ids) != len(set(self.relevant_candidate_ids)):
+            raise ValueError("Relevant incident candidate IDs must be unique")
+        if len(self.evidence_ids) != len(set(self.evidence_ids)):
+            raise ValueError("Incident correlation evidence IDs must be unique")
+        if self.status is IncidentSelectionStatus.SELECTED:
+            if self.selected_candidate_id is None:
+                raise ValueError("Selected incident correlation requires a candidate ID")
+            if self.selected_candidate_id not in self.relevant_candidate_ids:
+                raise ValueError("Selected candidate must also be relevant")
+            if not self.evidence_ids:
+                raise ValueError("Selected incident correlation requires evidence")
+        elif self.selected_candidate_id is not None:
+            raise ValueError("Only selected incident correlation may set a candidate ID")
+        if self.status is IncidentSelectionStatus.AMBIGUOUS:
+            if not self.relevant_candidate_ids:
+                raise ValueError("Ambiguous incident correlation requires relevant candidates")
+            if not self.evidence_ids:
+                raise ValueError("Ambiguous incident correlation requires evidence")
+        if self.status is IncidentSelectionStatus.NOT_FOUND and self.relevant_candidate_ids:
+            raise ValueError("Not-found incident correlation cannot mark candidates relevant")
+        return self
+
+
 class InvestigationBranch(StrEnum):
     GUI_LOG_OVERVIEW = "gui_log_overview"
     CUSTOM_LOG_OVERVIEW = "custom_log_overview"

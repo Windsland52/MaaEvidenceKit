@@ -3,7 +3,50 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from maa_diagnostic_expert.contracts.domain import DiagnosisDraft, DiagnosisResult, Evidence
+from maa_diagnostic_expert.contracts.workflow import (
+    IncidentCorrelationDraft,
+    IncidentSelection,
+    IncidentSelectionStatus,
+)
 from maa_diagnostic_expert.inspection.models import DeterministicInspection
+
+
+def validate_incident_correlation(
+    draft: IncidentCorrelationDraft,
+    selection: IncidentSelection,
+) -> IncidentCorrelationDraft:
+    """Reject candidate or evidence references not backed by deterministic inspection."""
+    candidates = {candidate.candidate_id: candidate for candidate in selection.candidates}
+    referenced_candidate_ids = set(draft.relevant_candidate_ids)
+    if draft.selected_candidate_id is not None:
+        referenced_candidate_ids.add(draft.selected_candidate_id)
+    unknown_candidates = referenced_candidate_ids - set(candidates)
+    if unknown_candidates:
+        unknown = ", ".join(sorted(unknown_candidates))
+        raise ValueError(f"Incident correlation references unknown candidate IDs: {unknown}")
+
+    if draft.status is IncidentSelectionStatus.NOT_FOUND:
+        allowed_evidence_ids = {
+            evidence_id
+            for candidate in selection.candidates
+            for evidence_id in candidate.evidence_ids
+        }
+    else:
+        allowed_evidence_ids = {
+            evidence_id
+            for candidate_id in draft.relevant_candidate_ids
+            for evidence_id in candidates[candidate_id].evidence_ids
+        }
+    unknown_evidence = set(draft.evidence_ids) - allowed_evidence_ids
+    if unknown_evidence:
+        unknown = ", ".join(sorted(unknown_evidence))
+        raise ValueError(f"Incident correlation references unrelated evidence IDs: {unknown}")
+
+    if draft.selected_candidate_id is not None:
+        selected_evidence = set(candidates[draft.selected_candidate_id].evidence_ids)
+        if not selected_evidence.intersection(draft.evidence_ids):
+            raise ValueError("Selected incident correlation must cite selected candidate evidence")
+    return draft
 
 
 def collect_inspection_evidence(
@@ -32,6 +75,7 @@ def collect_inspection_evidence(
 def finalize_diagnosis_draft(
     draft: DiagnosisDraft,
     inspection: DeterministicInspection,
+    incident_correlation: IncidentCorrelationDraft | None = None,
 ) -> DiagnosisResult:
     """Attach only authoritative, cited evidence to a model-produced draft."""
     authoritative = collect_inspection_evidence(inspection)
@@ -45,7 +89,12 @@ def finalize_diagnosis_draft(
         raise ValueError(f"Diagnosis draft references unknown evidence IDs: {unknown}")
     cited_evidence = [item for item in authoritative if item.id in referenced_ids]
     deterministic_missing = [item.code for item in inspection.prepared.missing_evidence]
-    combined_missing = list(dict.fromkeys([*draft.missing_evidence, *deterministic_missing]))
+    correlation_missing = (
+        incident_correlation.missing_evidence if incident_correlation is not None else []
+    )
+    combined_missing = list(
+        dict.fromkeys([*draft.missing_evidence, *correlation_missing, *deterministic_missing])
+    )
     return DiagnosisResult(
         status=draft.status,
         summary=draft.summary,

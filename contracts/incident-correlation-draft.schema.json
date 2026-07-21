@@ -1,0 +1,69 @@
+{
+  "$defs": {
+    "IncidentSelectionStatus": {
+      "enum": [
+        "selected",
+        "ambiguous",
+        "not_found"
+      ],
+      "title": "IncidentSelectionStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Model interpretation that references deterministic incident candidates.",
+  "properties": {
+    "api_version": {
+      "default": "incident-correlation-draft/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/IncidentSelectionStatus"
+    },
+    "selected_candidate_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Selected Candidate Id"
+    },
+    "relevant_candidate_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Relevant Candidate Ids",
+      "type": "array"
+    },
+    "evidence_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
+    "rationale": {
+      "minLength": 1,
+      "title": "Rationale",
+      "type": "string"
+    },
+    "missing_evidence": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Evidence",
+      "type": "array"
+    }
+  },
+  "required": [
+    "status",
+    "rationale"
+  ],
+  "title": "IncidentCorrelationDraft",
+  "type": "object"
+}

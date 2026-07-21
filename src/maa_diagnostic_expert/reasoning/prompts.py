@@ -10,7 +10,11 @@ from maa_diagnostic_expert.contracts.domain import (
     Evidence,
     EvidenceReliability,
 )
-from maa_diagnostic_expert.contracts.workflow import IncidentSelection
+from maa_diagnostic_expert.contracts.workflow import (
+    IncidentCorrelationDraft,
+    IncidentSelection,
+    IncidentSelectionStatus,
+)
 
 from .protocol import ReasoningContext
 
@@ -62,6 +66,7 @@ def render_instruction(
     question: str,
     evidence: list[Evidence],
     incident_selection: IncidentSelection | None = None,
+    incident_correlation: IncidentCorrelationDraft | None = None,
 ) -> str:
     """Render the reasoning instruction for the diagnostic stage."""
     counts = _evidence_counts(evidence)
@@ -90,9 +95,24 @@ def render_instruction(
         "   set status to 'insufficient_evidence'.",
         "5. Do not invent evidence IDs; only reference IDs present in the evidence list.",
         "6. Incident candidates are leads, not proof that they match the reported symptom.",
+        "7. Respect the validated incident correlation: prioritize a selected candidate, keep",
+        "   ambiguous candidates separate, and do not present not-found candidates as the",
+        "   reported incident.",
     ]
     if incident_selection is not None:
         lines.extend(_render_incident_candidates(incident_selection))
+    if incident_correlation is not None:
+        lines.extend(
+            [
+                "",
+                f"Model incident correlation: {incident_correlation.status.value}; "
+                f"selected={incident_correlation.selected_candidate_id or 'none'}; "
+                f"relevant={', '.join(incident_correlation.relevant_candidate_ids) or 'none'}.",
+                f"Correlation rationale: {incident_correlation.rationale}",
+                "The correlation is interpretation, so diagnosis conclusions must still cite "
+                "the underlying evidence IDs.",
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -118,13 +138,54 @@ def build_reasoning_context(
     question: str,
     evidence: list[Evidence],
     incident_selection: IncidentSelection | None = None,
+    incident_correlation: IncidentCorrelationDraft | None = None,
 ) -> ReasoningContext:
     """Build a reasoning context with evidence ordered for model consumption."""
     ordered = order_evidence_for_reasoning(evidence)
     return ReasoningContext(
         stage="diagnose",
-        instruction=render_instruction(question, ordered, incident_selection),
+        instruction=render_instruction(
+            question,
+            ordered,
+            incident_selection,
+            incident_correlation,
+        ),
         evidence=ordered,
+        incident_selection=incident_selection,
+    )
+
+
+def build_incident_correlation_context(
+    reported_context: str,
+    evidence: list[Evidence],
+    selection: IncidentSelection,
+) -> ReasoningContext:
+    candidate_evidence_ids = {
+        evidence_id for candidate in selection.candidates for evidence_id in candidate.evidence_ids
+    }
+    focused_evidence = order_evidence_for_reasoning(
+        [item for item in evidence if item.id in candidate_evidence_ids]
+    )
+    lines = [
+        "Correlate the reported Maa issue with deterministic incident candidates.",
+        "Return a structured incident correlation draft.",
+        "",
+        f"Reported context: {reported_context}",
+        "",
+        "Rules:",
+        "1. Select a candidate only when the reported symptom, task/time context, and candidate",
+        "   evidence align; a runtime failure alone does not prove it is the reported problem.",
+        "2. Use ambiguous when multiple candidates remain plausible or the report is too vague.",
+        "3. Use not_found when none of the candidates plausibly matches the report.",
+        "4. Reference only candidate IDs and evidence IDs listed below.",
+        "5. Candidate confidence is evidence-strength ranking, not diagnosis correctness.",
+    ]
+    lines.extend(_render_incident_candidates(selection, limit=len(selection.candidates)))
+    return ReasoningContext(
+        stage="correlate_incident",
+        instruction="\n".join(lines),
+        evidence=focused_evidence,
+        incident_selection=selection,
     )
 
 
@@ -163,6 +224,33 @@ def _stub_diagnose(context: ReasoningContext) -> DiagnosisDraft:
     )
 
 
+def _stub_correlate(context: ReasoningContext) -> IncidentCorrelationDraft:
+    selection = context.incident_selection
+    if selection is None or not selection.candidates:
+        return IncidentCorrelationDraft(
+            status=IncidentSelectionStatus.NOT_FOUND,
+            rationale="No deterministic incident candidates were available for correlation.",
+        )
+    candidate_ids = [candidate.candidate_id for candidate in selection.candidates]
+    evidence_ids = list(
+        dict.fromkeys(
+            evidence_id
+            for candidate in selection.candidates
+            for evidence_id in candidate.evidence_ids
+        )
+    )
+    return IncidentCorrelationDraft(
+        status=IncidentSelectionStatus.AMBIGUOUS,
+        relevant_candidate_ids=candidate_ids,
+        evidence_ids=evidence_ids,
+        rationale=(
+            "The deterministic stub preserves all candidates because it cannot correlate "
+            "free-form reported context."
+        ),
+        missing_evidence=["model_incident_correlation_unavailable"],
+    )
+
+
 class StubReasoningSession:
     """Deterministic reasoning session for testing without a model."""
 
@@ -187,6 +275,8 @@ class StubReasoningSession:
         self.last_context = context
         if result_type is DiagnosisDraft:
             return cast(ResultT, _stub_diagnose(context))
+        if result_type is IncidentCorrelationDraft:
+            return cast(ResultT, _stub_correlate(context))
         raise TypeError(f"Stub backend cannot produce {result_type.__name__}")
 
     async def close(self) -> None:

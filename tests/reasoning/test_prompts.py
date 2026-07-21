@@ -11,9 +11,16 @@ from maa_diagnostic_expert.contracts.domain import (
     Evidence,
     EvidenceReliability,
 )
+from maa_diagnostic_expert.contracts.workflow import (
+    IncidentCandidate,
+    IncidentCorrelationDraft,
+    IncidentSelection,
+    IncidentSelectionStatus,
+)
 from maa_diagnostic_expert.reasoning.prompts import (
     StubReasoningBackend,
     StubReasoningSession,
+    build_incident_correlation_context,
     build_reasoning_context,
     order_evidence_for_reasoning,
     render_evidence_block,
@@ -39,6 +46,21 @@ def _evidence(
         line_end=line_start,
         task_id=1,
         reliability=reliability,
+    )
+
+
+def _incident_selection() -> IncidentSelection:
+    return IncidentSelection(
+        status=IncidentSelectionStatus.AMBIGUOUS,
+        candidates=[
+            IncidentCandidate(
+                candidate_id="incident-1",
+                task_name="CombatTask",
+                confidence=0.9,
+                evidence_ids=["candidate-evidence"],
+                reasons=["The task failed."],
+            )
+        ],
     )
 
 
@@ -94,6 +116,42 @@ def test_build_reasoning_context_orders_evidence() -> None:
     assert request.evidence_ids == ["pri", "ctx"]
 
 
+def test_incident_correlation_context_focuses_candidate_evidence() -> None:
+    context = build_incident_correlation_context(
+        "Question: CombatTask did not finish.",
+        [
+            _evidence("candidate-evidence", EvidenceReliability.PRIMARY),
+            _evidence("unrelated", EvidenceReliability.PRIMARY),
+        ],
+        _incident_selection(),
+    )
+
+    assert context.stage == "correlate_incident"
+    assert [item.id for item in context.evidence] == ["candidate-evidence"]
+    assert "runtime failure alone does not prove" in context.instruction
+    assert context.incident_selection == _incident_selection()
+
+
+def test_diagnosis_context_includes_validated_incident_correlation() -> None:
+    correlation = IncidentCorrelationDraft(
+        status=IncidentSelectionStatus.SELECTED,
+        selected_candidate_id="incident-1",
+        relevant_candidate_ids=["incident-1"],
+        evidence_ids=["candidate-evidence"],
+        rationale="The reported task and candidate match.",
+    )
+
+    context = build_reasoning_context(
+        "Diagnose",
+        [_evidence("candidate-evidence", EvidenceReliability.PRIMARY)],
+        _incident_selection(),
+        correlation,
+    )
+
+    assert "Model incident correlation: selected" in context.instruction
+    assert "interpretation" in context.instruction
+
+
 def test_stub_backend_produces_complete_draft_with_primary_evidence() -> None:
     backend = StubReasoningBackend()
     session = asyncio.run(backend.start(run_id="run-1"))
@@ -125,6 +183,21 @@ def test_stub_backend_returns_insufficient_without_primary() -> None:
 
     assert result.status is DiagnosisStatus.INSUFFICIENT_EVIDENCE
     assert result.conclusions == []
+
+
+def test_stub_backend_preserves_incident_candidates_as_ambiguous() -> None:
+    session = StubReasoningSession(run_id="run-correlation")
+    context = build_incident_correlation_context(
+        "Question: diagnose",
+        [_evidence("candidate-evidence", EvidenceReliability.PRIMARY)],
+        _incident_selection(),
+    )
+
+    result = asyncio.run(session.reason(context, IncidentCorrelationDraft))
+
+    assert result.status is IncidentSelectionStatus.AMBIGUOUS
+    assert result.relevant_candidate_ids == ["incident-1"]
+    assert result.evidence_ids == ["candidate-evidence"]
 
 
 def test_stub_session_rejects_unsupported_result_type() -> None:

@@ -51,9 +51,9 @@ The diagnostic workflow uses LangGraph behind a single `DiagnosticWorkflow`. Its
 prepares the input, classifies log sources from bounded samples, records an initial investigation
 plan, conditionally runs MLA when a supplied artifact is eligible, extracts source- and
 session-scoped MaaFramework versions, synthesizes authoritative evidence, reasons, and validates
-the result. Before reasoning it generates bounded, evidence-backed incident candidates from
-notable MLA tasks and GUI/custom log occurrences; it does not automatically claim that a
-candidate matches the reported symptom.
+the result. Before final diagnosis it generates bounded, evidence-backed incident candidates from
+notable MLA tasks and GUI/custom log occurrences. When candidates exist, a separate model stage
+correlates them with the reported context; Python rejects invented candidate or evidence IDs.
 Inputs that are unrelated to MaaFramework logs can therefore bypass MLA. Explicit graph state
 keeps the plan, inspection facts, authoritative evidence, model drafts, failures, and final
 results separate.
@@ -93,14 +93,15 @@ session, timestamp, and source line where available. Run `pnpm build` first; use
 
 `diagnose` runs the currently implemented pipeline end to end: prepare, classify log sources,
 plan the overview, conditionally inspect with MLA, identify runtime versions, synthesize evidence,
-generate incident candidates, reason, and validate. It
+generate incident candidates, conditionally correlate the reported issue, reason, and validate. It
 uses the deterministic stub reasoning backend by default (no model credentials required). Pass `--events
 <path>` to write the diagnostic event stream as JSON lines alongside the result. When MLA runs,
 the produced `DiagnosisResult` cites evidence IDs that trace back to MLA runtime facts. A request
 without an MLA-eligible artifact continues with an MLA-empty deterministic inspection, which may
 still contain GUI/custom overview evidence.
 The reasoning backend produces a `DiagnosisDraft` without evidence objects; the workflow attaches
-only cited evidence from the deterministic inspection ledger.
+only cited evidence from the deterministic inspection ledger. The default deterministic stub
+keeps incident candidates ambiguous and reports that free-form correlation was unavailable.
 
 MaaFramework logs have a built-in classifier; files under a `custom/` directory receive a
 conservative custom-log classification. Known GUI and project formats plug in through

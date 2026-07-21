@@ -25,7 +25,8 @@ start -> prepare -> classify_artifacts -> plan_overview
                                              +--------------------+-> initialize_inspection
                                                                       |-> identify_runtime
                                                                           |-> synthesize -> identify_incident
-                                                                                           |-> reason -> validate -> complete
+                                                                                           |-> correlate_incident -+
+                                                                                           +-----------------------> reason -> validate -> complete
                                              +-----------------------------------------------------> fail
 ```
 
@@ -44,7 +45,10 @@ multiple runtime versions. The empty path produces an empty identity without inv
 After evidence synthesis, `identify_incident` creates a bounded set of candidates from failed,
 incomplete, or signal-bearing MaaFramework tasks and notable GUI/custom log occurrences. Candidate
 confidence is only a deterministic evidence-strength ranking. Candidates remain `ambiguous` until
-later correlation with the reported symptom; even a single candidate is not silently selected.
+`correlate_incident` compares them with the reported symptom. The model returns only a draft;
+Python rejects unknown candidate IDs, unrelated evidence IDs, and selections that do not cite the
+selected candidate. With no candidates the graph skips correlation, and the deterministic stub
+keeps candidates ambiguous instead of silently selecting even a single candidate.
 
 Future MSE, dump, source, and knowledge branches are present in the planning contract before they
 have executable nodes. Such decisions use `deferred`; a branch may

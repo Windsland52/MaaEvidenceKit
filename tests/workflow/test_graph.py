@@ -17,6 +17,10 @@ from maa_diagnostic_expert.contracts.domain import (
     DiagnosticEvent,
     DiagnosticEventKind,
 )
+from maa_diagnostic_expert.contracts.workflow import (
+    IncidentCorrelationDraft,
+    IncidentSelectionStatus,
+)
 from maa_diagnostic_expert.reasoning.prompts import StubReasoningBackend
 from maa_diagnostic_expert.reasoning.protocol import ReasoningContext
 from maa_diagnostic_expert.workflow.graph import DiagnosticWorkflow
@@ -104,6 +108,21 @@ class _InventingReasoningSession:
     async def reason[ResultT: ContractModel](
         self, context: ReasoningContext, result_type: type[ResultT]
     ) -> ResultT:
+        if result_type is IncidentCorrelationDraft:
+            selection = context.incident_selection
+            if selection is None or not selection.candidates:
+                raise AssertionError("correlation context requires candidates")
+            candidate = selection.candidates[0]
+            return cast(
+                ResultT,
+                IncidentCorrelationDraft(
+                    status=IncidentSelectionStatus.SELECTED,
+                    selected_candidate_id=candidate.candidate_id,
+                    relevant_candidate_ids=[candidate.candidate_id],
+                    evidence_ids=[candidate.evidence_ids[0]],
+                    rationale="The report names the same task and time.",
+                ),
+            )
         del context, result_type
         return cast(
             ResultT,
@@ -171,6 +190,7 @@ def test_diagnose_produces_complete_result_with_failure(tmp_path: Path) -> None:
     conclusion = result.conclusions[0]
     evidence_ids = {e.id for e in result.evidence}
     assert set(conclusion.evidence_ids).issubset(evidence_ids)
+    assert "model_incident_correlation_unavailable" in result.missing_evidence
 
 
 def test_diagnose_returns_insufficient_without_failures(tmp_path: Path) -> None:
@@ -198,7 +218,7 @@ def test_workflow_rejects_model_invented_evidence_ids(tmp_path: Path) -> None:
     assert "unknown evidence IDs" in workflow.result.summary
 
 
-def test_workflow_routes_reasoning_errors_to_failed_result(tmp_path: Path) -> None:
+def test_workflow_routes_correlation_errors_to_failed_result(tmp_path: Path) -> None:
     debug_path = _make_directory_with_log(tmp_path)
     caller = _ToolCaller(runtime=_runtime_with_failure())
     workflow = DiagnosticWorkflow(caller, _FailingReasoningBackend())
@@ -206,10 +226,24 @@ def test_workflow_routes_reasoning_errors_to_failed_result(tmp_path: Path) -> No
     events = _collect_events(workflow, _request(debug_path))
 
     assert events[-1].kind is DiagnosticEventKind.RUN_FAILED
-    assert events[-1].stage == "reason"
+    assert events[-1].stage == "correlate_incident"
     assert workflow.result is not None
     assert workflow.result.status is DiagnosisStatus.FAILED
     assert workflow.result.evidence
+    assert "model unavailable" in workflow.result.summary
+
+
+def test_workflow_routes_final_reasoning_errors_without_candidates(
+    tmp_path: Path,
+) -> None:
+    debug_path = _make_directory_with_log(tmp_path)
+    workflow = DiagnosticWorkflow(_ToolCaller(), _FailingReasoningBackend())
+
+    events = _collect_events(workflow, _request(debug_path))
+
+    assert events[-1].kind is DiagnosticEventKind.RUN_FAILED
+    assert events[-1].stage == "reason"
+    assert workflow.result is not None
     assert "model unavailable" in workflow.result.summary
 
 
@@ -229,6 +263,13 @@ def test_stream_emits_events_in_order(tmp_path: Path) -> None:
     assert DiagnosticEventKind.STAGE_COMPLETED in kinds
     assert DiagnosticEventKind.MODEL_REQUESTED in kinds
     assert DiagnosticEventKind.MODEL_COMPLETED in kinds
+    model_request_stages = [
+        event.stage for event in events if event.kind is DiagnosticEventKind.MODEL_REQUESTED
+    ]
+    assert model_request_stages == [
+        "correlate_incident",
+        "reason",
+    ]
     assert completed_stages == [
         "prepare",
         "classify_artifacts",

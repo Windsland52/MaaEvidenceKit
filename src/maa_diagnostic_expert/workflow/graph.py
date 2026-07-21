@@ -26,6 +26,7 @@ from maa_diagnostic_expert.contracts.domain import (
 from maa_diagnostic_expert.contracts.workflow import (
     ArtifactSourceInventory,
     BranchDisposition,
+    IncidentCorrelationDraft,
     InvestigationBranch,
     InvestigationPlan,
 )
@@ -47,11 +48,18 @@ from maa_diagnostic_expert.inspection.service import (
     synthesize_inspection_evidence,
 )
 from maa_diagnostic_expert.inspection.tooling import ToolCaller
-from maa_diagnostic_expert.reasoning.prompts import build_reasoning_context
+from maa_diagnostic_expert.reasoning.prompts import (
+    build_incident_correlation_context,
+    build_reasoning_context,
+)
 from maa_diagnostic_expert.reasoning.protocol import ReasoningBackend, ReasoningContext
 
 from .planning import plan_initial_investigation
-from .validation import collect_inspection_evidence, finalize_diagnosis_draft
+from .validation import (
+    collect_inspection_evidence,
+    finalize_diagnosis_draft,
+    validate_incident_correlation,
+)
 
 _DEFAULT_QUESTION = "Diagnose the runtime failures and their likely causes."
 
@@ -70,6 +78,7 @@ class DiagnosticState(TypedDict):
     plan: NotRequired[InvestigationPlan]
     inspection: NotRequired[DeterministicInspection]
     evidence: NotRequired[list[Evidence]]
+    incident_correlation: NotRequired[IncidentCorrelationDraft]
     draft: NotRequired[DiagnosisDraft]
     result: NotRequired[DiagnosisResult]
     error_message: NotRequired[str]
@@ -84,6 +93,7 @@ class _DiagnosticStateUpdate(TypedDict, total=False):
     plan: InvestigationPlan
     inspection: DeterministicInspection
     evidence: list[Evidence]
+    incident_correlation: IncidentCorrelationDraft
     draft: DiagnosisDraft
     result: DiagnosisResult
     error_message: str
@@ -515,7 +525,76 @@ class DiagnosticWorkflow:
         return {"inspection": inspection}
 
     @staticmethod
-    def _after_identify_incident(state: DiagnosticState) -> Literal["reason", "fail"]:
+    def _after_identify_incident(
+        state: DiagnosticState,
+    ) -> Literal["correlate_incident", "reason", "fail"]:
+        if "error_message" in state:
+            return "fail"
+        inspection = state.get("inspection")
+        if inspection is not None and inspection.incident_selection.candidates:
+            return "correlate_incident"
+        return "reason"
+
+    async def _correlate_incident_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
+        try:
+            if self.run_id in self._cancelled:
+                raise RuntimeError("workflow cancelled before incident correlation")
+            inspection = state.get("inspection")
+            if inspection is None:
+                raise RuntimeError("incident correlation requires deterministic inspection")
+            evidence = state.get("evidence", [])
+            request = state["request"]
+            reported_parts = [
+                value
+                for value in (
+                    f"Issue: {request.issue}" if request.issue else None,
+                    f"Question: {request.question}" if request.question else None,
+                )
+                if value is not None
+            ]
+            reported_context = "\n".join(reported_parts) or _DEFAULT_QUESTION
+            context = build_incident_correlation_context(
+                reported_context,
+                evidence,
+                inspection.incident_selection,
+            )
+
+            _emit(
+                _WorkflowUpdate(
+                    kind=DiagnosticEventKind.MODEL_REQUESTED,
+                    stage="correlate_incident",
+                    message="Requesting incident correlation",
+                    data={
+                        "candidates": len(inspection.incident_selection.candidates),
+                        "evidence_count": len(context.evidence),
+                    },
+                )
+            )
+            session = await self.reasoning_backend.start(run_id=self.run_id)
+            try:
+                draft = await session.reason(context, IncidentCorrelationDraft)
+            finally:
+                await session.close()
+            draft = validate_incident_correlation(draft, inspection.incident_selection)
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("correlate_incident", error)
+
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.MODEL_COMPLETED,
+                stage="correlate_incident",
+                message="Incident correlation complete",
+                data={
+                    "status": draft.status.value,
+                    "selected": draft.selected_candidate_id or "",
+                    "relevant_candidates": len(draft.relevant_candidate_ids),
+                },
+            )
+        )
+        return {"incident_correlation": draft}
+
+    @staticmethod
+    def _after_correlate_incident(state: DiagnosticState) -> Literal["reason", "fail"]:
         return "fail" if "error_message" in state else "reason"
 
     async def _reason_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
@@ -528,7 +607,10 @@ class DiagnosticWorkflow:
             evidence = state.get("evidence", [])
             question = state["request"].question or _DEFAULT_QUESTION
             context: ReasoningContext = build_reasoning_context(
-                question, evidence, inspection.incident_selection
+                question,
+                evidence,
+                inspection.incident_selection,
+                state.get("incident_correlation"),
             )
 
             _emit(
@@ -574,7 +656,11 @@ class DiagnosticWorkflow:
             draft = state.get("draft")
             if inspection is None or draft is None:
                 raise RuntimeError("validation requires inspection and diagnosis draft")
-            result = finalize_diagnosis_draft(draft, inspection)
+            result = finalize_diagnosis_draft(
+                draft,
+                inspection,
+                state.get("incident_correlation"),
+            )
         except Exception as error:  # noqa: BLE001
             return _failure_update("validate", error)
 
@@ -653,6 +739,7 @@ class DiagnosticWorkflow:
         _add_graph_node(graph, "identify_runtime", self._identify_runtime_node)
         _add_graph_node(graph, "synthesize", self._synthesize_node)
         _add_graph_node(graph, "identify_incident", self._identify_incident_node)
+        _add_graph_node(graph, "correlate_incident", self._correlate_incident_node)
         _add_graph_node(graph, "reason", self._reason_node)
         _add_graph_node(graph, "validate", self._validate_node)
         _add_graph_node(graph, "fail", self._fail_node)
@@ -668,6 +755,7 @@ class DiagnosticWorkflow:
         graph.add_conditional_edges("identify_runtime", self._after_identify_runtime)
         graph.add_conditional_edges("synthesize", self._after_synthesize)
         graph.add_conditional_edges("identify_incident", self._after_identify_incident)
+        graph.add_conditional_edges("correlate_incident", self._after_correlate_incident)
         graph.add_conditional_edges("reason", self._after_reason)
         graph.add_conditional_edges("validate", self._after_validate)
         graph.add_edge("fail", END)

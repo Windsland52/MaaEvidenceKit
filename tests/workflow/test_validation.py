@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from maa_diagnostic_expert.contracts.domain import (
     AnalysisRequest,
@@ -12,9 +13,16 @@ from maa_diagnostic_expert.contracts.domain import (
     MissingEvidence,
     PreparedAnalysis,
 )
+from maa_diagnostic_expert.contracts.workflow import (
+    IncidentCandidate,
+    IncidentCorrelationDraft,
+    IncidentSelection,
+    IncidentSelectionStatus,
+)
 from maa_diagnostic_expert.inspection.models import DeterministicInspection
 from maa_diagnostic_expert.workflow.validation import (
     finalize_diagnosis_draft,
+    validate_incident_correlation,
     validate_result_against_inspection,
 )
 
@@ -55,6 +63,20 @@ def _draft(evidence_id: str = "ev:known") -> DiagnosisDraft:
                 statement="A runtime failure was observed.",
                 evidence_ids=[evidence_id],
                 confidence=1,
+            )
+        ],
+    )
+
+
+def _incident_selection() -> IncidentSelection:
+    return IncidentSelection(
+        status=IncidentSelectionStatus.AMBIGUOUS,
+        candidates=[
+            IncidentCandidate(
+                candidate_id="incident-1",
+                confidence=0.9,
+                evidence_ids=["ev:known"],
+                reasons=["A direct failure was observed."],
             )
         ],
     )
@@ -131,3 +153,59 @@ def test_validation_requires_deterministic_missing_evidence_codes() -> None:
 
     with pytest.raises(ValueError, match="omits required missing evidence"):
         validate_result_against_inspection(result, _inspection(missing=True))
+
+
+def test_incident_correlation_accepts_known_candidate_and_evidence() -> None:
+    draft = IncidentCorrelationDraft(
+        status=IncidentSelectionStatus.SELECTED,
+        selected_candidate_id="incident-1",
+        relevant_candidate_ids=["incident-1"],
+        evidence_ids=["ev:known"],
+        rationale="The task and failure match the report.",
+    )
+
+    assert validate_incident_correlation(draft, _incident_selection()) is draft
+
+
+def test_selected_incident_correlation_requires_evidence() -> None:
+    with pytest.raises(ValidationError, match="requires evidence"):
+        IncidentCorrelationDraft(
+            status=IncidentSelectionStatus.SELECTED,
+            selected_candidate_id="incident-1",
+            relevant_candidate_ids=["incident-1"],
+            rationale="The candidate appears to match, but no evidence was cited.",
+        )
+
+
+def test_ambiguous_incident_correlation_requires_relevant_candidates() -> None:
+    with pytest.raises(ValidationError, match="requires relevant candidates"):
+        IncidentCorrelationDraft(
+            status=IncidentSelectionStatus.AMBIGUOUS,
+            evidence_ids=["ev:known"],
+            rationale="The report is ambiguous, but no candidate was retained.",
+        )
+
+
+def test_incident_correlation_rejects_unknown_candidate() -> None:
+    draft = IncidentCorrelationDraft(
+        status=IncidentSelectionStatus.AMBIGUOUS,
+        relevant_candidate_ids=["incident-invented"],
+        evidence_ids=["ev:known"],
+        rationale="An invented candidate was referenced.",
+    )
+
+    with pytest.raises(ValueError, match="unknown candidate IDs"):
+        validate_incident_correlation(draft, _incident_selection())
+
+
+def test_incident_correlation_rejects_unrelated_evidence() -> None:
+    draft = IncidentCorrelationDraft(
+        status=IncidentSelectionStatus.SELECTED,
+        selected_candidate_id="incident-1",
+        relevant_candidate_ids=["incident-1"],
+        evidence_ids=["ev:invented"],
+        rationale="An invented evidence ID was referenced.",
+    )
+
+    with pytest.raises(ValueError, match="unrelated evidence IDs"):
+        validate_incident_correlation(draft, _incident_selection())
