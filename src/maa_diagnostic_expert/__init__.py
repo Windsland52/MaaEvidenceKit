@@ -74,6 +74,9 @@ from .contracts.workflow import (
     RuntimeIdentity,
     RuntimeVersionObservation,
     SourceGuidance,
+    SourceResearchPlan,
+    SourceResearchStatus,
+    SourceSearchQuery,
     VerificationMethod,
     VerificationPlan,
     VerificationStatus,
@@ -109,6 +112,7 @@ from .inspection.models import (
     MseTaskResolutionInspection,
     SourceGuidanceDocument,
     SourceGuidanceInspection,
+    SourceSearchMatch,
 )
 from .inspection.mse_preflight import (
     synthesize_mse_evidence,
@@ -124,6 +128,10 @@ from .inspection.source_guidance import (
     source_guidance_evidence_id,
     synthesize_source_guidance_evidence,
 )
+from .inspection.source_search import (
+    execute_source_research,
+    synthesize_source_search_evidence,
+)
 from .interfaces.report import render_markdown_report
 from .reasoning.langchain import (
     LangChainReasoningBackend,
@@ -136,6 +144,7 @@ from .reasoning.prompts import (
     StubReasoningSession,
     build_incident_correlation_context,
     build_reasoning_context,
+    build_source_research_context,
     make_stub_backend,
 )
 from .reasoning.protocol import (
@@ -246,6 +255,10 @@ __all__ = [
     "SourceGuidance",
     "SourceGuidanceDocument",
     "SourceGuidanceInspection",
+    "SourceResearchPlan",
+    "SourceResearchStatus",
+    "SourceSearchMatch",
+    "SourceSearchQuery",
     "StubReasoningBackend",
     "StubReasoningSession",
     "StructuredOutputMethod",
@@ -254,6 +267,7 @@ __all__ = [
     "VerificationStatus",
     "VersionObservationKind",
     "build_reasoning_context",
+    "build_source_research_context",
     "build_incident_correlation_context",
     "build_log_overviews",
     "collect_inspection_evidence",
@@ -263,6 +277,7 @@ __all__ = [
     "finalize_diagnosis_draft",
     "generate_incident_selection",
     "extract_runtime_identity",
+    "execute_source_research",
     "make_stub_backend",
     "make_langchain_backend",
     "render_markdown_report",
@@ -274,6 +289,7 @@ __all__ = [
     "synthesize_mse_task_evidence",
     "synthesize_runtime_identity_evidence",
     "synthesize_source_guidance_evidence",
+    "synthesize_source_search_evidence",
     "source_guidance_evidence_id",
     "validate_result_against_inspection",
     "validate_incident_correlation",

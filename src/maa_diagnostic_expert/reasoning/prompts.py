@@ -15,6 +15,8 @@ from maa_diagnostic_expert.contracts.workflow import (
     IncidentCorrelationDraft,
     IncidentSelection,
     IncidentSelectionStatus,
+    SourceResearchPlan,
+    SourceResearchStatus,
 )
 
 from .protocol import ReasoningContext
@@ -225,6 +227,61 @@ def build_incident_correlation_context(
     )
 
 
+def build_source_research_context(
+    question: str,
+    evidence: list[Evidence],
+    incident_comparison: IncidentComparison,
+    source_ids: list[str],
+) -> ReasoningContext:
+    comparison_evidence_ids = {
+        evidence_id
+        for finding in incident_comparison.findings
+        for evidence_id in [
+            *finding.observed_evidence_ids,
+            *finding.expected_evidence_ids,
+        ]
+    }
+    focused = order_evidence_for_reasoning(
+        [
+            item
+            for item in evidence
+            if item.id in comparison_evidence_ids
+            or item.kind
+            in {
+                "source_guidance",
+                "mse_task_resolution",
+                "mse_task_not_found",
+            }
+        ]
+    )
+    lines = [
+        "Plan a bounded search of version-matched Maa project source.",
+        "Return a structured source research plan, not a diagnosis.",
+        "",
+        f"Diagnostic question: {question}",
+        f"Available source IDs: {', '.join(source_ids)}",
+        f"Actual/expected comparison status: {incident_comparison.status.value}",
+        "",
+        "Rules:",
+        "1. Use only the listed source IDs.",
+        "2. Search for concrete task/node names, configuration fields, custom log terms,",
+        "   implementation symbols, or documentation concepts supported by current evidence.",
+        "3. Terms are literal case-sensitive strings; use separate queries for alternatives.",
+        "4. Paths are optional relative file or directory hints, not glob patterns.",
+        "5. Do not use absolute paths, parent traversal, or .git paths.",
+        "6. Keep the plan small: at most five queries and only searches that could distinguish",
+        "   plausible explanations or locate relevant project behavior.",
+        "7. Use skip when focused source search is unlikely to add useful evidence.",
+        "8. Applicable source_guidance evidence must be respected when choosing paths.",
+    ]
+    return ReasoningContext(
+        stage="plan_source_research",
+        instruction="\n".join(lines),
+        evidence=focused,
+        incident_comparison=incident_comparison,
+    )
+
+
 def _stub_diagnose(context: ReasoningContext) -> DiagnosisDraft:
     """Produce a deterministic diagnosis from the evidence without a model.
 
@@ -287,6 +344,13 @@ def _stub_correlate(context: ReasoningContext) -> IncidentCorrelationDraft:
     )
 
 
+def _stub_plan_source_research() -> SourceResearchPlan:
+    return SourceResearchPlan(
+        status=SourceResearchStatus.SKIP,
+        rationale=("The deterministic stub cannot choose semantic source search terms."),
+    )
+
+
 class StubReasoningSession:
     """Deterministic reasoning session for testing without a model."""
 
@@ -313,6 +377,8 @@ class StubReasoningSession:
             return cast(ResultT, _stub_diagnose(context))
         if result_type is IncidentCorrelationDraft:
             return cast(ResultT, _stub_correlate(context))
+        if result_type is SourceResearchPlan:
+            return cast(ResultT, _stub_plan_source_research())
         raise TypeError(f"Stub backend cannot produce {result_type.__name__}")
 
     async def close(self) -> None:

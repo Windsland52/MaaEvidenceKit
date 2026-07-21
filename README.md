@@ -64,7 +64,9 @@ final reasoning. Python then builds a structured actual/expected comparison that
 failure, outcome, and high-priority signal evidence to resolved task configuration evidence
 without declaring that the configuration caused the runtime behavior. Applicable AGENTS.md files
 from the project source root to each focused pipeline file are loaded under bounded limits and
-provided as source-investigation guidance.
+provided as source-investigation guidance. When a model is configured, a separate planning stage
+may request up to five literal, path-scoped searches of the version-matched project repository;
+Python executes them with Git and returns only bounded line windows as secondary evidence.
 Inputs that are unrelated to MaaFramework logs can therefore bypass MLA. Explicit graph state
 keeps the plan, inspection facts, authoritative evidence, model drafts, failures, and final
 results separate.
@@ -120,7 +122,7 @@ keeps incident candidates ambiguous and reports that free-form correlation was u
 MaaFramework logs have a built-in classifier; files under a `custom/` directory receive a
 conservative custom-log classification. Known GUI and project formats plug in through
 `LogSourceProfile`, while unmatched logs remain `unknown` instead of being guessed or sent to MLA.
-Dump inspection, revision-matched general source investigation, and knowledge/Wiki search remain
+Dump inspection, unrestricted general source investigation, and knowledge/Wiki search remain
 deferred. See
 [the workflow architecture](docs/workflow-architecture.md) for the target flow and implementation
 status.

@@ -142,6 +142,8 @@ Implemented now:
 - deterministic actual/expected comparison that links correlated MLA observations to focused MSE
   task evidence without inferring a root cause;
 - bounded scoped `AGENTS.md` resolution for focused version-matched project files;
+- model-planned, bounded literal Git search over version-matched focused project source, with
+  deterministic line-window evidence;
 - empty deterministic inspection when neither MLA nor MSE has an eligible input;
 - evidence synthesis, pluggable model reasoning, citation validation, and diagnostic events.
 

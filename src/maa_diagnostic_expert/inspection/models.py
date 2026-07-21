@@ -57,6 +57,19 @@ class SourceGuidanceInspection(ContractModel):
     documents: list[SourceGuidanceDocument] = Field(default_factory=list[SourceGuidanceDocument])
 
 
+class SourceSearchMatch(ContractModel):
+    query_id: str = Field(min_length=1)
+    source_id: str = Field(min_length=1)
+    relative_path: str = Field(min_length=1)
+    source_locator: str = Field(min_length=1)
+    line: int = Field(ge=1)
+    matched_terms: list[str] = Field(min_length=1)
+    content: str
+    line_start: int = Field(ge=1)
+    line_end: int = Field(ge=1)
+    evidence_id: str = Field(min_length=1)
+
+
 def _new_mla_preflights() -> list[MlaArtifactInspection]:
     return []
 
@@ -81,6 +94,10 @@ def _new_source_guidance_inspections() -> list[SourceGuidanceInspection]:
     return []
 
 
+def _new_source_search_matches() -> list[SourceSearchMatch]:
+    return []
+
+
 def _new_incident_selection() -> IncidentSelection:
     return IncidentSelection(status=IncidentSelectionStatus.NOT_FOUND)
 
@@ -90,7 +107,7 @@ def _new_incident_comparison() -> IncidentComparison:
 
 
 class DeterministicInspection(ContractModel):
-    api_version: str = "deterministic-inspection/v8"
+    api_version: str = "deterministic-inspection/v9"
     prepared: PreparedAnalysis
     log_overviews: LogOverviewCollection = Field(default_factory=LogOverviewCollection)
     runtime_identity: RuntimeIdentity = Field(default_factory=RuntimeIdentity)
@@ -108,6 +125,9 @@ class DeterministicInspection(ContractModel):
     )
     source_guidance_inspections: list[SourceGuidanceInspection] = Field(
         default_factory=_new_source_guidance_inspections,
+    )
+    source_search_matches: list[SourceSearchMatch] = Field(
+        default_factory=_new_source_search_matches,
     )
     synthesized_evidence: list[Evidence] = Field(
         default_factory=_new_synthesized_evidence,

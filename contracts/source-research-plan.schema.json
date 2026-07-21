@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "SourceResearchStatus": {
+      "enum": [
+        "run",
+        "skip"
+      ],
+      "title": "SourceResearchStatus",
+      "type": "string"
+    },
+    "SourceSearchQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "query_id": {
+          "minLength": 1,
+          "title": "Query Id",
+          "type": "string"
+        },
+        "source_id": {
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "terms": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Terms",
+          "type": "array"
+        },
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Paths",
+          "type": "array"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "context_lines": {
+          "default": 12,
+          "maximum": 40,
+          "minimum": 0,
+          "title": "Context Lines",
+          "type": "integer"
+        },
+        "max_results": {
+          "default": 10,
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Max Results",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "query_id",
+        "source_id",
+        "terms",
+        "reason"
+      ],
+      "title": "SourceSearchQuery",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "default": "source-research-plan/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/SourceResearchStatus"
+    },
+    "queries": {
+      "items": {
+        "$ref": "#/$defs/SourceSearchQuery"
+      },
+      "maxItems": 5,
+      "title": "Queries",
+      "type": "array"
+    },
+    "rationale": {
+      "minLength": 1,
+      "title": "Rationale",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "rationale"
+  ],
+  "title": "SourceResearchPlan",
+  "type": "object"
+}

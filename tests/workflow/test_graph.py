@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from pathlib import Path
 from typing import cast
 
@@ -16,10 +17,16 @@ from maa_diagnostic_expert.contracts.domain import (
     DiagnosisStatus,
     DiagnosticEvent,
     DiagnosticEventKind,
+    EvidenceReliability,
+    SourceInput,
+    SourceRole,
 )
 from maa_diagnostic_expert.contracts.workflow import (
     IncidentCorrelationDraft,
     IncidentSelectionStatus,
+    SourceResearchPlan,
+    SourceResearchStatus,
+    SourceSearchQuery,
 )
 from maa_diagnostic_expert.reasoning.prompts import StubReasoningBackend
 from maa_diagnostic_expert.reasoning.protocol import ReasoningContext
@@ -153,6 +160,161 @@ class _FailingReasoningBackend:
     async def start(self, *, run_id: str) -> _InventingReasoningSession:
         del run_id
         raise RuntimeError("model unavailable")
+
+
+class _SourceResearchToolCaller:
+    def __init__(self, project: Path) -> None:
+        self.project = project
+        self.calls: list[tuple[str, dict[str, JsonValue]]] = []
+
+    def call(self, name: str, arguments: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        self.calls.append((name, arguments))
+        if name == "mla.preflight":
+            return _supported_preflight()
+        if name == "mla.runtime-inspection":
+            return _runtime_with_failure()
+        if name == "mse.project-preflight":
+            return cast(
+                dict[str, JsonValue],
+                {
+                    "schema_version": "mde-mse-project-preflight/v1",
+                    "project_root": str(self.project),
+                    "interface_path": "assets/interface.json",
+                    "syntax_mode": "maafw",
+                    "compatibility": {
+                        "status": "supported",
+                        "reason": "Loaded.",
+                    },
+                    "controllers": ["Adb"],
+                    "resources": ["Official"],
+                    "task_bindings": [],
+                    "configurations": [],
+                    "configurations_truncated": False,
+                    "diagnostics": [],
+                    "diagnostics_truncated": False,
+                    "warnings": [],
+                },
+            )
+        if name == "mse.resolve-tasks":
+            tasks = arguments.get("tasks")
+            if not isinstance(tasks, list):
+                raise AssertionError("mse.resolve-tasks requires tasks")
+            resolutions: list[JsonValue] = []
+            for raw_task in tasks:
+                task = str(raw_task)
+                found = task == "LoginButton"
+                resolutions.append(
+                    {
+                        "name": task,
+                        "controller": "Adb",
+                        "resource": "Official",
+                        "found": found,
+                        "definitions": (
+                            [
+                                {
+                                    "source_path": "assets/pipeline.json",
+                                    "line": 2,
+                                    "column": 3,
+                                    "raw_config": {"recognition": "OCR"},
+                                }
+                            ]
+                            if found
+                            else []
+                        ),
+                        "effective_config": (
+                            {"recognition": "OCR", "expected": ["Login"]} if found else {}
+                        ),
+                        "references": [],
+                    }
+                )
+            return {
+                "schema_version": "mde-mse-task-resolution/v1",
+                "project_root": str(self.project),
+                "interface_path": "assets/interface.json",
+                "compatibility": {
+                    "status": "supported",
+                    "reason": "Resolved.",
+                },
+                "requested_tasks": tasks,
+                "resolutions": resolutions,
+                "configurations_truncated": False,
+                "warnings": [],
+            }
+        raise AssertionError(f"Unexpected tool call: {name}")
+
+
+class _SourceResearchSession:
+    def __init__(self, contexts: list[ReasoningContext]) -> None:
+        self.contexts = contexts
+
+    async def reason[ResultT: ContractModel](
+        self, context: ReasoningContext, result_type: type[ResultT]
+    ) -> ResultT:
+        self.contexts.append(context)
+        if result_type is IncidentCorrelationDraft:
+            selection = context.incident_selection
+            if selection is None or not selection.candidates:
+                raise AssertionError("correlation requires candidates")
+            candidate = selection.candidates[0]
+            return cast(
+                ResultT,
+                IncidentCorrelationDraft(
+                    status=IncidentSelectionStatus.SELECTED,
+                    selected_candidate_id=candidate.candidate_id,
+                    relevant_candidate_ids=[candidate.candidate_id],
+                    evidence_ids=[candidate.evidence_ids[0]],
+                    rationale="The reported login task matches.",
+                ),
+            )
+        if result_type is SourceResearchPlan:
+            return cast(
+                ResultT,
+                SourceResearchPlan(
+                    status=SourceResearchStatus.RUN,
+                    rationale="Locate the focused pipeline source.",
+                    queries=[
+                        SourceSearchQuery(
+                            query_id="login-node",
+                            source_id="project",
+                            terms=["LoginButton"],
+                            paths=["assets"],
+                            reason="Inspect the focused pipeline definition.",
+                            context_lines=2,
+                        )
+                    ],
+                ),
+            )
+        if result_type is DiagnosisDraft:
+            primary = next(
+                item for item in context.evidence if item.reliability is EvidenceReliability.PRIMARY
+            )
+            return cast(
+                ResultT,
+                DiagnosisDraft(
+                    status=DiagnosisStatus.COMPLETE,
+                    summary="Observed a login pipeline timeout.",
+                    conclusions=[
+                        Conclusion(
+                            statement="The login task timed out.",
+                            evidence_ids=[primary.id],
+                            confidence=0.9,
+                        )
+                    ],
+                ),
+            )
+        raise TypeError(result_type.__name__)
+
+    async def close(self) -> None:
+        pass
+
+
+class _SourceResearchBackend:
+    def __init__(self) -> None:
+        self.contexts: list[ReasoningContext] = []
+
+    async def start(self, *, run_id: str) -> _SourceResearchSession:
+        del run_id
+        return _SourceResearchSession(self.contexts)
 
 
 def _make_directory_with_log(tmp_path: Path) -> Path:
@@ -368,3 +530,68 @@ def test_workflow_does_not_send_custom_log_to_mla(tmp_path: Path) -> None:
     )
     assert any(event.stage == "overview_logs" for event in events)
     assert any(event.stage == "synthesize" and event.data.get("evidence") == 1 for event in events)
+
+
+def test_workflow_runs_model_planned_versioned_source_search(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    assets = project / "assets"
+    assets.mkdir(parents=True)
+    (assets / "interface.json").write_text("{}\n", encoding="utf-8")
+    (assets / "pipeline.json").write_text(
+        '{\n  "LoginButton": {"recognition": "OCR"}\n}\n',
+        encoding="utf-8",
+    )
+    (project / "AGENTS.md").write_text(
+        "Inspect pipeline configuration before proposing changes.\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "-C", str(project), "init"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(project), "config", "user.name", "MDE Test"],
+        check=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(project),
+            "config",
+            "user.email",
+            "mde-test@example.invalid",
+        ],
+        check=True,
+    )
+    subprocess.run(["git", "-C", str(project), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(project), "commit", "-m", "project"],
+        check=True,
+        capture_output=True,
+    )
+    debug_path = _make_directory_with_log(tmp_path)
+    caller = _SourceResearchToolCaller(project)
+    backend = _SourceResearchBackend()
+    workflow = DiagnosticWorkflow(caller, backend)
+    request = AnalysisRequest(
+        question="Why did LoginTask time out?",
+        artifacts=[ArtifactInput(path=debug_path, kind=ArtifactKind.DIRECTORY)],
+        sources=[
+            SourceInput(
+                source_id="project",
+                role=SourceRole.PROJECT,
+                path=project,
+            )
+        ],
+    )
+
+    events = _collect_events(workflow, request)
+
+    assert workflow.result is not None
+    assert workflow.result.status is DiagnosisStatus.COMPLETE
+    assert any(event.stage == "inspect_source_guidance" for event in events)
+    assert any(event.stage == "plan_source_research" for event in events)
+    assert any(event.stage == "search_source" for event in events)
+    diagnose_context = next(context for context in backend.contexts if context.stage == "diagnose")
+    assert any(evidence.kind == "source_search_match" for evidence in diagnose_context.evidence)
+    assert any(name == "mse.resolve-tasks" for name, _ in caller.calls)

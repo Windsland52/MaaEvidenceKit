@@ -3595,6 +3595,77 @@
       "title": "SourceRole",
       "type": "string"
     },
+    "SourceSearchMatch": {
+      "additionalProperties": false,
+      "properties": {
+        "query_id": {
+          "minLength": 1,
+          "title": "Query Id",
+          "type": "string"
+        },
+        "source_id": {
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "relative_path": {
+          "minLength": 1,
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "source_locator": {
+          "minLength": 1,
+          "title": "Source Locator",
+          "type": "string"
+        },
+        "line": {
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "matched_terms": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Matched Terms",
+          "type": "array"
+        },
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "line_start": {
+          "minimum": 1,
+          "title": "Line Start",
+          "type": "integer"
+        },
+        "line_end": {
+          "minimum": 1,
+          "title": "Line End",
+          "type": "integer"
+        },
+        "evidence_id": {
+          "minLength": 1,
+          "title": "Evidence Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query_id",
+        "source_id",
+        "relative_path",
+        "source_locator",
+        "line",
+        "matched_terms",
+        "content",
+        "line_start",
+        "line_end",
+        "evidence_id"
+      ],
+      "title": "SourceSearchMatch",
+      "type": "object"
+    },
     "SourceSnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -3673,7 +3744,7 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
-      "default": "deterministic-inspection/v8",
+      "default": "deterministic-inspection/v9",
       "title": "Api Version",
       "type": "string"
     },
@@ -3725,6 +3796,13 @@
         "$ref": "#/$defs/SourceGuidanceInspection"
       },
       "title": "Source Guidance Inspections",
+      "type": "array"
+    },
+    "source_search_matches": {
+      "items": {
+        "$ref": "#/$defs/SourceSearchMatch"
+      },
+      "title": "Source Search Matches",
       "type": "array"
     },
     "synthesized_evidence": {

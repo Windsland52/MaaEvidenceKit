@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from .domain import ContractModel, SourceRole
 
@@ -368,3 +368,78 @@ class SourceGuidance(ContractModel):
     target_path: str = Field(min_length=1)
     guidance_refs: list[str] = Field(default_factory=_new_strings)
     required_checks: list[str] = Field(default_factory=_new_strings)
+
+
+class SourceResearchStatus(StrEnum):
+    RUN = "run"
+    SKIP = "skip"
+
+
+class SourceSearchQuery(ContractModel):
+    query_id: str = Field(min_length=1)
+    source_id: str = Field(min_length=1)
+    terms: list[str] = Field(min_length=1, max_length=8)
+    paths: list[str] = Field(default_factory=_new_strings, max_length=8)
+    reason: str = Field(min_length=1)
+    context_lines: int = Field(default=12, ge=0, le=40)
+    max_results: int = Field(default=10, ge=1, le=20)
+
+    @field_validator("terms")
+    @classmethod
+    def validate_terms(cls, value: list[str]) -> list[str]:
+        normalized_terms = [term.strip() for term in value]
+        if any(
+            not term or "\n" in term or "\r" in term or len(term) > 200 for term in normalized_terms
+        ):
+            raise ValueError(
+                "Source search terms must be non-empty single-line strings up to 200 characters"
+            )
+        if len(normalized_terms) != len(set(normalized_terms)):
+            raise ValueError("Source search terms must be unique")
+        return normalized_terms
+
+    @field_validator("paths")
+    @classmethod
+    def validate_paths(cls, value: list[str]) -> list[str]:
+        normalized_paths = [path.strip().replace("\\", "/") for path in value]
+        for path in normalized_paths:
+            candidate = Path(path)
+            if (
+                not path
+                or len(path) > 300
+                or candidate.is_absolute()
+                or ".." in candidate.parts
+                or any(part.casefold() == ".git" for part in candidate.parts)
+            ):
+                raise ValueError(
+                    "Source search paths must be relative, at most 300 characters, "
+                    "and cannot traverse parents or .git"
+                )
+        if len(normalized_paths) != len(set(normalized_paths)):
+            raise ValueError("Source search paths must be unique")
+        return normalized_paths
+
+
+def _new_source_search_queries() -> list[SourceSearchQuery]:
+    return []
+
+
+class SourceResearchPlan(ContractModel):
+    api_version: str = "source-research-plan/v1"
+    status: SourceResearchStatus
+    queries: list[SourceSearchQuery] = Field(
+        default_factory=_new_source_search_queries,
+        max_length=5,
+    )
+    rationale: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_plan(self) -> SourceResearchPlan:
+        query_ids = [query.query_id for query in self.queries]
+        if len(query_ids) != len(set(query_ids)):
+            raise ValueError("Source search query IDs must be unique")
+        if self.status is SourceResearchStatus.RUN and not self.queries:
+            raise ValueError("A running source research plan requires at least one query")
+        if self.status is SourceResearchStatus.SKIP and self.queries:
+            raise ValueError("A skipped source research plan cannot contain queries")
+        return self

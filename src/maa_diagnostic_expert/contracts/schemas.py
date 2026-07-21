@@ -29,6 +29,7 @@ from .workflow import (
     InvestigationPlan,
     RuntimeIdentity,
     SourceGuidance,
+    SourceResearchPlan,
     VerificationPlan,
 )
 
@@ -58,6 +59,7 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "fix-candidate.schema.json": FixCandidate,
     "verification-plan.schema.json": VerificationPlan,
     "source-guidance.schema.json": SourceGuidance,
+    "source-research-plan.schema.json": SourceResearchPlan,
 }
 
 

@@ -29,6 +29,8 @@ from maa_diagnostic_expert.contracts.workflow import (
     IncidentCorrelationDraft,
     InvestigationBranch,
     InvestigationPlan,
+    SourceResearchPlan,
+    SourceResearchStatus,
 )
 from maa_diagnostic_expert.discovery.artifact_classification import (
     LogSourceProfile,
@@ -56,10 +58,12 @@ from maa_diagnostic_expert.inspection.service import (
 from maa_diagnostic_expert.inspection.source_guidance import (
     resolve_focused_source_guidance,
 )
+from maa_diagnostic_expert.inspection.source_search import execute_source_research
 from maa_diagnostic_expert.inspection.tooling import ToolCaller
 from maa_diagnostic_expert.reasoning.prompts import (
     build_incident_correlation_context,
     build_reasoning_context,
+    build_source_research_context,
 )
 from maa_diagnostic_expert.reasoning.protocol import ReasoningBackend, ReasoningContext
 
@@ -88,6 +92,7 @@ class DiagnosticState(TypedDict):
     inspection: NotRequired[DeterministicInspection]
     evidence: NotRequired[list[Evidence]]
     incident_correlation: NotRequired[IncidentCorrelationDraft]
+    source_research_plan: NotRequired[SourceResearchPlan]
     draft: NotRequired[DiagnosisDraft]
     result: NotRequired[DiagnosisResult]
     error_message: NotRequired[str]
@@ -103,6 +108,7 @@ class _DiagnosticStateUpdate(TypedDict, total=False):
     inspection: DeterministicInspection
     evidence: list[Evidence]
     incident_correlation: IncidentCorrelationDraft
+    source_research_plan: SourceResearchPlan
     draft: DiagnosisDraft
     result: DiagnosisResult
     error_message: str
@@ -728,6 +734,116 @@ class DiagnosticWorkflow:
     @staticmethod
     def _after_compare_incident(
         state: DiagnosticState,
+    ) -> Literal["plan_source_research", "reason", "fail"]:
+        if "error_message" in state:
+            return "fail"
+        inspection = state.get("inspection")
+        if inspection is not None and inspection.source_guidance_inspections:
+            return "plan_source_research"
+        return "reason"
+
+    async def _plan_source_research_node(
+        self,
+        state: DiagnosticState,
+    ) -> _DiagnosticStateUpdate:
+        try:
+            if self.run_id in self._cancelled:
+                raise RuntimeError("workflow cancelled before source research planning")
+            inspection = state.get("inspection")
+            if inspection is None:
+                raise RuntimeError("source research planning requires deterministic inspection")
+            source_ids = list(
+                dict.fromkeys(
+                    item.guidance.source_id for item in inspection.source_guidance_inspections
+                )
+            )
+            context = build_source_research_context(
+                state["request"].question or _DEFAULT_QUESTION,
+                state.get("evidence", []),
+                inspection.incident_comparison,
+                source_ids,
+            )
+            _emit(
+                _WorkflowUpdate(
+                    kind=DiagnosticEventKind.MODEL_REQUESTED,
+                    stage="plan_source_research",
+                    message="Requesting bounded source research plan",
+                    data={
+                        "sources": len(source_ids),
+                        "evidence_count": len(context.evidence),
+                    },
+                )
+            )
+            session = await self.reasoning_backend.start(run_id=self.run_id)
+            try:
+                plan = await session.reason(context, SourceResearchPlan)
+            finally:
+                await session.close()
+            unknown_sources = {query.source_id for query in plan.queries} - set(source_ids)
+            if unknown_sources:
+                raise ValueError(
+                    "Source research plan references unknown source IDs: "
+                    + ", ".join(sorted(unknown_sources))
+                )
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("plan_source_research", error)
+
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.MODEL_COMPLETED,
+                stage="plan_source_research",
+                message="Source research plan complete",
+                data={
+                    "status": plan.status.value,
+                    "queries": len(plan.queries),
+                },
+            )
+        )
+        return {"source_research_plan": plan}
+
+    @staticmethod
+    def _after_plan_source_research(
+        state: DiagnosticState,
+    ) -> Literal["search_source", "reason", "fail"]:
+        if "error_message" in state:
+            return "fail"
+        plan = state.get("source_research_plan")
+        if plan is not None and plan.status is SourceResearchStatus.RUN:
+            return "search_source"
+        return "reason"
+
+    @staticmethod
+    def _search_source_node(state: DiagnosticState) -> _DiagnosticStateUpdate:
+        try:
+            inspection = state.get("inspection")
+            plan = state.get("source_research_plan")
+            if inspection is None or plan is None:
+                raise RuntimeError(
+                    "source search requires deterministic inspection and research plan"
+                )
+            inspection = execute_source_research(inspection, plan)
+            inspection = synthesize_inspection_evidence(inspection)
+            evidence = collect_inspection_evidence(inspection)
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("search_source", error)
+
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.STAGE_COMPLETED,
+                stage="search_source",
+                message="Version-matched source search complete",
+                data={
+                    "queries": len(plan.queries),
+                    "matches": len(inspection.source_search_matches),
+                    "evidence": len(evidence),
+                },
+            )
+        )
+        return {"inspection": inspection, "evidence": evidence}
+
+    @staticmethod
+    def _after_search_source(
+        state: DiagnosticState,
     ) -> Literal["reason", "fail"]:
         return "fail" if "error_message" in state else "reason"
 
@@ -886,6 +1002,12 @@ class DiagnosticWorkflow:
             self._inspect_source_guidance_node,
         )
         _add_graph_node(graph, "compare_incident", self._compare_incident_node)
+        _add_graph_node(
+            graph,
+            "plan_source_research",
+            self._plan_source_research_node,
+        )
+        _add_graph_node(graph, "search_source", self._search_source_node)
         _add_graph_node(graph, "reason", self._reason_node)
         _add_graph_node(graph, "validate", self._validate_node)
         _add_graph_node(graph, "fail", self._fail_node)
@@ -911,6 +1033,11 @@ class DiagnosticWorkflow:
             self._after_inspect_source_guidance,
         )
         graph.add_conditional_edges("compare_incident", self._after_compare_incident)
+        graph.add_conditional_edges(
+            "plan_source_research",
+            self._after_plan_source_research,
+        )
+        graph.add_conditional_edges("search_source", self._after_search_source)
         graph.add_conditional_edges("reason", self._after_reason)
         graph.add_conditional_edges("validate", self._after_validate)
         graph.add_edge("fail", END)

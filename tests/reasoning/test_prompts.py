@@ -21,12 +21,15 @@ from maa_diagnostic_expert.contracts.workflow import (
     IncidentExpectedTask,
     IncidentSelection,
     IncidentSelectionStatus,
+    SourceResearchPlan,
+    SourceResearchStatus,
 )
 from maa_diagnostic_expert.reasoning.prompts import (
     StubReasoningBackend,
     StubReasoningSession,
     build_incident_correlation_context,
     build_reasoning_context,
+    build_source_research_context,
     order_evidence_for_reasoning,
     render_evidence_block,
     render_instruction,
@@ -196,6 +199,59 @@ def test_diagnosis_context_includes_deterministic_actual_expected_comparison() -
     assert "Deterministic actual/expected comparison: complete" in context.instruction
     assert "not root-cause conclusions" in context.instruction
     assert "recognition=OCR" in context.instruction
+
+
+def test_source_research_context_focuses_comparison_and_guidance() -> None:
+    comparison = IncidentComparison(
+        status=IncidentComparisonStatus.COMPLETE,
+        findings=[
+            IncidentComparisonFinding(
+                kind=IncidentComparisonFindingKind.ACTUAL_AND_EXPECTED_AVAILABLE,
+                statement="Actual and expected facts are available.",
+                observed_evidence_ids=["runtime"],
+                expected_evidence_ids=["pipeline"],
+            )
+        ],
+    )
+    context = build_source_research_context(
+        "Diagnose",
+        [
+            _evidence("runtime", EvidenceReliability.PRIMARY),
+            _evidence("pipeline", EvidenceReliability.SECONDARY),
+            _evidence(
+                "guidance",
+                EvidenceReliability.CONTEXT,
+                kind="source_guidance",
+            ),
+            _evidence("unrelated", EvidenceReliability.PRIMARY),
+        ],
+        comparison,
+        ["project"],
+    )
+
+    assert context.stage == "plan_source_research"
+    assert [item.id for item in context.evidence] == [
+        "runtime",
+        "pipeline",
+        "guidance",
+    ]
+    assert "Available source IDs: project" in context.instruction
+    assert "not a diagnosis" in context.instruction
+
+
+def test_stub_backend_skips_semantic_source_research() -> None:
+    session = StubReasoningSession(run_id="run-source-research")
+    context = build_source_research_context(
+        "Diagnose",
+        [],
+        IncidentComparison(status=IncidentComparisonStatus.PARTIAL),
+        ["project"],
+    )
+
+    result = asyncio.run(session.reason(context, SourceResearchPlan))
+
+    assert result.status is SourceResearchStatus.SKIP
+    assert result.queries == []
 
 
 def test_stub_backend_produces_complete_draft_with_primary_evidence() -> None:
