@@ -2,9 +2,22 @@ from pathlib import Path
 
 from pydantic import JsonValue
 
-from maa_diagnostic_expert.contracts.domain import AnalysisRequest, ArtifactInput, ArtifactKind
+from maa_diagnostic_expert.contracts.domain import (
+    AnalysisRequest,
+    ArtifactInput,
+    ArtifactKind,
+    PreparedAnalysis,
+    RevisionResolutionStatus,
+    SourceRole,
+    SourceSnapshot,
+)
 from maa_diagnostic_expert.contracts.workflow import IncidentSelectionStatus
-from maa_diagnostic_expert.inspection.service import inspect_analysis
+from maa_diagnostic_expert.inspection.service import (
+    attach_runtime_identity,
+    inspect_analysis,
+    inspect_prepared_analysis,
+    synthesize_inspection_evidence,
+)
 from maa_diagnostic_expert.interfaces.tool_adapter import ToolAdapterInvocationError
 
 
@@ -64,11 +77,56 @@ def _empty_runtime_inspection() -> dict[str, JsonValue]:
     }
 
 
+def _mse_preflight(project_root: Path) -> dict[str, JsonValue]:
+    return {
+        "schema_version": "mde-mse-project-preflight/v1",
+        "project_root": str(project_root),
+        "interface_path": "assets/interface.json",
+        "syntax_mode": "maafw",
+        "compatibility": {
+            "status": "supported",
+            "reason": "The interface and resource loaded.",
+        },
+        "controllers": ["Adb"],
+        "resources": ["Official"],
+        "task_bindings": [{"name": "Combat", "entry": "Start"}],
+        "configurations": [
+            {
+                "controller": "Adb",
+                "resource": "Official",
+                "resource_paths": ["resource/base"],
+                "task_count": 1,
+                "pipeline_file_count": 1,
+                "diagnostic_count": 1,
+                "error_count": 1,
+                "warning_count": 0,
+            }
+        ],
+        "configurations_truncated": False,
+        "diagnostics": [
+            {
+                "type": "unknown-task",
+                "level": "error",
+                "source_path": "assets/resource/base/pipeline/combat.json",
+                "line": 3,
+                "column": 10,
+                "length": 7,
+                "message": "Unknown task Missing.",
+                "controller": "Adb",
+                "resource": "Official",
+            }
+        ],
+        "diagnostics_truncated": False,
+        "warnings": [],
+    }
+
+
 class RecordingToolCaller:
     def __init__(
         self,
         preflight: dict[str, JsonValue] | None = None,
         runtime: dict[str, JsonValue] | None = None,
+        mse: dict[str, JsonValue] | None = None,
     ) -> None:
         self.calls: list[tuple[str, dict[str, JsonValue]]] = []
         self._preflight: dict[str, JsonValue] = (
@@ -77,11 +135,14 @@ class RecordingToolCaller:
         self._runtime: dict[str, JsonValue] = (
             runtime if runtime is not None else _empty_runtime_inspection()
         )
+        self._mse = mse
 
     def call(self, name: str, arguments: dict[str, JsonValue]) -> dict[str, JsonValue]:
         self.calls.append((name, arguments))
         if name == "mla.runtime-inspection":
             return self._runtime
+        if name == "mse.project-preflight" and self._mse is not None:
+            return self._mse
         return self._preflight
 
 
@@ -230,3 +291,36 @@ def test_inspect_builds_custom_overview_without_calling_mla(tmp_path: Path) -> N
     ]
     assert inspection.incident_selection.status is IncidentSelectionStatus.AMBIGUOUS
     assert len(inspection.incident_selection.candidates) == 1
+
+
+def test_inspect_runs_mse_for_revision_matched_project_source(tmp_path: Path) -> None:
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "interface.json").write_text("{}", encoding="utf-8")
+    caller = RecordingToolCaller(mse=_mse_preflight(tmp_path))
+    prepared = PreparedAnalysis(
+        request=AnalysisRequest(question="Inspect the current project."),
+        source_snapshots=[
+            SourceSnapshot(
+                source_id="project",
+                role=SourceRole.PROJECT,
+                path=tmp_path,
+                current_revision="abc123",
+                resolution_status=RevisionResolutionStatus.NOT_REQUESTED,
+            )
+        ],
+    )
+
+    inspection = inspect_prepared_analysis(prepared, caller)
+    inspection = attach_runtime_identity(inspection)
+    inspection = synthesize_inspection_evidence(inspection)
+
+    assert caller.calls == [
+        ("mse.project-preflight", {"path": str(tmp_path)}),
+    ]
+    assert len(inspection.mse_project_inspections) == 1
+    assert [item.kind for item in inspection.synthesized_evidence] == [
+        "mse_project_summary",
+        "mse_static_diagnostic",
+    ]
+    assert inspection.synthesized_evidence[1].line_start == 3

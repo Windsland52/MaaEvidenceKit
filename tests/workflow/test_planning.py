@@ -86,6 +86,9 @@ def test_plan_exposes_unimplemented_dump_branch(tmp_path: Path) -> None:
 
 
 def test_plan_exposes_mse_when_project_revision_is_resolved(tmp_path: Path) -> None:
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "interface.json").write_text("{}", encoding="utf-8")
     request = AnalysisRequest(question="Inspect the project configuration.")
     prepared = PreparedAnalysis(
         request=request,
@@ -94,6 +97,7 @@ def test_plan_exposes_mse_when_project_revision_is_resolved(tmp_path: Path) -> N
                 source_id="project",
                 role=SourceRole.PROJECT,
                 path=tmp_path,
+                requested_revision="abc123",
                 resolved_revision="abc123",
                 current_revision="abc123",
                 resolution_status=RevisionResolutionStatus.RESOLVED,
@@ -103,8 +107,30 @@ def test_plan_exposes_mse_when_project_revision_is_resolved(tmp_path: Path) -> N
 
     mse = _decision(prepared, InvestigationBranch.MSE_PROJECT_PREFLIGHT)
 
-    assert mse.disposition is BranchDisposition.DEFERRED
+    assert mse.disposition is BranchDisposition.RUN
     assert mse.relevance is AnalysisRelevance.USEFUL
+
+
+def test_plan_skips_mse_when_resolved_revision_is_not_checked_out(tmp_path: Path) -> None:
+    (tmp_path / "interface.json").write_text("{}", encoding="utf-8")
+    prepared = PreparedAnalysis(
+        request=AnalysisRequest(issue="Project task fails."),
+        source_snapshots=[
+            SourceSnapshot(
+                source_id="project",
+                role=SourceRole.PROJECT,
+                path=tmp_path,
+                requested_revision="v1",
+                resolved_revision="old",
+                current_revision="new",
+                resolution_status=RevisionResolutionStatus.RESOLVED,
+            )
+        ],
+    )
+
+    mse = _decision(prepared, InvestigationBranch.MSE_PROJECT_PREFLIGHT)
+
+    assert mse.disposition is BranchDisposition.SKIP
 
 
 def test_incident_selection_requires_known_unique_candidate() -> None:

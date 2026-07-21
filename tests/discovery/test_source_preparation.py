@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -7,8 +8,12 @@ from maa_diagnostic_expert.contracts.domain import (
     RevisionResolutionStatus,
     SourceInput,
     SourceRole,
+    SourceSnapshot,
 )
 from maa_diagnostic_expert.discovery.preparation import prepare_analysis
+from maa_diagnostic_expert.discovery.source_preparation import (
+    source_snapshot_matches_checkout,
+)
 
 
 def test_prepare_uses_cwd_only_when_it_is_a_maa_project(
@@ -65,3 +70,69 @@ def test_prepare_reports_each_invalid_source_path(tmp_path: Path) -> None:
         "source_path_missing",
         "source_path_not_directory",
     }
+
+
+def test_issue_source_must_be_checked_out_at_resolved_revision(tmp_path: Path) -> None:
+    snapshot = SourceSnapshot(
+        source_id="project",
+        role=SourceRole.PROJECT,
+        path=tmp_path,
+        requested_revision="v1",
+        resolved_revision="old",
+        current_revision="new",
+        resolution_status=RevisionResolutionStatus.RESOLVED,
+    )
+
+    assert not source_snapshot_matches_checkout(
+        snapshot,
+        require_requested_revision=True,
+    )
+
+
+def test_prepare_reports_resolved_revision_that_is_not_checked_out(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.email", "mde@example.invalid"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.name", "MDE Test"],
+        check=True,
+    )
+    interface = tmp_path / "interface.json"
+    interface.write_text("{}", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "interface.json"], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "-m", "first"],
+        check=True,
+        capture_output=True,
+    )
+    first_revision = subprocess.run(
+        ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    ).stdout.strip()
+    interface.write_text('{"task":[]}', encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "interface.json"], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "-m", "second"],
+        check=True,
+        capture_output=True,
+    )
+
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            issue="The old project revision failed.",
+            sources=[
+                SourceInput(
+                    source_id="project",
+                    role=SourceRole.PROJECT,
+                    path=tmp_path,
+                    revision=first_revision,
+                )
+            ],
+        )
+    )
+
+    assert "requested_revision_not_checked_out" in {item.code for item in prepared.missing_evidence}

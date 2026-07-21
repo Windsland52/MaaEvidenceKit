@@ -132,7 +132,40 @@ def _missing_evidence(snapshot: SourceSnapshot, *, issue_diagnosis: bool) -> lis
                 source_path=snapshot.path,
             )
         )
+    elif (
+        snapshot.requested_revision is not None
+        and snapshot.resolved_revision != snapshot.current_revision
+    ):
+        missing.append(
+            MissingEvidence(
+                code="requested_revision_not_checked_out",
+                message=(
+                    f"Resolved revision for source '{snapshot.source_id}' is not the "
+                    "currently checked-out revision."
+                ),
+                source_id=snapshot.source_id,
+                source_path=snapshot.path,
+            )
+        )
     return missing
+
+
+def source_snapshot_matches_checkout(
+    snapshot: SourceSnapshot,
+    *,
+    require_requested_revision: bool,
+) -> bool:
+    """Return whether reading the source path observes the intended revision."""
+    if snapshot.current_revision is None:
+        return False
+    if require_requested_revision and snapshot.requested_revision is None:
+        return False
+    if snapshot.requested_revision is None:
+        return snapshot.resolution_status is RevisionResolutionStatus.NOT_REQUESTED
+    return (
+        snapshot.resolution_status is RevisionResolutionStatus.RESOLVED
+        and snapshot.resolved_revision == snapshot.current_revision
+    )
 
 
 def prepare_sources(

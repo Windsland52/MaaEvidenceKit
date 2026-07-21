@@ -1,4 +1,5 @@
 import { runMlaPreflight, runMlaRuntimeInspection } from "./mla.js";
+import { runMseProjectPreflight } from "./mse.js";
 import type { ToolDescriptor, ToolRequest, ToolResponse } from "./protocol.js";
 
 const tools: ToolDescriptor[] = [
@@ -11,6 +12,11 @@ const tools: ToolDescriptor[] = [
     name: "mla.runtime-inspection",
     description:
       "Parse MaaFramework logs and return structured failures, outcomes, and recognition/repetition signals with source-mapped evidence."
+  },
+  {
+    name: "mse.project-preflight",
+    description:
+      "Load a Maa project through public MSE packages and return interface, resource, task, pipeline, and static diagnostic facts."
   }
 ];
 
@@ -71,6 +77,9 @@ async function callTool(request: ToolRequest): Promise<ToolResponse> {
     if (toolName === "mla.runtime-inspection") {
       return success(request.id, await runMlaRuntimeInspection(targetPath));
     }
+    if (toolName === "mse.project-preflight") {
+      return success(request.id, await runMseProjectPreflight(targetPath));
+    }
     return failure(
       request.id,
       "TOOL_NOT_FOUND",
@@ -80,7 +89,7 @@ async function callTool(request: ToolRequest): Promise<ToolResponse> {
     const message = error instanceof Error ? error.message : String(error);
     return failure(
       request.id,
-      "MLA_TOOL_FAILED",
+      "TOOL_EXECUTION_FAILED",
       message,
       false,
       { tool: toolName }
@@ -105,4 +114,10 @@ export type {
   MlaPreflightResult,
   MlaVersionEvidence
 } from "./mla.js";
+export type {
+  MseConfigurationSummary,
+  MseDiagnostic,
+  MseProjectPreflightResult,
+  MseTaskBinding
+} from "./mse.js";
 export type { ToolDescriptor, ToolError, ToolRequest, ToolResponse } from "./protocol.js";

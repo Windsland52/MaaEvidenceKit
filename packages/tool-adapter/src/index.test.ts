@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 
-import { handleRequest, type MlaPreflightResult } from "./index.js";
+import {
+  handleRequest,
+  type MlaPreflightResult,
+  type MseProjectPreflightResult
+} from "./index.js";
 
 const temporaryRoots: string[] = [];
 
@@ -14,7 +18,7 @@ after(async () => {
   );
 });
 
-test("tools/list exposes mla.preflight and mla.runtime-inspection", async () => {
+test("tools/list exposes MLA and MSE deterministic tools", async () => {
   const response = await handleRequest({
     id: "list-1",
     apiVersion: "tool-adapter/v1",
@@ -25,8 +29,53 @@ test("tools/list exposes mla.preflight and mla.runtime-inspection", async () => 
   const result = response.result as { tools: Array<{ name: string }> };
   assert.deepEqual(result.tools.map((tool) => tool.name), [
     "mla.preflight",
-    "mla.runtime-inspection"
+    "mla.runtime-inspection",
+    "mse.project-preflight"
   ]);
+});
+
+test("mse.project-preflight loads interface resource combinations read-only", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mde-mse-adapter-"));
+  temporaryRoots.push(root);
+  const assets = path.join(root, "assets");
+  const pipeline = path.join(assets, "resource", "base", "pipeline");
+  await mkdir(pipeline, { recursive: true });
+  await writeFile(
+    path.join(assets, "interface.json"),
+    JSON.stringify({
+      controller: [{ name: "Adb" }],
+      resource: [{ name: "Official", path: ["resource/base"], controller: ["Adb"] }],
+      task: [{ name: "Combat", entry: "Start" }]
+    }),
+    "utf8"
+  );
+  await writeFile(
+    path.join(pipeline, "combat.json"),
+    JSON.stringify({ Start: { next: ["MissingNode"] } }),
+    "utf8"
+  );
+
+  const response = await handleRequest({
+    id: "mse-1",
+    apiVersion: "tool-adapter/v1",
+    method: "tools/call",
+    params: {
+      name: "mse.project-preflight",
+      arguments: { path: root }
+    }
+  });
+
+  assert.equal(response.ok, true);
+  const result = response.result as MseProjectPreflightResult;
+  assert.equal(result.schema_version, "mde-mse-project-preflight/v1");
+  assert.equal(result.compatibility.status, "supported");
+  assert.deepEqual(result.controllers, ["Adb"]);
+  assert.deepEqual(result.resources, ["Official"]);
+  assert.deepEqual(result.task_bindings, [{ name: "Combat", entry: "Start" }]);
+  assert.equal(result.configurations[0]?.pipeline_file_count, 1);
+  assert.equal(result.configurations[0]?.task_count, 1);
+  assert.equal(result.configurations_truncated, false);
+  assert.ok(result.diagnostics.some((item) => item.type === "unknown-task"));
 });
 
 test("mla.preflight returns version sessions from a core log", async () => {

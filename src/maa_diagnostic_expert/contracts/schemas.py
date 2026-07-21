@@ -19,6 +19,7 @@ from .domain import (
     ReasoningRequest,
 )
 from .mla import MlaPreflightResult, MlaRuntimeInspectionResult
+from .mse import MseProjectPreflightResult
 from .workflow import (
     ArtifactSourceInventory,
     FixCandidate,
@@ -43,6 +44,7 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "reasoning-request.schema.json": ReasoningRequest,
     "mla-preflight.schema.json": MlaPreflightResult,
     "mla-runtime-inspection.schema.json": MlaRuntimeInspectionResult,
+    "mse-project-preflight.schema.json": MseProjectPreflightResult,
     "model-config.schema.json": ModelConfig,
     "artifact-source-inventory.schema.json": ArtifactSourceInventory,
     "log-overview.schema.json": LogOverviewCollection,

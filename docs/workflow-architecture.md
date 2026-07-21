@@ -132,16 +132,18 @@ Implemented now:
 - bounded GUI/custom overview statistics and traceable warning/error occurrences;
 - typed initial investigation planning;
 - conditional MLA preflight/runtime inspection;
+- revision-matched MSE project preflight through a one-shot read-only project snapshot;
+- MSE interface task bindings, controller/resource configuration summaries, and static diagnostics;
 - source- and session-scoped MaaFramework runtime-version extraction with line-backed evidence;
 - bounded incident candidate generation from notable MLA tasks and GUI/custom log occurrences;
 - conditional model-assisted incident correlation with candidate/evidence reference validation;
-- empty deterministic inspection for non-MLA inputs;
+- empty deterministic inspection when neither MLA nor MSE has an eligible input;
 - evidence synthesis, pluggable model reasoning, citation validation, and diagnostic events.
 
 Represented by contracts but deferred:
 
 - additional real-world GUI/custom source profiles;
-- MSE project and pipeline preflight;
+- focused MSE task and expected-pipeline resolution after incident correlation;
 - dump analysis;
 - project/GUI version extraction and revision-matched source investigation;
 - scoped `AGENTS.md` resolution;

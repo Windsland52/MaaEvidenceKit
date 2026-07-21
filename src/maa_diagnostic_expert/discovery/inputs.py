@@ -1,12 +1,24 @@
 from pathlib import Path
 
-PROJECT_MARKERS = (
+MAA_INTERFACE_MARKERS = (
     "interface.json",
     "interface.jsonc",
     "assets/interface.json",
     "assets/interface.jsonc",
+)
+
+PROJECT_MARKERS = (
+    *MAA_INTERFACE_MARKERS,
     "maa-project.json",
 )
+
+
+def find_maa_interface(path: Path) -> Path | None:
+    for marker in MAA_INTERFACE_MARKERS:
+        candidate = path / marker
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def is_maa_project_root(path: Path) -> bool:

@@ -36,6 +36,14 @@ from .contracts.mla import (
     MlaSessionStatus,
     MlaVersionEvidence,
 )
+from .contracts.mse import (
+    MseCompatibility,
+    MseCompatibilityStatus,
+    MseConfigurationSummary,
+    MseDiagnostic,
+    MseProjectPreflightResult,
+    MseTaskBinding,
+)
 from .contracts.workflow import (
     AnalysisRelevance,
     ArtifactSourceClassification,
@@ -86,7 +94,9 @@ from .inspection.models import (
     DeterministicInspection,
     MlaArtifactInspection,
     MlaRuntimeInspectionArtifact,
+    MseProjectInspection,
 )
+from .inspection.mse_preflight import synthesize_mse_evidence
 from .inspection.runtime_identity import (
     extract_runtime_identity,
     synthesize_runtime_identity_evidence,
@@ -184,6 +194,13 @@ __all__ = [
     "MlaSessionStartKind",
     "MlaSessionStatus",
     "MlaVersionEvidence",
+    "MseCompatibility",
+    "MseCompatibilityStatus",
+    "MseConfigurationSummary",
+    "MseDiagnostic",
+    "MseProjectInspection",
+    "MseProjectPreflightResult",
+    "MseTaskBinding",
     "ReasoningSession",
     "RevisionResolutionStatus",
     "RuntimeComponent",
@@ -214,6 +231,7 @@ __all__ = [
     "render_markdown_report",
     "synthesize_evidence",
     "synthesize_log_overview_evidence",
+    "synthesize_mse_evidence",
     "synthesize_runtime_identity_evidence",
     "validate_result_against_inspection",
     "validate_incident_correlation",

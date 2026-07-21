@@ -323,7 +323,12 @@ class DiagnosticWorkflow:
         plan: InvestigationPlan,
     ) -> Literal["inspect", "initialize_inspection"]:
         mla = plan.decision_for(InvestigationBranch.MLA_GLOBAL_OVERVIEW)
-        return "inspect" if mla.disposition is BranchDisposition.RUN else "initialize_inspection"
+        mse = plan.decision_for(InvestigationBranch.MSE_PROJECT_PREFLIGHT)
+        return (
+            "inspect"
+            if any(decision.disposition is BranchDisposition.RUN for decision in (mla, mse))
+            else "initialize_inspection"
+        )
 
     @staticmethod
     def _overview_logs_node(state: DiagnosticState) -> _DiagnosticStateUpdate:
@@ -385,8 +390,13 @@ class DiagnosticWorkflow:
             _WorkflowUpdate(
                 kind=DiagnosticEventKind.STAGE_COMPLETED,
                 stage="inspect",
-                message="MLA inspection skipped because no eligible artifact was found",
-                data={"preflights": 0, "runtime_inspections": 0, "missing": 0},
+                message="Deterministic tool inspection skipped because no eligible input was found",
+                data={
+                    "preflights": 0,
+                    "runtime_inspections": 0,
+                    "mse_projects": 0,
+                    "missing": 0,
+                },
             )
         )
         return {"inspection": inspection}
@@ -422,6 +432,7 @@ class DiagnosticWorkflow:
                 data={
                     "preflights": len(inspection.mla_preflights),
                     "runtime_inspections": len(inspection.mla_runtime_inspections),
+                    "mse_projects": len(inspection.mse_project_inspections),
                     "missing": len(inspection.prepared.missing_evidence),
                 },
             )

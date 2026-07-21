@@ -16,7 +16,7 @@ Standalone MDE uses LangGraph as its Python workflow orchestrator. `DiagnosticWo
 the public SDK facade, while an internal typed graph state carries the request, deterministic
 inspection, authoritative evidence, model-produced draft, final result, and failure details.
 
-The current graph introduces explicit overview planning and makes MLA conditional:
+The current graph introduces explicit overview planning and makes MLA/MSE inspection conditional:
 
 ```text
 start -> prepare -> classify_artifacts -> plan_overview
@@ -33,10 +33,12 @@ start -> prepare -> classify_artifacts -> plan_overview
 `classify_artifacts` reads only bounded head/tail samples and records the classifier and signals
 for each log. Known project or GUI formats are supplied through source profiles; unmatched logs
 remain unknown. `plan_overview` records typed branch decisions before executing an analyzer. A
-classified GUI/custom log selects bounded `overview_logs`. A classified MaaFramework log or
-eligible ZIP then selects `inspect`; otherwise
-`initialize_inspection` creates an empty deterministic inspection and bypasses MLA. This prevents
-the workflow from treating every issue as a MaaFramework-log problem.
+classified GUI/custom log selects bounded `overview_logs`. A classified MaaFramework log,
+eligible ZIP, or revision-matched Maa project interface then selects `inspect`; otherwise
+`initialize_inspection` creates an empty deterministic inspection and bypasses external
+deterministic tools. MSE project preflight uses a one-shot read-only snapshot rather than a
+persistent watcher. It returns static project facts and diagnostics, not a claim that any
+diagnostic caused the reported issue.
 
 Both paths then enter `identify_runtime`. MLA-backed inspections retain MaaFramework version
 observations by source, session, timestamp, and line instead of flattening a log containing
@@ -50,8 +52,8 @@ Python rejects unknown candidate IDs, unrelated evidence IDs, and selections tha
 selected candidate. With no candidates the graph skips correlation, and the deterministic stub
 keeps candidates ambiguous instead of silently selecting even a single candidate.
 
-Future MSE, dump, source, and knowledge branches are present in the planning contract before they
-have executable nodes. Such decisions use `deferred`; a branch may
+Future focused MSE task resolution, dump, source, and knowledge branches are present in the
+planning contract before they have executable nodes. Such decisions use `deferred`; a branch may
 be marked `run` only when the current graph can execute it. This makes partial implementation
 visible to callers and benchmarks.
 

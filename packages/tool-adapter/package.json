@@ -20,5 +20,8 @@
     "@nekosu/maa-pipeline-manager": "1.0.11",
     "@nekosu/maa-tasker": "1.0.0",
     "@windsland52/maa-log-tools": "1.2.2"
+  },
+  "devDependencies": {
+    "@maaxyz/maa-node": "5.12.2"
   }
 }

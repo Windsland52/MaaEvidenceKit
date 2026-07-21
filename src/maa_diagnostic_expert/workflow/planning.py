@@ -17,6 +17,10 @@ from maa_diagnostic_expert.contracts.workflow import (
     InvestigationPlan,
 )
 from maa_diagnostic_expert.discovery.artifact_classification import classify_artifact_sources
+from maa_diagnostic_expert.discovery.inputs import find_maa_interface
+from maa_diagnostic_expert.discovery.source_preparation import (
+    source_snapshot_matches_checkout,
+)
 
 
 def _has_mla_candidate(
@@ -82,6 +86,18 @@ def _has_resolved_source(prepared: PreparedAnalysis, role: SourceRole) -> bool:
     )
 
 
+def _has_usable_mse_project(prepared: PreparedAnalysis) -> bool:
+    return any(
+        snapshot.role is SourceRole.PROJECT
+        and source_snapshot_matches_checkout(
+            snapshot,
+            require_requested_revision=prepared.request.issue is not None,
+        )
+        and find_maa_interface(snapshot.path) is not None
+        for snapshot in prepared.source_snapshots
+    )
+
+
 def plan_initial_investigation(
     prepared: PreparedAnalysis,
     inventory: ArtifactSourceInventory | None = None,
@@ -90,6 +106,7 @@ def plan_initial_investigation(
     source_inventory = classify_artifact_sources(prepared) if inventory is None else inventory
     mla_candidate = _has_mla_candidate(prepared, source_inventory)
     project_source = _has_resolved_source(prepared, SourceRole.PROJECT)
+    mse_project = _has_usable_mse_project(prepared)
     gui_source = _has_resolved_source(prepared, SourceRole.GUI)
     framework_source = _has_resolved_source(prepared, SourceRole.MAA_FRAMEWORK)
     has_dump = _has_available_dump(prepared)
@@ -122,16 +139,14 @@ def plan_initial_investigation(
             ),
             BranchDecision(
                 branch=InvestigationBranch.MSE_PROJECT_PREFLIGHT,
-                disposition=(
-                    BranchDisposition.DEFERRED if project_source else BranchDisposition.SKIP
-                ),
+                disposition=BranchDisposition.RUN if mse_project else BranchDisposition.SKIP,
                 relevance=(
-                    AnalysisRelevance.USEFUL if project_source else AnalysisRelevance.NOT_RELEVANT
+                    AnalysisRelevance.USEFUL if mse_project else AnalysisRelevance.NOT_RELEVANT
                 ),
                 reason=(
-                    "A version-resolved project source is available; MSE integration is pending."
-                    if project_source
-                    else "No version-resolved project source is available for MSE."
+                    "A revision-matched Maa project interface is available for MSE preflight."
+                    if mse_project
+                    else "No revision-matched Maa project interface is available for MSE."
                 ),
             ),
             BranchDecision(

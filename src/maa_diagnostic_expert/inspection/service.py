@@ -12,18 +12,27 @@ from maa_diagnostic_expert.contracts.domain import (
     ArtifactRecord,
     MissingEvidence,
     PreparedAnalysis,
+    SourceRole,
 )
 from maa_diagnostic_expert.contracts.mla import (
     MlaCompatibilityStatus,
     MlaPreflightResult,
     MlaRuntimeInspectionResult,
 )
+from maa_diagnostic_expert.contracts.mse import (
+    MseCompatibilityStatus,
+    MseProjectPreflightResult,
+)
 from maa_diagnostic_expert.contracts.workflow import (
     ArtifactSourceInventory,
     ArtifactSourceKind,
 )
 from maa_diagnostic_expert.discovery.artifact_classification import classify_artifact_sources
+from maa_diagnostic_expert.discovery.inputs import find_maa_interface
 from maa_diagnostic_expert.discovery.preparation import prepare_analysis
+from maa_diagnostic_expert.discovery.source_preparation import (
+    source_snapshot_matches_checkout,
+)
 
 from .evidence_synthesis import synthesize_evidence
 from .incident_candidates import generate_incident_selection
@@ -37,7 +46,9 @@ from .models import (
     DeterministicInspection,
     MlaArtifactInspection,
     MlaRuntimeInspectionArtifact,
+    MseProjectInspection,
 )
+from .mse_preflight import synthesize_mse_evidence
 from .runtime_identity import extract_runtime_identity, synthesize_runtime_identity_evidence
 from .tooling import ToolCaller, ToolInvocationError
 
@@ -78,6 +89,7 @@ def inspect_prepared_analysis(
     """Run deterministic tools against an already prepared analysis."""
     preflights: list[MlaArtifactInspection] = []
     runtime_inspections: list[MlaRuntimeInspectionArtifact] = []
+    mse_inspections: list[MseProjectInspection] = []
     missing = [
         *prepared.missing_evidence,
         *collect_log_overview_missing_evidence(log_overviews or LogOverviewCollection()),
@@ -147,12 +159,53 @@ def inspect_prepared_analysis(
             )
         )
 
+    for snapshot in prepared.source_snapshots:
+        if snapshot.role is not SourceRole.PROJECT:
+            continue
+        if not source_snapshot_matches_checkout(
+            snapshot,
+            require_requested_revision=prepared.request.issue is not None,
+        ):
+            continue
+        if find_maa_interface(snapshot.path) is None:
+            continue
+        try:
+            raw_mse = tool_caller.call("mse.project-preflight", {"path": str(snapshot.path)})
+            mse_preflight = MseProjectPreflightResult.model_validate(raw_mse)
+        except (ToolInvocationError, ValidationError, ValueError) as error:
+            missing.append(
+                MissingEvidence(
+                    code="mse_project_preflight_failed",
+                    message=str(error),
+                    source_id=snapshot.source_id,
+                    source_path=snapshot.path,
+                )
+            )
+            continue
+        mse_inspections.append(
+            MseProjectInspection(
+                source_id=snapshot.source_id,
+                path=snapshot.path,
+                preflight=mse_preflight,
+            )
+        )
+        if mse_preflight.compatibility.status is MseCompatibilityStatus.UNSUPPORTED:
+            missing.append(
+                MissingEvidence(
+                    code="mse_project_unsupported",
+                    message=mse_preflight.compatibility.reason,
+                    source_id=snapshot.source_id,
+                    source_path=snapshot.path,
+                )
+            )
+
     prepared_with_tools = prepared.model_copy(update={"missing_evidence": missing})
     return DeterministicInspection(
         prepared=prepared_with_tools,
         log_overviews=log_overviews or LogOverviewCollection(),
         mla_preflights=preflights,
         mla_runtime_inspections=runtime_inspections,
+        mse_project_inspections=mse_inspections,
     )
 
 
@@ -164,6 +217,7 @@ def synthesize_inspection_evidence(
         *synthesize_runtime_identity_evidence(inspection.runtime_identity),
         *synthesize_log_overview_evidence(inspection.log_overviews),
         *synthesize_evidence(inspection.mla_runtime_inspections),
+        *synthesize_mse_evidence(inspection.mse_project_inspections),
     ]
     return inspection.model_copy(update={"synthesized_evidence": evidence})
 

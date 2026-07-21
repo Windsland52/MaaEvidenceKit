@@ -43,15 +43,18 @@ The framework-independent foundation includes:
 - a versioned JSONL tool-adapter protocol.
 
 The deterministic vertical slice provides artifact preparation, bounded evidence windows, result
-validation, MLA preflight, and MLA runtime inspection through the JSONL adapter. Runtime
-inspection results are synthesized into typed `Evidence` records (primary failures/outcomes,
-secondary signals, context task/session summaries).
+validation, MLA preflight/runtime inspection, and revision-matched MSE project preflight through
+the JSONL adapter. Runtime inspection results are synthesized into typed `Evidence` records
+(primary failures/outcomes, secondary signals, context task/session summaries). MSE contributes
+interface/resource/task summaries and source-located static diagnostics without inferring that a
+diagnostic caused the reported issue.
 
 The diagnostic workflow uses LangGraph behind a single `DiagnosticWorkflow`. Its current graph
 prepares the input, classifies log sources from bounded samples, records an initial investigation
-plan, conditionally runs MLA when a supplied artifact is eligible, extracts source- and
-session-scoped MaaFramework versions, synthesizes authoritative evidence, reasons, and validates
-the result. Before final diagnosis it generates bounded, evidence-backed incident candidates from
+plan, conditionally runs MLA for eligible artifacts and MSE for a revision-matched project
+checkout, extracts source- and session-scoped MaaFramework versions, synthesizes authoritative
+evidence, reasons, and validates the result. Before final diagnosis it generates bounded,
+evidence-backed incident candidates from
 notable MLA tasks and GUI/custom log occurrences. When candidates exist, a separate model stage
 correlates them with the reported context; Python rejects invented candidate or evidence IDs.
 Inputs that are unrelated to MaaFramework logs can therefore bypass MLA. Explicit graph state
@@ -86,13 +89,14 @@ characters from an authorized path.
 
 `inspect` is the single-command deterministic path. It prepares the request, classifies log
 sources, builds bounded GUI/custom overviews, and calls MLA only for classified MaaFramework logs,
-their containing input directories, or explicit ZIP inputs. It validates returned MLA facts with
-the Python `MlaPreflightResult` contract and retains each MaaFramework version with its source,
-session, timestamp, and source line where available. Run `pnpm build` first; use `--tool-adapter <path>` or
+their containing input directories, or explicit ZIP inputs. When a project source checkout
+matches the requested revision (or represents the explicit current revision for a non-issue
+request), it also runs MSE project preflight. Python validates both analyzer outputs before adding
+facts to the evidence ledger. Run `pnpm build` first; use `--tool-adapter <path>` or
 `MDE_TOOL_ADAPTER_PATH` for a non-default adapter location.
 
 `diagnose` runs the currently implemented pipeline end to end: prepare, classify log sources,
-plan the overview, conditionally inspect with MLA, identify runtime versions, synthesize evidence,
+plan the overview, conditionally inspect with MLA/MSE, identify runtime versions, synthesize evidence,
 generate incident candidates, conditionally correlate the reported issue, reason, and validate. It
 uses the deterministic stub reasoning backend by default (no model credentials required). Pass `--events
 <path>` to write the diagnostic event stream as JSON lines alongside the result. When MLA runs,
@@ -106,8 +110,8 @@ keeps incident candidates ambiguous and reports that free-form correlation was u
 MaaFramework logs have a built-in classifier; files under a `custom/` directory receive a
 conservative custom-log classification. Known GUI and project formats plug in through
 `LogSourceProfile`, while unmatched logs remain `unknown` instead of being guessed or sent to MLA.
-MSE project preflight, dump inspection, revision-matched source investigation, and knowledge/Wiki
-search remain deferred. See
+Focused MSE task/pipeline resolution, dump inspection, revision-matched source investigation, and
+knowledge/Wiki search remain deferred. See
 [the workflow architecture](docs/workflow-architecture.md) for the target flow and implementation
 status.
 

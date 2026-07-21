@@ -6,13 +6,15 @@ Generated contracts cover:
 
 - `AnalysisRequest`, including named project, MaaFramework, GUI, and agent source inputs
 - `PreparedAnalysis`, including independently resolved source snapshots
-- `DeterministicInspection`, combining prepared inputs with MLA preflight facts
+- `DeterministicInspection`, combining prepared inputs with MLA and MSE deterministic facts
 - `Evidence`
 - `EvidenceQuery` and `EvidenceWindow`
 - `DiagnosisDraft`, the model-produced interpretation without evidence objects
 - `DiagnosisResult`, with evidence attached from an authoritative ledger
 - `DiagnosticEvent`
 - `MlaPreflightResult`, including source-backed MaaFramework runtime sessions
+- `MseProjectPreflightResult`, including revision-matched interface, resource configuration,
+  task-binding, pipeline-file, and static diagnostic facts
 - `ReasoningRequest`
 - `ArtifactSourceInventory`, recording bounded log classifications and their deterministic signals
 - `LogOverviewCollection`, containing bounded GUI/custom summaries and traceable occurrences
