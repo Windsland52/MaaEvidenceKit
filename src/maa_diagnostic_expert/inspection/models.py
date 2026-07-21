@@ -4,7 +4,10 @@ from pydantic import Field
 
 from maa_diagnostic_expert.contracts.domain import ContractModel, Evidence, PreparedAnalysis
 from maa_diagnostic_expert.contracts.mla import MlaPreflightResult, MlaRuntimeInspectionResult
-from maa_diagnostic_expert.contracts.mse import MseProjectPreflightResult
+from maa_diagnostic_expert.contracts.mse import (
+    MseProjectPreflightResult,
+    MseTaskResolutionResult,
+)
 from maa_diagnostic_expert.contracts.workflow import (
     IncidentSelection,
     IncidentSelectionStatus,
@@ -32,6 +35,12 @@ class MseProjectInspection(ContractModel):
     preflight: MseProjectPreflightResult
 
 
+class MseTaskResolutionInspection(ContractModel):
+    source_id: str = Field(min_length=1)
+    path: Path
+    resolution: MseTaskResolutionResult
+
+
 def _new_mla_preflights() -> list[MlaArtifactInspection]:
     return []
 
@@ -48,12 +57,16 @@ def _new_mse_project_inspections() -> list[MseProjectInspection]:
     return []
 
 
+def _new_mse_task_resolutions() -> list[MseTaskResolutionInspection]:
+    return []
+
+
 def _new_incident_selection() -> IncidentSelection:
     return IncidentSelection(status=IncidentSelectionStatus.NOT_FOUND)
 
 
 class DeterministicInspection(ContractModel):
-    api_version: str = "deterministic-inspection/v5"
+    api_version: str = "deterministic-inspection/v6"
     prepared: PreparedAnalysis
     log_overviews: LogOverviewCollection = Field(default_factory=LogOverviewCollection)
     runtime_identity: RuntimeIdentity = Field(default_factory=RuntimeIdentity)
@@ -64,6 +77,9 @@ class DeterministicInspection(ContractModel):
     )
     mse_project_inspections: list[MseProjectInspection] = Field(
         default_factory=_new_mse_project_inspections,
+    )
+    mse_task_resolutions: list[MseTaskResolutionInspection] = Field(
+        default_factory=_new_mse_task_resolutions,
     )
     synthesized_evidence: list[Evidence] = Field(
         default_factory=_new_synthesized_evidence,

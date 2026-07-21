@@ -30,7 +30,8 @@ test("tools/list exposes MLA and MSE deterministic tools", async () => {
   assert.deepEqual(result.tools.map((tool) => tool.name), [
     "mla.preflight",
     "mla.runtime-inspection",
-    "mse.project-preflight"
+    "mse.project-preflight",
+    "mse.resolve-tasks"
   ]);
 });
 
@@ -76,6 +77,86 @@ test("mse.project-preflight loads interface resource combinations read-only", as
   assert.equal(result.configurations[0]?.task_count, 1);
   assert.equal(result.configurations_truncated, false);
   assert.ok(result.diagnostics.some((item) => item.type === "unknown-task"));
+});
+
+test("mse.resolve-tasks returns MaaFramework definitions and effective config", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mde-mse-resolve-"));
+  temporaryRoots.push(root);
+  const assets = path.join(root, "assets");
+  const pipeline = path.join(assets, "resource", "base", "pipeline");
+  await mkdir(pipeline, { recursive: true });
+  await writeFile(
+    path.join(assets, "interface.json"),
+    JSON.stringify({
+      controller: [{ name: "Adb" }],
+      resource: [{ name: "Official", path: ["resource/base"], controller: ["Adb"] }]
+    }),
+    "utf8"
+  );
+  await writeFile(
+    path.join(pipeline, "combat.json"),
+    JSON.stringify({
+      Start: {
+        recognition: "OCR",
+        expected: ["Start"],
+        replace: [["5tart", "Start"]],
+        next: ["Done"]
+      },
+      Done: { recognition: "DirectHit" }
+    }, null, 2),
+    "utf8"
+  );
+
+  const response = await handleRequest({
+    id: "mse-resolve-1",
+    apiVersion: "tool-adapter/v1",
+    method: "tools/call",
+    params: {
+      name: "mse.resolve-tasks",
+      arguments: { path: root, tasks: ["Start"] }
+    }
+  });
+
+  assert.equal(response.ok, true);
+  const result = response.result as {
+    resolutions: Array<{
+      found: boolean;
+      effective_config: Record<string, unknown>;
+      definitions: Array<{ line: number }>;
+      references: Array<{ kind: string; target: string }>;
+    }>;
+  };
+  assert.equal(result.resolutions.length, 1);
+  assert.equal(result.resolutions[0]?.found, true);
+  assert.equal(result.resolutions[0]?.effective_config["recognition"], "OCR");
+  assert.equal(result.resolutions[0]?.definitions[0]?.line, 2);
+  assert.ok(
+    result.resolutions[0]?.references.some(
+      (item) => item.kind === "task.next" && item.target === "Done"
+    )
+  );
+});
+
+test("mse.project-preflight rejects MaaAssistantArknights mode", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mde-mse-maa-"));
+  temporaryRoots.push(root);
+  await mkdir(path.join(root, "src", "MaaCore"), { recursive: true });
+  await writeFile(path.join(root, "interface.json"), "{}", "utf8");
+
+  const response = await handleRequest({
+    id: "mse-maa-1",
+    apiVersion: "tool-adapter/v1",
+    method: "tools/call",
+    params: {
+      name: "mse.project-preflight",
+      arguments: { path: root }
+    }
+  });
+
+  assert.equal(response.ok, true);
+  const result = response.result as MseProjectPreflightResult;
+  assert.equal(result.syntax_mode, "maa_unsupported");
+  assert.equal(result.compatibility.status, "unsupported");
 });
 
 test("mla.preflight returns version sessions from a core log", async () => {

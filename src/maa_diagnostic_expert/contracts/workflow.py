@@ -100,6 +100,7 @@ class IncidentCandidate(ContractModel):
     session_id: str | None = None
     task_id: int | None = None
     task_name: str | None = None
+    node_name: str | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
     confidence: float = Field(ge=0, le=1)

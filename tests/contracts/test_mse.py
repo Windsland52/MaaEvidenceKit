@@ -7,6 +7,7 @@ from maa_diagnostic_expert.contracts.mse import (
     MseCompatibility,
     MseCompatibilityStatus,
     MseProjectPreflightResult,
+    MseTaskResolutionResult,
 )
 
 
@@ -36,3 +37,40 @@ def test_mse_project_preflight_contract_rejects_adapter_camel_case() -> None:
                 },
             }
         )
+
+
+def test_mse_task_resolution_contract_accepts_source_locations() -> None:
+    result = MseTaskResolutionResult.model_validate(
+        {
+            "project_root": "C:/project",
+            "interface_path": "assets/interface.json",
+            "compatibility": {
+                "status": "supported",
+                "reason": "Loaded.",
+            },
+            "requested_tasks": ["LoginButton"],
+            "resolutions": [
+                {
+                    "name": "LoginButton",
+                    "controller": "Adb",
+                    "resource": "Official",
+                    "found": True,
+                    "definitions": [
+                        {
+                            "source_path": "assets/pipeline/login.json",
+                            "line": 12,
+                            "column": 3,
+                            "raw_config": {"recognition": "OCR"},
+                        }
+                    ],
+                    "effective_config": {
+                        "recognition": "OCR",
+                        "expected": ["Login"],
+                    },
+                    "references": [],
+                }
+            ],
+        }
+    )
+
+    assert result.resolutions[0].definitions[0].line == 12

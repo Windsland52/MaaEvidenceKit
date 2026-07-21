@@ -102,6 +102,7 @@ def _task_candidate(
     artifact_id: str,
     session_id: str | None,
     task: MlaRuntimeTaskExecution,
+    node_name: str | None,
     known_evidence_ids: set[str],
 ) -> IncidentCandidate | None:
     reasons = _task_reasons(task)
@@ -113,6 +114,7 @@ def _task_candidate(
         session_id=session_id,
         task_id=task.task_id,
         task_name=task.name,
+        node_name=node_name,
         started_at=_timestamp(task.started_at),
         ended_at=_timestamp(task.ended_at),
         confidence=_task_confidence(task),
@@ -130,14 +132,33 @@ def generate_incident_selection(inspection: DeterministicInspection) -> Incident
 
     for artifact in inspection.mla_runtime_inspections:
         runtime = artifact.inspection
+        failures_by_id = {item.failure_id: item for item in runtime.failures}
+        outcomes_by_id = {item.outcome_id: item for item in runtime.outcomes}
         represented_failures: set[str] = set()
         represented_outcomes: set[str] = set()
         for session in runtime.sessions:
             for task in session.tasks:
+                node_name = next(
+                    (
+                        failure.node_name
+                        for failure_id in task.direct_failure_ids
+                        if (failure := failures_by_id.get(failure_id)) is not None
+                    ),
+                    next(
+                        (
+                            outcome.node_name
+                            for outcome_id in task.outcome_ids
+                            if (outcome := outcomes_by_id.get(outcome_id)) is not None
+                            and outcome.node_name is not None
+                        ),
+                        task.last_node,
+                    ),
+                )
                 candidate = _task_candidate(
                     artifact_id=artifact.artifact_id,
                     session_id=session.session_id,
                     task=task,
+                    node_name=node_name,
                     known_evidence_ids=known_evidence_ids,
                 )
                 if candidate is not None:
@@ -145,10 +166,27 @@ def generate_incident_selection(inspection: DeterministicInspection) -> Incident
                     represented_failures.update(task.direct_failure_ids)
                     represented_outcomes.update(task.outcome_ids)
         for task in runtime.unscoped_tasks:
+            node_name = next(
+                (
+                    failure.node_name
+                    for failure_id in task.direct_failure_ids
+                    if (failure := failures_by_id.get(failure_id)) is not None
+                ),
+                next(
+                    (
+                        outcome.node_name
+                        for outcome_id in task.outcome_ids
+                        if (outcome := outcomes_by_id.get(outcome_id)) is not None
+                        and outcome.node_name is not None
+                    ),
+                    task.last_node,
+                ),
+            )
             candidate = _task_candidate(
                 artifact_id=artifact.artifact_id,
                 session_id=None,
                 task=task,
+                node_name=node_name,
                 known_evidence_ids=known_evidence_ids,
             )
             if candidate is not None:
@@ -172,6 +210,7 @@ def generate_incident_selection(inspection: DeterministicInspection) -> Incident
                     session_id=failure.session_id,
                     task_id=failure.task_id,
                     task_name=failure.task_name,
+                    node_name=failure.node_name,
                     started_at=_timestamp(failure.started_at),
                     ended_at=_timestamp(failure.ended_at),
                     confidence=0.95,
@@ -196,6 +235,7 @@ def generate_incident_selection(inspection: DeterministicInspection) -> Incident
                     session_id=outcome.session_id,
                     task_id=outcome.task_id,
                     task_name=outcome.task_name,
+                    node_name=outcome.node_name,
                     confidence=0.9,
                     evidence_ids=[evidence_id],
                     reasons=[f"MaaFramework reported failed outcome: {outcome.kind.value}"],

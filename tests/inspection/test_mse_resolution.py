@@ -1,0 +1,174 @@
+from pathlib import Path
+
+from pydantic import JsonValue
+
+from maa_diagnostic_expert.contracts.domain import (
+    AnalysisRequest,
+    EvidenceReliability,
+    PreparedAnalysis,
+)
+from maa_diagnostic_expert.contracts.mse import (
+    MseCompatibility,
+    MseCompatibilityStatus,
+    MseProjectPreflightResult,
+)
+from maa_diagnostic_expert.contracts.workflow import (
+    IncidentCandidate,
+    IncidentCorrelationDraft,
+    IncidentSelection,
+    IncidentSelectionStatus,
+)
+from maa_diagnostic_expert.inspection.models import (
+    DeterministicInspection,
+    MseProjectInspection,
+)
+from maa_diagnostic_expert.inspection.mse_resolution import (
+    resolve_incident_pipeline_tasks,
+)
+from maa_diagnostic_expert.inspection.service import synthesize_inspection_evidence
+
+
+class _ResolutionCaller:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, JsonValue]]] = []
+
+    def call(self, name: str, arguments: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        self.calls.append((name, arguments))
+        return {
+            "schema_version": "mde-mse-task-resolution/v1",
+            "project_root": "C:/project",
+            "interface_path": "assets/interface.json",
+            "compatibility": {
+                "status": "supported",
+                "reason": "Tasks resolved.",
+            },
+            "requested_tasks": ["LoginButton", "LoginTask"],
+            "resolutions": [
+                {
+                    "name": "LoginButton",
+                    "controller": "Adb",
+                    "resource": "Official",
+                    "found": True,
+                    "definitions": [
+                        {
+                            "source_path": "assets/pipeline/login.json",
+                            "line": 12,
+                            "column": 3,
+                            "raw_config": {"recognition": "OCR"},
+                        }
+                    ],
+                    "effective_config": {
+                        "recognition": "OCR",
+                        "expected": ["Login"],
+                    },
+                    "references": [
+                        {
+                            "kind": "task.next",
+                            "target": "Home",
+                            "source_path": "assets/pipeline/login.json",
+                            "line": 16,
+                            "column": 5,
+                        }
+                    ],
+                },
+                {
+                    "name": "LoginTask",
+                    "controller": "Adb",
+                    "resource": "Official",
+                    "found": False,
+                    "definitions": [],
+                    "effective_config": {},
+                    "references": [],
+                },
+            ],
+            "configurations_truncated": False,
+            "warnings": [],
+        }
+
+
+def _inspection(project: Path, *, with_names: bool = True) -> DeterministicInspection:
+    candidate = IncidentCandidate(
+        candidate_id="incident:1",
+        task_name="LoginTask" if with_names else None,
+        node_name="LoginButton" if with_names else None,
+        confidence=0.95,
+        evidence_ids=["runtime:failure:1"],
+        reasons=["Direct failure"],
+    )
+    return DeterministicInspection(
+        prepared=PreparedAnalysis(request=AnalysisRequest(question="Inspect the failure.")),
+        incident_selection=IncidentSelection(
+            status=IncidentSelectionStatus.AMBIGUOUS,
+            candidates=[candidate],
+        ),
+        mse_project_inspections=[
+            MseProjectInspection(
+                source_id="project",
+                path=project,
+                preflight=MseProjectPreflightResult(
+                    project_root=project,
+                    interface_path="assets/interface.json",
+                    syntax_mode="maafw",
+                    compatibility=MseCompatibility(
+                        status=MseCompatibilityStatus.SUPPORTED,
+                        reason="Loaded.",
+                    ),
+                ),
+            )
+        ],
+    )
+
+
+def _correlation() -> IncidentCorrelationDraft:
+    return IncidentCorrelationDraft(
+        status=IncidentSelectionStatus.SELECTED,
+        selected_candidate_id="incident:1",
+        relevant_candidate_ids=["incident:1"],
+        evidence_ids=["runtime:failure:1"],
+        rationale="The report matches the failure.",
+    )
+
+
+def test_resolve_incident_pipeline_tasks_prefers_node_then_task(tmp_path: Path) -> None:
+    caller = _ResolutionCaller()
+
+    inspection = resolve_incident_pipeline_tasks(
+        _inspection(tmp_path),
+        _correlation(),
+        caller,
+    )
+    inspection = synthesize_inspection_evidence(inspection)
+
+    assert caller.calls == [
+        (
+            "mse.resolve-tasks",
+            {
+                "path": str(tmp_path),
+                "tasks": ["LoginButton", "LoginTask"],
+            },
+        )
+    ]
+    assert len(inspection.mse_task_resolutions) == 1
+    task_evidence = [
+        item for item in inspection.synthesized_evidence if item.kind == "mse_task_resolution"
+    ]
+    assert len(task_evidence) == 1
+    assert task_evidence[0].line_start == 12
+    assert task_evidence[0].reliability is EvidenceReliability.SECONDARY
+    assert "expected" in task_evidence[0].content
+    assert "mse_tasks_not_found" in {item.code for item in inspection.prepared.missing_evidence}
+
+
+def test_resolve_incident_pipeline_tasks_records_missing_names(tmp_path: Path) -> None:
+    caller = _ResolutionCaller()
+
+    inspection = resolve_incident_pipeline_tasks(
+        _inspection(tmp_path, with_names=False),
+        _correlation(),
+        caller,
+    )
+
+    assert caller.calls == []
+    assert "mse_focused_task_unavailable" in {
+        item.code for item in inspection.prepared.missing_evidence
+    }

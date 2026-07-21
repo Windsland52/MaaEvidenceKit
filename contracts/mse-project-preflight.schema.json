@@ -226,7 +226,7 @@
       "title": "Interface Path"
     },
     "syntax_mode": {
-      "pattern": "^(maafw|maa)$",
+      "pattern": "^(maafw|maa_unsupported)$",
       "title": "Syntax Mode",
       "type": "string"
     },

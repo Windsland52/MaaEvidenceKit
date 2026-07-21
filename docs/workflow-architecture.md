@@ -137,13 +137,14 @@ Implemented now:
 - source- and session-scoped MaaFramework runtime-version extraction with line-backed evidence;
 - bounded incident candidate generation from notable MLA tasks and GUI/custom log occurrences;
 - conditional model-assisted incident correlation with candidate/evidence reference validation;
+- bounded focused MSE task/node resolution after incident correlation, including effective
+  configuration, references, and source-line evidence;
 - empty deterministic inspection when neither MLA nor MSE has an eligible input;
 - evidence synthesis, pluggable model reasoning, citation validation, and diagnostic events.
 
 Represented by contracts but deferred:
 
 - additional real-world GUI/custom source profiles;
-- focused MSE task and expected-pipeline resolution after incident correlation;
 - dump analysis;
 - project/GUI version extraction and revision-matched source investigation;
 - scoped `AGENTS.md` resolution;

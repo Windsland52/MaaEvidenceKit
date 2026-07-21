@@ -8,7 +8,8 @@ import {
   performDiagnostic,
   type IContentWatcher,
   type IContentWatcherController,
-  type IContentWatcherDelegate
+  type IContentWatcherDelegate,
+  type TaskName
 } from "@nekosu/maa-pipeline-manager";
 
 const INTERFACE_CANDIDATES = [
@@ -20,6 +21,7 @@ const INTERFACE_CANDIDATES = [
 const MAX_SCANNED_FILES = 10_000;
 const MAX_CONFIGURATIONS = 256;
 const MAX_DIAGNOSTICS = 500;
+const MAX_TASK_RESOLUTION_CONFIGURATIONS = 64;
 
 export type MseCompatibility = {
   status: "supported" | "partial" | "unsupported";
@@ -58,7 +60,7 @@ export type MseProjectPreflightResult = {
   schema_version: "mde-mse-project-preflight/v1";
   project_root: string;
   interface_path: string | null;
-  syntax_mode: "maafw" | "maa";
+  syntax_mode: "maafw" | "maa_unsupported";
   compatibility: MseCompatibility;
   controllers: string[];
   resources: string[];
@@ -67,6 +69,42 @@ export type MseProjectPreflightResult = {
   configurations_truncated: boolean;
   diagnostics: MseDiagnostic[];
   diagnostics_truncated: boolean;
+  warnings: string[];
+};
+
+export type MseTaskDefinition = {
+  source_path: string;
+  line: number;
+  column: number;
+  raw_config: Record<string, unknown>;
+};
+
+export type MseTaskReference = {
+  kind: string;
+  target: string;
+  source_path: string;
+  line: number;
+  column: number;
+};
+
+export type MseResolvedTask = {
+  name: string;
+  controller: string | null;
+  resource: string | null;
+  found: boolean;
+  definitions: MseTaskDefinition[];
+  effective_config: Record<string, unknown>;
+  references: MseTaskReference[];
+};
+
+export type MseTaskResolutionResult = {
+  schema_version: "mde-mse-task-resolution/v1";
+  project_root: string;
+  interface_path: string | null;
+  compatibility: MseCompatibility;
+  requested_tasks: string[];
+  resolutions: MseResolvedTask[];
+  configurations_truncated: boolean;
   warnings: string[];
 };
 
@@ -146,6 +184,17 @@ const lineColumn = (content: string, offset: number): [number, number] => {
   return [lines.length, (lines.at(-1)?.length ?? 0) + 1];
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+};
+
+const toJsonRecord = (value: unknown): Record<string, unknown> => {
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) return {};
+  const parsed = JSON.parse(serialized) as unknown;
+  return isRecord(parsed) ? parsed : {};
+};
+
 const taskBindings = (bundle: InterfaceBundle): MseTaskBinding[] => {
   const entries = new Map<string, string>();
   for (const ref of bundle.info.refs) {
@@ -171,8 +220,28 @@ export async function runMseProjectPreflight(
   const base = {
     schema_version: "mde-mse-project-preflight/v1" as const,
     project_root: projectRoot,
-    syntax_mode: maaMode ? "maa" as const : "maafw" as const
+    syntax_mode: maaMode ? "maa_unsupported" as const : "maafw" as const
   };
+  if (maaMode) {
+    return {
+      ...base,
+      interface_path: interfacePath === null
+        ? null
+        : relativeSourcePath(projectRoot, interfacePath),
+      compatibility: {
+        status: "unsupported",
+        reason: "MaaAssistantArknights pipeline semantics are outside MDE scope."
+      },
+      controllers: [],
+      resources: [],
+      task_bindings: [],
+      configurations: [],
+      configurations_truncated: false,
+      diagnostics: [],
+      diagnostics_truncated: false,
+      warnings: []
+    };
+  }
   if (interfacePath === null) {
     return {
       ...base,
@@ -197,7 +266,7 @@ export async function runMseProjectPreflight(
   const bundle = new InterfaceBundle(
     loader,
     watcher,
-    maaMode,
+    false,
     path.dirname(interfacePath),
     path.basename(interfacePath)
   );
@@ -312,6 +381,172 @@ export async function runMseProjectPreflight(
       configurations_truncated: configurationsTruncated,
       diagnostics,
       diagnostics_truncated: diagnosticsTruncated,
+      warnings
+    };
+  } finally {
+    bundle.stop();
+  }
+}
+
+async function resolveTask(
+  bundle: InterfaceBundle,
+  projectRoot: string,
+  name: string,
+  controller: string | null,
+  resource: string | null,
+  locate: (file: string, offset: number) => Promise<[number, number]>
+): Promise<MseResolvedTask> {
+  const groups = bundle.topLayer.getTask(name as TaskName);
+  const definitions: MseTaskDefinition[] = [];
+  const references: MseTaskReference[] = [];
+  for (const group of groups) {
+    for (const info of group.infos) {
+      const definitionPosition = await locate(info.file, info.prop.offset);
+      definitions.push({
+        source_path: relativeSourcePath(projectRoot, info.file),
+        line: definitionPosition[0],
+        column: definitionPosition[1],
+        raw_config: toJsonRecord(info.obj)
+      });
+      for (const reference of info.info.refs) {
+        if (!("target" in reference) || typeof reference.target !== "string") continue;
+        const referencePosition = await locate(reference.file, reference.location.offset);
+        references.push({
+          kind: reference.type,
+          target: reference.target,
+          source_path: relativeSourcePath(projectRoot, reference.file),
+          line: referencePosition[0],
+          column: referencePosition[1]
+        });
+      }
+    }
+  }
+  return {
+    name,
+    controller,
+    resource,
+    found: definitions.length > 0,
+    definitions,
+    effective_config: definitions.length > 0
+      ? toJsonRecord(bundle.topLayer.evalTask(name as TaskName))
+      : {},
+    references
+  };
+}
+
+export async function runMseTaskResolution(
+  targetPath: string,
+  requestedTasks: string[],
+  requestedController?: string,
+  requestedResource?: string
+): Promise<MseTaskResolutionResult> {
+  const tasks = [...new Set(requestedTasks.map((item) => item.trim()))]
+    .filter((item) => item.length > 0);
+  if (tasks.length === 0) {
+    throw new Error("MSE task resolution requires at least one task name.");
+  }
+  const projectRoot = path.resolve(targetPath);
+  if (!(await isDirectory(projectRoot))) {
+    throw new Error("MSE project path is not a directory: " + projectRoot);
+  }
+  const interfacePath = await findInterface(projectRoot);
+  if (interfacePath === null) {
+    return {
+      schema_version: "mde-mse-task-resolution/v1",
+      project_root: projectRoot,
+      interface_path: null,
+      compatibility: {
+        status: "unsupported",
+        reason: "No conventional interface.json or interface.jsonc was found."
+      },
+      requested_tasks: tasks,
+      resolutions: [],
+      configurations_truncated: false,
+      warnings: []
+    };
+  }
+  if (await isDirectory(path.join(projectRoot, "src", "MaaCore"))) {
+    return {
+      schema_version: "mde-mse-task-resolution/v1",
+      project_root: projectRoot,
+      interface_path: relativeSourcePath(projectRoot, interfacePath),
+      compatibility: {
+        status: "unsupported",
+        reason: "MaaAssistantArknights pipeline semantics are outside MDE scope."
+      },
+      requested_tasks: tasks,
+      resolutions: [],
+      configurations_truncated: false,
+      warnings: []
+    };
+  }
+
+  const bundle = new InterfaceBundle(
+    new FsContentLoader(),
+    new ReadOnlySnapshotWatcher(),
+    false,
+    path.dirname(interfacePath),
+    path.basename(interfacePath)
+  );
+  const fileContents = new Map<string, string>();
+  const locate = async (file: string, offset: number): Promise<[number, number]> => {
+    let content = fileContents.get(file);
+    if (content === undefined) {
+      content = await readFile(file, "utf8");
+      fileContents.set(file, content);
+    }
+    return lineColumn(content, offset);
+  };
+  const resolutions: MseResolvedTask[] = [];
+  let configurationsTruncated = false;
+  let configurationCount = 0;
+  try {
+    await bundle.load();
+    await bundle.flush(false);
+    const controllers = requestedController === undefined
+      ? [...new Set(bundle.allControllerNames())]
+      : [requestedController];
+    const controllerChoices: Array<string | null> =
+      controllers.length > 0 ? controllers : [null];
+    configurationLoop: for (const controller of controllerChoices) {
+      const resources = requestedResource === undefined
+        ? [...new Set(bundle.allResourceNames(controller ?? ""))]
+        : [requestedResource];
+      const resourceChoices: Array<string | null> =
+        resources.length > 0 ? resources : [null];
+      for (const resource of resourceChoices) {
+        if (configurationCount >= MAX_TASK_RESOLUTION_CONFIGURATIONS) {
+          configurationsTruncated = true;
+          break configurationLoop;
+        }
+        configurationCount += 1;
+        await bundle.switchActive(controller ?? "", resource ?? "");
+        await bundle.flush(true);
+        for (const task of tasks) {
+          resolutions.push(
+            await resolveTask(bundle, projectRoot, task, controller, resource, locate)
+          );
+        }
+      }
+    }
+    const warnings = configurationsTruncated
+      ? [
+          "Controller/resource configurations were truncated at "
+          + MAX_TASK_RESOLUTION_CONFIGURATIONS
+          + " records."
+        ]
+      : [];
+    return {
+      schema_version: "mde-mse-task-resolution/v1",
+      project_root: projectRoot,
+      interface_path: relativeSourcePath(projectRoot, interfacePath),
+      compatibility: {
+        status: "supported",
+        reason: "Requested MaaFramework tasks were resolved across active configurations."
+      },
+      requested_tasks: tasks,
+      resolutions,
+      configurations_truncated: configurationsTruncated,
       warnings
     };
   } finally {

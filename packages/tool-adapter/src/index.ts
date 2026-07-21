@@ -1,5 +1,5 @@
 import { runMlaPreflight, runMlaRuntimeInspection } from "./mla.js";
-import { runMseProjectPreflight } from "./mse.js";
+import { runMseProjectPreflight, runMseTaskResolution } from "./mse.js";
 import type { ToolDescriptor, ToolRequest, ToolResponse } from "./protocol.js";
 
 const tools: ToolDescriptor[] = [
@@ -17,6 +17,11 @@ const tools: ToolDescriptor[] = [
     name: "mse.project-preflight",
     description:
       "Load a Maa project through public MSE packages and return interface, resource, task, pipeline, and static diagnostic facts."
+  },
+  {
+    name: "mse.resolve-tasks",
+    description:
+      "Resolve MaaFramework task definitions, effective configuration, and references across controller/resource combinations."
   }
 ];
 
@@ -80,6 +85,36 @@ async function callTool(request: ToolRequest): Promise<ToolResponse> {
     if (toolName === "mse.project-preflight") {
       return success(request.id, await runMseProjectPreflight(targetPath));
     }
+    if (toolName === "mse.resolve-tasks") {
+      const tasks = toolArguments["tasks"];
+      const controller = toolArguments["controller"];
+      const resource = toolArguments["resource"];
+      if (
+        !Array.isArray(tasks)
+        || tasks.length === 0
+        || tasks.length > 50
+        || !tasks.every(
+          (item) => typeof item === "string" && item.trim().length > 0
+        )
+        || (controller !== undefined && typeof controller !== "string")
+        || (resource !== undefined && typeof resource !== "string")
+      ) {
+        return failure(
+          request.id,
+          "INVALID_TOOL_ARGUMENTS",
+          "mse.resolve-tasks requires 1-50 non-empty tasks and optional string controller/resource."
+        );
+      }
+      return success(
+        request.id,
+        await runMseTaskResolution(
+          targetPath,
+          tasks,
+          controller as string | undefined,
+          resource as string | undefined
+        )
+      );
+    }
     return failure(
       request.id,
       "TOOL_NOT_FOUND",
@@ -118,6 +153,10 @@ export type {
   MseConfigurationSummary,
   MseDiagnostic,
   MseProjectPreflightResult,
-  MseTaskBinding
+  MseResolvedTask,
+  MseTaskBinding,
+  MseTaskDefinition,
+  MseTaskReference,
+  MseTaskResolutionResult
 } from "./mse.js";
 export type { ToolDescriptor, ToolError, ToolRequest, ToolResponse } from "./protocol.js";

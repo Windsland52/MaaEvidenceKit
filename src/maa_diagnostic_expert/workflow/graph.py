@@ -41,6 +41,9 @@ from maa_diagnostic_expert.inspection.log_overview import (
     collect_log_overview_missing_evidence,
 )
 from maa_diagnostic_expert.inspection.models import DeterministicInspection
+from maa_diagnostic_expert.inspection.mse_resolution import (
+    resolve_incident_pipeline_tasks,
+)
 from maa_diagnostic_expert.inspection.service import (
     attach_incident_selection,
     attach_runtime_identity,
@@ -605,7 +608,52 @@ class DiagnosticWorkflow:
         return {"incident_correlation": draft}
 
     @staticmethod
-    def _after_correlate_incident(state: DiagnosticState) -> Literal["reason", "fail"]:
+    def _after_correlate_incident(
+        state: DiagnosticState,
+    ) -> Literal["inspect_expected_pipeline", "fail"]:
+        return "fail" if "error_message" in state else "inspect_expected_pipeline"
+
+    def _inspect_expected_pipeline_node(
+        self,
+        state: DiagnosticState,
+    ) -> _DiagnosticStateUpdate:
+        try:
+            inspection = state.get("inspection")
+            correlation = state.get("incident_correlation")
+            if inspection is None or correlation is None:
+                raise RuntimeError(
+                    "focused pipeline inspection requires inspection and correlation"
+                )
+            inspection = resolve_incident_pipeline_tasks(
+                inspection,
+                correlation,
+                self.tool_caller,
+            )
+            inspection = synthesize_inspection_evidence(inspection)
+            evidence = collect_inspection_evidence(inspection)
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("inspect_expected_pipeline", error)
+
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.STAGE_COMPLETED,
+                stage="inspect_expected_pipeline",
+                message="Focused MaaFramework pipeline inspection complete",
+                data={
+                    "projects": len(inspection.mse_task_resolutions),
+                    "resolved_tasks": sum(
+                        len(item.resolution.resolutions) for item in inspection.mse_task_resolutions
+                    ),
+                    "evidence": len(evidence),
+                },
+            )
+        )
+        return {"inspection": inspection, "evidence": evidence}
+
+    @staticmethod
+    def _after_inspect_expected_pipeline(
+        state: DiagnosticState,
+    ) -> Literal["reason", "fail"]:
         return "fail" if "error_message" in state else "reason"
 
     async def _reason_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
@@ -751,6 +799,11 @@ class DiagnosticWorkflow:
         _add_graph_node(graph, "synthesize", self._synthesize_node)
         _add_graph_node(graph, "identify_incident", self._identify_incident_node)
         _add_graph_node(graph, "correlate_incident", self._correlate_incident_node)
+        _add_graph_node(
+            graph,
+            "inspect_expected_pipeline",
+            self._inspect_expected_pipeline_node,
+        )
         _add_graph_node(graph, "reason", self._reason_node)
         _add_graph_node(graph, "validate", self._validate_node)
         _add_graph_node(graph, "fail", self._fail_node)
@@ -767,6 +820,10 @@ class DiagnosticWorkflow:
         graph.add_conditional_edges("synthesize", self._after_synthesize)
         graph.add_conditional_edges("identify_incident", self._after_identify_incident)
         graph.add_conditional_edges("correlate_incident", self._after_correlate_incident)
+        graph.add_conditional_edges(
+            "inspect_expected_pipeline",
+            self._after_inspect_expected_pipeline,
+        )
         graph.add_conditional_edges("reason", self._after_reason)
         graph.add_conditional_edges("validate", self._after_validate)
         graph.add_edge("fail", END)

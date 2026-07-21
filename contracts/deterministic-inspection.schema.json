@@ -310,6 +310,18 @@
           "default": null,
           "title": "Task Name"
         },
+        "node_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Node Name"
+        },
         "started_at": {
           "anyOf": [
             {
@@ -421,6 +433,7 @@
       "title": "IncidentSelectionStatus",
       "type": "string"
     },
+    "JsonValue": {},
     "LogArtifactOverview": {
       "additionalProperties": false,
       "properties": {
@@ -2657,7 +2670,7 @@
           "title": "Interface Path"
         },
         "syntax_mode": {
-          "pattern": "^(maafw|maa)$",
+          "pattern": "^(maafw|maa_unsupported)$",
           "title": "Syntax Mode",
           "type": "string"
         },
@@ -2725,6 +2738,71 @@
       "title": "MseProjectPreflightResult",
       "type": "object"
     },
+    "MseResolvedTask": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "controller": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Controller"
+        },
+        "resource": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resource"
+        },
+        "found": {
+          "title": "Found",
+          "type": "boolean"
+        },
+        "definitions": {
+          "items": {
+            "$ref": "#/$defs/MseTaskDefinition"
+          },
+          "title": "Definitions",
+          "type": "array"
+        },
+        "effective_config": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Effective Config",
+          "type": "object"
+        },
+        "references": {
+          "items": {
+            "$ref": "#/$defs/MseTaskReference"
+          },
+          "title": "References",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "found"
+      ],
+      "title": "MseResolvedTask",
+      "type": "object"
+    },
     "MseTaskBinding": {
       "additionalProperties": false,
       "properties": {
@@ -2750,6 +2828,168 @@
         "name"
       ],
       "title": "MseTaskBinding",
+      "type": "object"
+    },
+    "MseTaskDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "source_path": {
+          "minLength": 1,
+          "title": "Source Path",
+          "type": "string"
+        },
+        "line": {
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "column": {
+          "minimum": 1,
+          "title": "Column",
+          "type": "integer"
+        },
+        "raw_config": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Raw Config",
+          "type": "object"
+        }
+      },
+      "required": [
+        "source_path",
+        "line",
+        "column"
+      ],
+      "title": "MseTaskDefinition",
+      "type": "object"
+    },
+    "MseTaskReference": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "target": {
+          "minLength": 1,
+          "title": "Target",
+          "type": "string"
+        },
+        "source_path": {
+          "minLength": 1,
+          "title": "Source Path",
+          "type": "string"
+        },
+        "line": {
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "column": {
+          "minimum": 1,
+          "title": "Column",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "target",
+        "source_path",
+        "line",
+        "column"
+      ],
+      "title": "MseTaskReference",
+      "type": "object"
+    },
+    "MseTaskResolutionInspection": {
+      "additionalProperties": false,
+      "properties": {
+        "source_id": {
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "path": {
+          "format": "path",
+          "title": "Path",
+          "type": "string"
+        },
+        "resolution": {
+          "$ref": "#/$defs/MseTaskResolutionResult"
+        }
+      },
+      "required": [
+        "source_id",
+        "path",
+        "resolution"
+      ],
+      "title": "MseTaskResolutionInspection",
+      "type": "object"
+    },
+    "MseTaskResolutionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": "mde-mse-task-resolution/v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "project_root": {
+          "format": "path",
+          "title": "Project Root",
+          "type": "string"
+        },
+        "interface_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Interface Path"
+        },
+        "compatibility": {
+          "$ref": "#/$defs/MseCompatibility"
+        },
+        "requested_tasks": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Requested Tasks",
+          "type": "array"
+        },
+        "resolutions": {
+          "items": {
+            "$ref": "#/$defs/MseResolvedTask"
+          },
+          "title": "Resolutions",
+          "type": "array"
+        },
+        "configurations_truncated": {
+          "default": false,
+          "title": "Configurations Truncated",
+          "type": "boolean"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "project_root",
+        "compatibility",
+        "requested_tasks"
+      ],
+      "title": "MseTaskResolutionResult",
       "type": "object"
     },
     "PreparedAnalysis": {
@@ -3051,7 +3291,7 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
-      "default": "deterministic-inspection/v5",
+      "default": "deterministic-inspection/v6",
       "title": "Api Version",
       "type": "string"
     },
@@ -3086,6 +3326,13 @@
         "$ref": "#/$defs/MseProjectInspection"
       },
       "title": "Mse Project Inspections",
+      "type": "array"
+    },
+    "mse_task_resolutions": {
+      "items": {
+        "$ref": "#/$defs/MseTaskResolutionInspection"
+      },
+      "title": "Mse Task Resolutions",
       "type": "array"
     },
     "synthesized_evidence": {

@@ -42,7 +42,11 @@ from .contracts.mse import (
     MseConfigurationSummary,
     MseDiagnostic,
     MseProjectPreflightResult,
+    MseResolvedTask,
     MseTaskBinding,
+    MseTaskDefinition,
+    MseTaskReference,
+    MseTaskResolutionResult,
 )
 from .contracts.workflow import (
     AnalysisRelevance,
@@ -95,8 +99,13 @@ from .inspection.models import (
     MlaArtifactInspection,
     MlaRuntimeInspectionArtifact,
     MseProjectInspection,
+    MseTaskResolutionInspection,
 )
-from .inspection.mse_preflight import synthesize_mse_evidence
+from .inspection.mse_preflight import (
+    synthesize_mse_evidence,
+    synthesize_mse_task_evidence,
+)
+from .inspection.mse_resolution import resolve_incident_pipeline_tasks
 from .inspection.runtime_identity import (
     extract_runtime_identity,
     synthesize_runtime_identity_evidence,
@@ -200,7 +209,12 @@ __all__ = [
     "MseDiagnostic",
     "MseProjectInspection",
     "MseProjectPreflightResult",
+    "MseResolvedTask",
     "MseTaskBinding",
+    "MseTaskDefinition",
+    "MseTaskReference",
+    "MseTaskResolutionInspection",
+    "MseTaskResolutionResult",
     "ReasoningSession",
     "RevisionResolutionStatus",
     "RuntimeComponent",
@@ -229,9 +243,11 @@ __all__ = [
     "make_stub_backend",
     "make_langchain_backend",
     "render_markdown_report",
+    "resolve_incident_pipeline_tasks",
     "synthesize_evidence",
     "synthesize_log_overview_evidence",
     "synthesize_mse_evidence",
+    "synthesize_mse_task_evidence",
     "synthesize_runtime_identity_evidence",
     "validate_result_against_inspection",
     "validate_incident_correlation",

@@ -44,6 +44,18 @@
           "default": null,
           "title": "Task Name"
         },
+        "node_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Node Name"
+        },
         "started_at": {
           "anyOf": [
             {

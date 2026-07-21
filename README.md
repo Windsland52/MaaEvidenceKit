@@ -43,11 +43,12 @@ The framework-independent foundation includes:
 - a versioned JSONL tool-adapter protocol.
 
 The deterministic vertical slice provides artifact preparation, bounded evidence windows, result
-validation, MLA preflight/runtime inspection, and revision-matched MSE project preflight through
+validation, MLA preflight/runtime inspection, and revision-matched MSE project inspection through
 the JSONL adapter. Runtime inspection results are synthesized into typed `Evidence` records
 (primary failures/outcomes, secondary signals, context task/session summaries). MSE contributes
 interface/resource/task summaries and source-located static diagnostics without inferring that a
-diagnostic caused the reported issue.
+diagnostic caused the reported issue. After incident correlation, it also resolves only the
+relevant MaaFramework task/node definitions, effective configuration, and references.
 
 The diagnostic workflow uses LangGraph behind a single `DiagnosticWorkflow`. Its current graph
 prepares the input, classifies log sources from bounded samples, records an initial investigation
@@ -57,6 +58,9 @@ evidence, reasons, and validates the result. Before final diagnosis it generates
 evidence-backed incident candidates from
 notable MLA tasks and GUI/custom log occurrences. When candidates exist, a separate model stage
 correlates them with the reported context; Python rejects invented candidate or evidence IDs.
+For relevant candidates that identify a MaaFramework task or pipeline node, the next deterministic
+node performs bounded MSE resolution and adds version-matched, line-backed source evidence before
+final reasoning.
 Inputs that are unrelated to MaaFramework logs can therefore bypass MLA. Explicit graph state
 keeps the plan, inspection facts, authoritative evidence, model drafts, failures, and final
 results separate.
@@ -97,7 +101,8 @@ facts to the evidence ledger. Run `pnpm build` first; use `--tool-adapter <path>
 
 `diagnose` runs the currently implemented pipeline end to end: prepare, classify log sources,
 plan the overview, conditionally inspect with MLA/MSE, identify runtime versions, synthesize evidence,
-generate incident candidates, conditionally correlate the reported issue, reason, and validate. It
+generate incident candidates, conditionally correlate the reported issue, resolve focused expected
+pipeline configuration, reason, and validate. It
 uses the deterministic stub reasoning backend by default (no model credentials required). Pass `--events
 <path>` to write the diagnostic event stream as JSON lines alongside the result. When MLA runs,
 the produced `DiagnosisResult` cites evidence IDs that trace back to MLA runtime facts. A request
@@ -110,8 +115,8 @@ keeps incident candidates ambiguous and reports that free-form correlation was u
 MaaFramework logs have a built-in classifier; files under a `custom/` directory receive a
 conservative custom-log classification. Known GUI and project formats plug in through
 `LogSourceProfile`, while unmatched logs remain `unknown` instead of being guessed or sent to MLA.
-Focused MSE task/pipeline resolution, dump inspection, revision-matched source investigation, and
-knowledge/Wiki search remain deferred. See
+Dump inspection, revision-matched general source investigation, and knowledge/Wiki search remain
+deferred. See
 [the workflow architecture](docs/workflow-architecture.md) for the target flow and implementation
 status.
 

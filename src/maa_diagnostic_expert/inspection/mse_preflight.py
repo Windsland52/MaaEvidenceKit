@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections import defaultdict
 from pathlib import Path
 
 from maa_diagnostic_expert.contracts.domain import Evidence, EvidenceReliability
 from maa_diagnostic_expert.contracts.mse import MseDiagnostic
 
-from .models import MseProjectInspection
+from .models import MseProjectInspection, MseTaskResolutionInspection
 
 _SOURCE_COMPONENT = "mse:project-preflight"
 _MAX_DIAGNOSTIC_EVIDENCE = 100
+_MAX_TASK_RESOLUTION_EVIDENCE = 100
 
 
 def _summary_evidence(inspection: MseProjectInspection) -> Evidence:
@@ -102,4 +104,63 @@ def synthesize_mse_evidence(inspections: list[MseProjectInspection]) -> list[Evi
     for inspection in inspections:
         evidence.append(_summary_evidence(inspection))
         evidence.extend(_diagnostic_evidence(inspection))
+    return evidence
+
+
+def synthesize_mse_task_evidence(
+    inspections: list[MseTaskResolutionInspection],
+) -> list[Evidence]:
+    evidence: list[Evidence] = []
+    seen: set[tuple[str, str, int, str, str | None, str | None]] = set()
+    for inspection in inspections:
+        for resolved in inspection.resolution.resolutions:
+            if not resolved.found:
+                continue
+            effective = json.dumps(
+                resolved.effective_config,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            reference_summary = ", ".join(
+                f"{item.kind}={item.target}" for item in resolved.references[:50]
+            )
+            for definition in resolved.definitions:
+                key = (
+                    inspection.source_id,
+                    definition.source_path,
+                    definition.line,
+                    resolved.name,
+                    resolved.controller,
+                    resolved.resource,
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                digest = hashlib.sha256(repr(key).encode()).hexdigest()[:16]
+                lines = [
+                    f"MSE resolved MaaFramework task '{resolved.name}'",
+                    (
+                        "  configuration: "
+                        f"{resolved.controller or '<default>'}/"
+                        f"{resolved.resource or '<default>'}"
+                    ),
+                    f"  effective_config: {effective}",
+                ]
+                if reference_summary:
+                    lines.append(f"  references: {reference_summary}")
+                evidence.append(
+                    Evidence(
+                        id=f"mse:{inspection.source_id}:task:{digest}",
+                        kind="mse_task_resolution",
+                        source_component="mse:resolve-tasks",
+                        source_path=str(inspection.path / Path(definition.source_path)),
+                        content=chr(10).join(lines),
+                        line_start=definition.line,
+                        line_end=definition.line,
+                        reliability=EvidenceReliability.SECONDARY,
+                    )
+                )
+                if len(evidence) >= _MAX_TASK_RESOLUTION_EVIDENCE:
+                    return evidence
     return evidence

@@ -145,6 +145,7 @@ def test_failed_mla_task_becomes_unselected_candidate() -> None:
     [candidate] = selection.candidates
     assert candidate.session_id == "session-1"
     assert candidate.task_name == "CombatTask"
+    assert candidate.node_name == "End"
     assert candidate.confidence == 0.95
     assert candidate.evidence_ids == ["mla-ri:artifact-1:task:exec-failed"]
 
@@ -182,6 +183,7 @@ def test_direct_failure_is_candidate_even_without_task_summary() -> None:
 
     [candidate] = selection.candidates
     assert candidate.task_name == "MissingTask"
+    assert candidate.node_name == "Recognize"
     assert candidate.evidence_ids == ["mla-ri:artifact-1:failure:failure-1"]
 
 
