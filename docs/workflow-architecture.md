@@ -20,6 +20,19 @@ GUI names and log formats are adapter concerns. Core discovery first looks in su
 and common `debug/` or `logs/` locations, prefers a known GUI profile when available, and falls
 back to generic classification. It must not assume MXU or a fixed custom-agent language.
 
+## Python package boundaries
+
+- `contracts` owns shared request, evidence, MLA, and workflow models, but no investigation policy;
+- `discovery` resolves supplied inputs, repositories, and artifact source classifications;
+- `inspection` owns deterministic inspection results, performs analysis, and constructs the
+  authoritative evidence ledger;
+- `reasoning` owns model protocols, prompts, configuration, and provider integrations;
+- `workflow` owns LangGraph planning, transitions, and diagnosis validation;
+- `interfaces` exposes the CLI, TypeScript adapter client, and reports.
+
+The root package only re-exports the supported SDK surface. Tests mirror these domain packages so
+module ownership remains visible during future MSE, source-research, and Wiki work.
+
 ## Target flow
 
 ```mermaid

@@ -1,15 +1,4 @@
-from .agent import DiagnosticAgent, ReasoningBackend, ReasoningContext, ReasoningSession
-from .artifact_classification import (
-    LogClassificationMatch,
-    LogSourceProfile,
-    classify_artifact_sources,
-)
-from .diagnosis_validation import (
-    collect_inspection_evidence,
-    finalize_diagnosis_draft,
-    validate_result_against_inspection,
-)
-from .domain import (
+from .contracts.domain import (
     AnalysisRequest,
     ArtifactAvailability,
     ArtifactInput,
@@ -34,30 +23,7 @@ from .domain import (
     SourceRole,
     SourceSnapshot,
 )
-from .evidence_synthesis import synthesize_evidence
-from .incident_selection import MAX_INCIDENT_CANDIDATES, generate_incident_selection
-from .inspection import (
-    DeterministicInspection,
-    MlaArtifactInspection,
-    MlaRuntimeInspectionArtifact,
-)
-from .langchain_reasoning import (
-    LangChainReasoningBackend,
-    LangChainReasoningSession,
-    make_langchain_backend,
-)
-from .log_overview import (
-    LogArtifactOverview,
-    LogOccurrence,
-    LogOverviewCollection,
-    LogOverviewStatus,
-    LogSeverity,
-    LogSeverityCount,
-    build_log_overviews,
-    collect_log_overview_missing_evidence,
-    synthesize_log_overview_evidence,
-)
-from .mla_contracts import (
+from .contracts.mla import (
     MlaCompatibility,
     MlaCompatibilityStatus,
     MlaFrameworkSession,
@@ -70,20 +36,7 @@ from .mla_contracts import (
     MlaSessionStatus,
     MlaVersionEvidence,
 )
-from .model_config import ModelConfig, StructuredOutputMethod
-from .reasoning import (
-    StubReasoningBackend,
-    StubReasoningSession,
-    build_reasoning_context,
-    make_stub_backend,
-)
-from .report import render_markdown_report
-from .runtime_identity import (
-    extract_runtime_identity,
-    synthesize_runtime_identity_evidence,
-)
-from .workflow import DiagnosticWorkflow
-from .workflow_contracts import (
+from .contracts.workflow import (
     AnalysisRelevance,
     ArtifactSourceClassification,
     ArtifactSourceInventory,
@@ -106,6 +59,61 @@ from .workflow_contracts import (
     VerificationPlan,
     VerificationStatus,
     VersionObservationKind,
+)
+from .discovery.artifact_classification import (
+    LogClassificationMatch,
+    LogSourceProfile,
+    classify_artifact_sources,
+)
+from .inspection.evidence_synthesis import synthesize_evidence
+from .inspection.incident_candidates import (
+    MAX_INCIDENT_CANDIDATES,
+    generate_incident_selection,
+)
+from .inspection.log_overview import (
+    LogArtifactOverview,
+    LogOccurrence,
+    LogOverviewCollection,
+    LogOverviewStatus,
+    LogSeverity,
+    LogSeverityCount,
+    build_log_overviews,
+    collect_log_overview_missing_evidence,
+    synthesize_log_overview_evidence,
+)
+from .inspection.models import (
+    DeterministicInspection,
+    MlaArtifactInspection,
+    MlaRuntimeInspectionArtifact,
+)
+from .inspection.runtime_identity import (
+    extract_runtime_identity,
+    synthesize_runtime_identity_evidence,
+)
+from .interfaces.report import render_markdown_report
+from .reasoning.langchain import (
+    LangChainReasoningBackend,
+    LangChainReasoningSession,
+    make_langchain_backend,
+)
+from .reasoning.model_config import ModelConfig, StructuredOutputMethod
+from .reasoning.prompts import (
+    StubReasoningBackend,
+    StubReasoningSession,
+    build_reasoning_context,
+    make_stub_backend,
+)
+from .reasoning.protocol import (
+    DiagnosticAgent,
+    ReasoningBackend,
+    ReasoningContext,
+    ReasoningSession,
+)
+from .workflow.graph import DiagnosticWorkflow
+from .workflow.validation import (
+    collect_inspection_evidence,
+    finalize_diagnosis_draft,
+    validate_result_against_inspection,
 )
 
 __all__ = [

@@ -40,14 +40,24 @@ TypeScript tool adapter
 ## Project Structure
 
 ```text
-src/maa_diagnostic_expert/   Python domain and agent implementation
+src/maa_diagnostic_expert/
+  contracts/                Serialized domain, MLA, and workflow contracts
+  discovery/                Input, source, and artifact discovery
+  inspection/               Deterministic inspection and evidence extraction
+  reasoning/                Model protocols, prompts, and provider integrations
+  workflow/                 LangGraph planning, orchestration, and validation
+  interfaces/               CLI, JSONL tool adapter, and report rendering
 packages/tool-adapter/       Thin TypeScript MLA/MSE adapter
 contracts/                   Generated JSON schemas
 skills/                      Host-agent SKILL.md for external agent integration
-tests/                       Python tests
+tests/                       Python tests mirroring the Python domain packages
 tmp/                         Ignored local issue-analysis data
 sample/                      Ignored local upstream repositories/links
 ```
+
+Keep `src/maa_diagnostic_expert/__init__.py` as the stable public facade and `__main__.py` as the
+module entry point. Put new implementation modules in an existing domain package; do not restore
+the flat module layout or introduce generic `utils.py`/`common.py` dumping grounds.
 
 Generated schemas in `contracts/*.schema.json` come from the Python Pydantic models. Do not edit them manually. Run `uv run maa-generate-contracts` after contract changes.
 

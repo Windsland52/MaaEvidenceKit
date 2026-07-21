@@ -15,12 +15,21 @@ commands; standalone MDE will use a small Python harness with a user-configured 
 ## Repository layout
 
 ```text
-src/maa_diagnostic_expert/   Python domain and agent implementation
+src/maa_diagnostic_expert/
+  contracts/                Serialized domain, MLA, and workflow contracts
+  discovery/                Input, source, and artifact discovery
+  inspection/               Deterministic inspection and evidence extraction
+  reasoning/                Model protocols, prompts, and provider integrations
+  workflow/                 LangGraph planning, orchestration, and validation
+  interfaces/               CLI, JSONL tool adapter, and report rendering
 packages/tool-adapter/       Thin TypeScript adapter for MLA/MSE
 contracts/                   Generated cross-process JSON schemas
 skills/                      Host-agent SKILL.md for external agent integration
-tests/                       Python tests
+tests/                       Python tests mirroring the Python domain packages
 ```
+
+The root Python package is a public facade and module entry point. New implementation modules
+belong in one of the domain packages above instead of being added to the package root.
 
 ## Current milestone
 

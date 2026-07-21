@@ -1,0 +1,199 @@
+from __future__ import annotations
+
+from maa_diagnostic_expert.contracts.domain import (
+    ArtifactAvailability,
+    ArtifactMediaKind,
+    PreparedAnalysis,
+    RevisionResolutionStatus,
+    SourceRole,
+)
+from maa_diagnostic_expert.contracts.workflow import (
+    AnalysisRelevance,
+    ArtifactSourceInventory,
+    ArtifactSourceKind,
+    BranchDecision,
+    BranchDisposition,
+    InvestigationBranch,
+    InvestigationPlan,
+)
+from maa_diagnostic_expert.discovery.artifact_classification import classify_artifact_sources
+
+
+def _has_mla_candidate(
+    prepared: PreparedAnalysis,
+    inventory: ArtifactSourceInventory,
+) -> bool:
+    if any(
+        item.source_kind is ArtifactSourceKind.MAA_FRAMEWORK for item in inventory.classifications
+    ):
+        return True
+    for artifact in prepared.artifacts:
+        if artifact.availability is not ArtifactAvailability.AVAILABLE:
+            continue
+        if (
+            artifact.media_kind is ArtifactMediaKind.ARCHIVE
+            and artifact.path.suffix.lower() == ".zip"
+        ):
+            return True
+    return False
+
+
+def _log_branch_decision(
+    inventory: ArtifactSourceInventory,
+    *,
+    branch: InvestigationBranch,
+    source_kind: ArtifactSourceKind,
+    label: str,
+) -> BranchDecision:
+    if any(item.source_kind is source_kind for item in inventory.classifications):
+        return BranchDecision(
+            branch=branch,
+            disposition=BranchDisposition.RUN,
+            relevance=AnalysisRelevance.USEFUL,
+            reason=f"At least one {label} log was classified for deterministic overview.",
+        )
+    if any(item.source_kind is ArtifactSourceKind.UNKNOWN for item in inventory.classifications):
+        return BranchDecision(
+            branch=branch,
+            disposition=BranchDisposition.UNAVAILABLE,
+            relevance=AnalysisRelevance.UNDETERMINED,
+            reason=f"Unclassified logs remain; a {label} source profile may be required.",
+        )
+    return BranchDecision(
+        branch=branch,
+        disposition=BranchDisposition.SKIP,
+        relevance=AnalysisRelevance.NOT_RELEVANT,
+        reason=f"No supplied log was classified as {label}.",
+    )
+
+
+def _has_available_dump(prepared: PreparedAnalysis) -> bool:
+    return any(
+        artifact.availability is ArtifactAvailability.AVAILABLE
+        and artifact.media_kind is ArtifactMediaKind.DUMP
+        for artifact in prepared.artifacts
+    )
+
+
+def _has_resolved_source(prepared: PreparedAnalysis, role: SourceRole) -> bool:
+    return any(
+        snapshot.role is role and snapshot.resolution_status is RevisionResolutionStatus.RESOLVED
+        for snapshot in prepared.source_snapshots
+    )
+
+
+def plan_initial_investigation(
+    prepared: PreparedAnalysis,
+    inventory: ArtifactSourceInventory | None = None,
+) -> InvestigationPlan:
+    """Plan the currently available overview branches without inferring a diagnosis."""
+    source_inventory = classify_artifact_sources(prepared) if inventory is None else inventory
+    mla_candidate = _has_mla_candidate(prepared, source_inventory)
+    project_source = _has_resolved_source(prepared, SourceRole.PROJECT)
+    gui_source = _has_resolved_source(prepared, SourceRole.GUI)
+    framework_source = _has_resolved_source(prepared, SourceRole.MAA_FRAMEWORK)
+    has_dump = _has_available_dump(prepared)
+
+    return InvestigationPlan(
+        decisions=[
+            _log_branch_decision(
+                source_inventory,
+                branch=InvestigationBranch.GUI_LOG_OVERVIEW,
+                source_kind=ArtifactSourceKind.GUI,
+                label="GUI",
+            ),
+            _log_branch_decision(
+                source_inventory,
+                branch=InvestigationBranch.CUSTOM_LOG_OVERVIEW,
+                source_kind=ArtifactSourceKind.CUSTOM,
+                label="custom",
+            ),
+            BranchDecision(
+                branch=InvestigationBranch.MLA_GLOBAL_OVERVIEW,
+                disposition=(BranchDisposition.RUN if mla_candidate else BranchDisposition.SKIP),
+                relevance=(
+                    AnalysisRelevance.USEFUL if mla_candidate else AnalysisRelevance.NOT_RELEVANT
+                ),
+                reason=(
+                    "A classified MaaFramework log or explicit ZIP can be checked by MLA."
+                    if mla_candidate
+                    else "No explicit artifact is eligible for MLA inspection."
+                ),
+            ),
+            BranchDecision(
+                branch=InvestigationBranch.MSE_PROJECT_PREFLIGHT,
+                disposition=(
+                    BranchDisposition.DEFERRED if project_source else BranchDisposition.SKIP
+                ),
+                relevance=(
+                    AnalysisRelevance.USEFUL if project_source else AnalysisRelevance.NOT_RELEVANT
+                ),
+                reason=(
+                    "A version-resolved project source is available; MSE integration is pending."
+                    if project_source
+                    else "No version-resolved project source is available for MSE."
+                ),
+            ),
+            BranchDecision(
+                branch=InvestigationBranch.CRASH_PREFLIGHT,
+                disposition=BranchDisposition.DEFERRED if has_dump else BranchDisposition.SKIP,
+                relevance=(
+                    AnalysisRelevance.REQUIRED if has_dump else AnalysisRelevance.NOT_RELEVANT
+                ),
+                reason=(
+                    "A dump artifact is available; dump inspection is not implemented yet."
+                    if has_dump
+                    else "No dump artifact was supplied."
+                ),
+            ),
+            BranchDecision(
+                branch=InvestigationBranch.PROJECT_SOURCE,
+                disposition=(
+                    BranchDisposition.DEFERRED if project_source else BranchDisposition.SKIP
+                ),
+                relevance=(
+                    AnalysisRelevance.USEFUL if project_source else AnalysisRelevance.NOT_RELEVANT
+                ),
+                reason=(
+                    "Project source is resolved; scoped AGENTS.md analysis is pending."
+                    if project_source
+                    else "No version-resolved project source is available."
+                ),
+            ),
+            BranchDecision(
+                branch=InvestigationBranch.GUI_SOURCE,
+                disposition=BranchDisposition.DEFERRED if gui_source else BranchDisposition.SKIP,
+                relevance=(
+                    AnalysisRelevance.UNDETERMINED if gui_source else AnalysisRelevance.NOT_RELEVANT
+                ),
+                reason=(
+                    "GUI source is resolved and may be investigated when runtime evidence "
+                    "requires it."
+                    if gui_source
+                    else "No version-resolved GUI source is available."
+                ),
+            ),
+            BranchDecision(
+                branch=InvestigationBranch.FRAMEWORK_SOURCE,
+                disposition=(
+                    BranchDisposition.DEFERRED if framework_source else BranchDisposition.SKIP
+                ),
+                relevance=(
+                    AnalysisRelevance.UNDETERMINED
+                    if framework_source
+                    else AnalysisRelevance.NOT_RELEVANT
+                ),
+                reason=(
+                    "MaaFramework source is resolved and may be investigated only when required."
+                    if framework_source
+                    else "No version-resolved MaaFramework source is available."
+                ),
+            ),
+            BranchDecision(
+                branch=InvestigationBranch.KNOWLEDGE_RESEARCH,
+                disposition=BranchDisposition.DEFERRED,
+                relevance=AnalysisRelevance.UNDETERMINED,
+                reason="Version-matched document search is not implemented yet.",
+            ),
+        ]
+    )

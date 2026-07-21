@@ -40,8 +40,8 @@ models = [
 ]
 
 [project.scripts]
-maa-diagnostic-expert = "maa_diagnostic_expert.cli:main"
-maa-generate-contracts = "maa_diagnostic_expert.contracts:main"
+maa-diagnostic-expert = "maa_diagnostic_expert.interfaces.cli:main"
+maa-generate-contracts = "maa_diagnostic_expert.contracts.schemas:main"
 
 [dependency-groups]
 dev = [
