@@ -32,6 +32,11 @@ from .inspection import (
     inspect_prepared_analysis,
     synthesize_inspection_evidence,
 )
+from .log_overview import (
+    LogOverviewCollection,
+    build_log_overviews,
+    collect_log_overview_missing_evidence,
+)
 from .preparation import prepare_analysis
 from .reasoning import build_reasoning_context
 from .workflow_contracts import (
@@ -55,6 +60,7 @@ class DiagnosticState(TypedDict):
     request: AnalysisRequest
     prepared: NotRequired[PreparedAnalysis]
     artifact_sources: NotRequired[ArtifactSourceInventory]
+    log_overviews: NotRequired[LogOverviewCollection]
     plan: NotRequired[InvestigationPlan]
     inspection: NotRequired[DeterministicInspection]
     evidence: NotRequired[list[Evidence]]
@@ -68,6 +74,7 @@ class DiagnosticState(TypedDict):
 class _DiagnosticStateUpdate(TypedDict, total=False):
     prepared: PreparedAnalysis
     artifact_sources: ArtifactSourceInventory
+    log_overviews: LogOverviewCollection
     plan: InvestigationPlan
     inspection: DeterministicInspection
     evidence: list[Evidence]
@@ -279,14 +286,65 @@ class DiagnosticWorkflow:
     @staticmethod
     def _after_plan_overview(
         state: DiagnosticState,
+    ) -> Literal["overview_logs", "inspect", "initialize_inspection", "fail"]:
+        if "error_message" in state:
+            return "fail"
+        plan = state.get("plan")
+        if plan is None:
+            return "fail"
+        if any(
+            plan.decision_for(branch).disposition is BranchDisposition.RUN
+            for branch in (
+                InvestigationBranch.GUI_LOG_OVERVIEW,
+                InvestigationBranch.CUSTOM_LOG_OVERVIEW,
+            )
+        ):
+            return "overview_logs"
+        return DiagnosticWorkflow._inspection_route(plan)
+
+    @staticmethod
+    def _inspection_route(
+        plan: InvestigationPlan,
+    ) -> Literal["inspect", "initialize_inspection"]:
+        mla = plan.decision_for(InvestigationBranch.MLA_GLOBAL_OVERVIEW)
+        return "inspect" if mla.disposition is BranchDisposition.RUN else "initialize_inspection"
+
+    @staticmethod
+    def _overview_logs_node(state: DiagnosticState) -> _DiagnosticStateUpdate:
+        try:
+            prepared = state.get("prepared")
+            inventory = state.get("artifact_sources")
+            if prepared is None or inventory is None:
+                raise RuntimeError("log overview requires prepared and classified artifacts")
+            overviews = build_log_overviews(prepared, inventory)
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("overview_logs", error)
+
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.STAGE_COMPLETED,
+                stage="overview_logs",
+                message="GUI and custom log overviews complete",
+                data={
+                    "logs": len(overviews.overviews),
+                    "occurrences": sum(
+                        len(item.notable_occurrences) for item in overviews.overviews
+                    ),
+                },
+            )
+        )
+        return {"log_overviews": overviews}
+
+    @staticmethod
+    def _after_overview_logs(
+        state: DiagnosticState,
     ) -> Literal["inspect", "initialize_inspection", "fail"]:
         if "error_message" in state:
             return "fail"
         plan = state.get("plan")
         if plan is None:
             return "fail"
-        mla = plan.decision_for(InvestigationBranch.MLA_GLOBAL_OVERVIEW)
-        return "inspect" if mla.disposition is BranchDisposition.RUN else "initialize_inspection"
+        return DiagnosticWorkflow._inspection_route(plan)
 
     @staticmethod
     def _initialize_inspection_node(state: DiagnosticState) -> _DiagnosticStateUpdate:
@@ -296,7 +354,17 @@ class DiagnosticWorkflow:
                 "initialize_inspection",
                 RuntimeError("inspection initialization requires prepared inputs"),
             )
-        inspection = DeterministicInspection(prepared=prepared)
+        overviews = state.get("log_overviews") or LogOverviewCollection()
+        overview_missing = collect_log_overview_missing_evidence(overviews)
+        prepared_with_overview = prepared.model_copy(
+            update={
+                "missing_evidence": [*prepared.missing_evidence, *overview_missing],
+            }
+        )
+        inspection = DeterministicInspection(
+            prepared=prepared_with_overview,
+            log_overviews=overviews,
+        )
         _emit(
             _WorkflowUpdate(
                 kind=DiagnosticEventKind.STAGE_COMPLETED,
@@ -321,7 +389,12 @@ class DiagnosticWorkflow:
                     message="Running deterministic inspection",
                 )
             )
-            inspection = inspect_prepared_analysis(prepared, self.tool_caller)
+            inspection = inspect_prepared_analysis(
+                prepared,
+                self.tool_caller,
+                state.get("log_overviews"),
+                state.get("artifact_sources"),
+            )
         except Exception as error:  # noqa: BLE001
             return _failure_update("inspect", error)
 
@@ -512,6 +585,7 @@ class DiagnosticWorkflow:
         _add_graph_node(graph, "prepare", self._prepare_node)
         _add_graph_node(graph, "classify_artifacts", self._classify_artifacts_node)
         _add_graph_node(graph, "plan_overview", self._plan_overview_node)
+        _add_graph_node(graph, "overview_logs", self._overview_logs_node)
         _add_graph_node(graph, "inspect", self._inspect_node)
         _add_graph_node(graph, "initialize_inspection", self._initialize_inspection_node)
         _add_graph_node(graph, "synthesize", self._synthesize_node)
@@ -524,6 +598,7 @@ class DiagnosticWorkflow:
         graph.add_conditional_edges("prepare", self._after_prepare)
         graph.add_conditional_edges("classify_artifacts", self._after_classify_artifacts)
         graph.add_conditional_edges("plan_overview", self._after_plan_overview)
+        graph.add_conditional_edges("overview_logs", self._after_overview_logs)
         graph.add_edge("initialize_inspection", "synthesize")
         graph.add_conditional_edges("inspect", self._after_inspect)
         graph.add_conditional_edges("synthesize", self._after_synthesize)

@@ -72,26 +72,27 @@ archives or scan the whole project source tree. `query-evidence` accepts either 
 or `DeterministicInspection` through `--prepared`, and reads at most 400 lines and 40,000
 characters from an authorized path.
 
-`inspect` is the single-command deterministic path. It prepares the request, selects each explicit
-log, ZIP, or directory input once, calls `mla.preflight` through the internal JSONL adapter, and
-validates the returned facts with the Python `MlaPreflightResult` contract. Run `pnpm build` first;
-use `--tool-adapter <path>` or `MDE_TOOL_ADAPTER_PATH` for a non-default adapter location.
+`inspect` is the single-command deterministic path. It prepares the request, classifies log
+sources, builds bounded GUI/custom overviews, and calls MLA only for classified MaaFramework logs,
+their containing input directories, or explicit ZIP inputs. It validates returned MLA facts with
+the Python `MlaPreflightResult` contract. Run `pnpm build` first; use `--tool-adapter <path>` or
+`MDE_TOOL_ADAPTER_PATH` for a non-default adapter location.
 
 `diagnose` runs the currently implemented pipeline end to end: prepare, classify log sources,
 plan the overview, conditionally inspect with MLA, synthesize evidence, reason, and validate. It
 uses the deterministic stub reasoning backend by default (no model credentials required). Pass `--events
 <path>` to write the diagnostic event stream as JSON lines alongside the result. When MLA runs,
 the produced `DiagnosisResult` cites evidence IDs that trace back to MLA runtime facts. A request
-without an MLA-eligible artifact continues with an empty deterministic inspection rather than
-pretending that MaaFramework analysis was relevant.
+without an MLA-eligible artifact continues with an MLA-empty deterministic inspection, which may
+still contain GUI/custom overview evidence.
 The reasoning backend produces a `DiagnosisDraft` without evidence objects; the workflow attaches
 only cited evidence from the deterministic inspection ledger.
 
 MaaFramework logs have a built-in classifier; files under a `custom/` directory receive a
 conservative custom-log classification. Known GUI and project formats plug in through
 `LogSourceProfile`, while unmatched logs remain `unknown` instead of being guessed or sent to MLA.
-GUI/custom-log overview analysis, MSE project preflight, dump inspection, revision-matched source
-investigation, and knowledge/Wiki search remain deferred. See
+MSE project preflight, dump inspection, revision-matched source investigation, and knowledge/Wiki
+search remain deferred. See
 [the workflow architecture](docs/workflow-architecture.md) for the target flow and implementation
 status.
 

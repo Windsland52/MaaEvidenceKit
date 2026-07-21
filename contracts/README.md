@@ -15,6 +15,7 @@ Generated contracts cover:
 - `MlaPreflightResult`, including source-backed MaaFramework runtime sessions
 - `ReasoningRequest`
 - `ArtifactSourceInventory`, recording bounded log classifications and their deterministic signals
+- `LogOverviewCollection`, containing bounded GUI/custom summaries and traceable occurrences
 - `RuntimeIdentity`, keeping version observations scoped to their artifact and optional session
 - `IncidentSelection`, retaining candidate evidence and explicit ambiguous/not-found outcomes
 - `InvestigationPlan`, with run, skip, and deferred decisions for each diagnostic branch

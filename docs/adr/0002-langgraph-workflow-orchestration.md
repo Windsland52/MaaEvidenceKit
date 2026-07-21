@@ -20,20 +20,23 @@ The current graph introduces explicit overview planning and makes MLA conditiona
 
 ```text
 start -> prepare -> classify_artifacts -> plan_overview
-                                             |-> inspect -----------------+
-                                             +-> initialize_inspection ---+-> synthesize -> reason -> validate -> complete
+                                             |-> overview_logs -> inspect-+
+                                             |                    |       |
+                                             +--------------------+-> initialize_inspection
+                                                                      |-> synthesize -> reason -> validate -> complete
                                              +-----------------------------------------------> fail
 ```
 
 `classify_artifacts` reads only bounded head/tail samples and records the classifier and signals
 for each log. Known project or GUI formats are supplied through source profiles; unmatched logs
 remain unknown. `plan_overview` records typed branch decisions before executing an analyzer. A
-classified MaaFramework log or eligible ZIP selects `inspect`; otherwise
+classified GUI/custom log selects bounded `overview_logs`. A classified MaaFramework log or
+eligible ZIP then selects `inspect`; otherwise
 `initialize_inspection` creates an empty deterministic inspection and bypasses MLA. This prevents
 the workflow from treating every issue as a MaaFramework-log problem.
 
-Future GUI/custom-log overview, MSE, dump, source, and knowledge branches are present in the
-planning contract before they have executable nodes. Such decisions use `deferred`; a branch may
+Future MSE, dump, source, and knowledge branches are present in the planning contract before they
+have executable nodes. Such decisions use `deferred`; a branch may
 be marked `run` only when the current graph can execute it. This makes partial implementation
 visible to callers and benchmarks.
 
@@ -54,6 +57,8 @@ depend on LangGraph-specific event payloads.
   contracts.
 - Planning contracts distinguish executed, skipped, and deferred work, so an absent capability is
   not mistaken for negative diagnostic evidence.
+- GUI/custom overview scanning is bounded by bytes, line length, and retained occurrences; its
+  summaries and exact-line occurrences enter the authoritative evidence ledger.
 - LangGraph is a core runtime dependency rather than an optional model-provider dependency.
 - Provider-specific LangChain packages will be optional integrations added with the real model
   backend; they will not control diagnostic policy or evidence validation.

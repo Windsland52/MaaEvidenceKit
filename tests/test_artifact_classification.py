@@ -83,8 +83,7 @@ def test_profile_classifies_known_gui_format(tmp_path: Path) -> None:
     assert inventory.classifications[0].classifier_id == "profile/test-gui"
     plan = plan_initial_investigation(prepared, inventory)
     assert (
-        plan.decision_for(InvestigationBranch.GUI_LOG_OVERVIEW).disposition
-        is BranchDisposition.DEFERRED
+        plan.decision_for(InvestigationBranch.GUI_LOG_OVERVIEW).disposition is BranchDisposition.RUN
     )
 
 
@@ -122,7 +121,7 @@ def test_planner_does_not_send_custom_log_to_mla(tmp_path: Path) -> None:
     )
     assert (
         plan.decision_for(InvestigationBranch.CUSTOM_LOG_OVERVIEW).disposition
-        is BranchDisposition.DEFERRED
+        is BranchDisposition.RUN
     )
 
 

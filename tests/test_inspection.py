@@ -204,3 +204,26 @@ def test_inspect_records_runtime_inspection_failures_as_missing_evidence(
     assert len(inspection.mla_runtime_inspections) == 0
     missing_codes = {item.code for item in inspection.prepared.missing_evidence}
     assert "mla_runtime_inspection_failed" in missing_codes
+
+
+def test_inspect_builds_custom_overview_without_calling_mla(tmp_path: Path) -> None:
+    custom = tmp_path / "custom"
+    custom.mkdir()
+    log = custom / "agent.log"
+    log.write_text("INFO start\nERROR failed\n", encoding="utf-8")
+    tool_caller = RecordingToolCaller()
+
+    inspection = inspect_analysis(
+        AnalysisRequest(
+            question="Inspect the custom log.",
+            artifacts=[ArtifactInput(path=custom, kind=ArtifactKind.DIRECTORY)],
+        ),
+        tool_caller,
+    )
+
+    assert tool_caller.calls == []
+    assert len(inspection.log_overviews.overviews) == 1
+    assert [item.kind for item in inspection.synthesized_evidence] == [
+        "log_overview_summary",
+        "log_occurrence:error",
+    ]

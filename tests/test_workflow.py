@@ -320,3 +320,5 @@ def test_workflow_does_not_send_custom_log_to_mla(tmp_path: Path) -> None:
     assert any(
         event.stage == "classify_artifacts" and event.data["custom"] == 1 for event in events
     )
+    assert any(event.stage == "overview_logs" for event in events)
+    assert any(event.stage == "synthesize" and event.data.get("evidence") == 1 for event in events)

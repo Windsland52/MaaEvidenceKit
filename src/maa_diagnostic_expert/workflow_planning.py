@@ -48,9 +48,9 @@ def _log_branch_decision(
     if any(item.source_kind is source_kind for item in inventory.classifications):
         return BranchDecision(
             branch=branch,
-            disposition=BranchDisposition.DEFERRED,
+            disposition=BranchDisposition.RUN,
             relevance=AnalysisRelevance.USEFUL,
-            reason=f"At least one {label} log was classified; overview analysis is pending.",
+            reason=f"At least one {label} log was classified for deterministic overview.",
         )
     if any(item.source_kind is ArtifactSourceKind.UNKNOWN for item in inventory.classifications):
         return BranchDecision(

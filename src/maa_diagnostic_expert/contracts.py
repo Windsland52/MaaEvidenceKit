@@ -15,6 +15,7 @@ from .domain import (
     ReasoningRequest,
 )
 from .inspection import DeterministicInspection
+from .log_overview import LogOverviewCollection
 from .mla_contracts import MlaPreflightResult, MlaRuntimeInspectionResult
 from .model_config import ModelConfig
 from .workflow_contracts import (
@@ -42,6 +43,7 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "mla-runtime-inspection.schema.json": MlaRuntimeInspectionResult,
     "model-config.schema.json": ModelConfig,
     "artifact-source-inventory.schema.json": ArtifactSourceInventory,
+    "log-overview.schema.json": LogOverviewCollection,
     "runtime-identity.schema.json": RuntimeIdentity,
     "incident-selection.schema.json": IncidentSelection,
     "investigation-plan.schema.json": InvestigationPlan,
