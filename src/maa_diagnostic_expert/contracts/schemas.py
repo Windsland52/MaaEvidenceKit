@@ -18,6 +18,7 @@ from .domain import (
     PreparedAnalysis,
     ReasoningRequest,
 )
+from .knowledge import WikiCatalogManifest, WikiCatalogStatus
 from .mla import MlaPreflightResult, MlaRuntimeInspectionResult
 from .mse import MseProjectPreflightResult, MseTaskResolutionResult
 from .workflow import (
@@ -62,6 +63,8 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "source-guidance.schema.json": SourceGuidance,
     "source-research-plan.schema.json": SourceResearchPlan,
     "knowledge-research-plan.schema.json": KnowledgeResearchPlan,
+    "wiki-catalog-manifest.schema.json": WikiCatalogManifest,
+    "wiki-catalog-status.schema.json": WikiCatalogStatus,
 }
 
 

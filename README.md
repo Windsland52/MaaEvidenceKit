@@ -167,10 +167,31 @@ that Git commit rather than the current checkout or dirty worktree. Versioned ev
 `AnalysisRequest.sources` contains named entries with a `source_id`, role, path, and optional
 revision. Roles `project`, `maa_framework`, `gui`, `agent`, `documentation`, and `wiki` are
 independently versioned. `documentation` marks original local Git documentation that conclusions
-may cite, while `wiki` marks a local pinned navigation repository. MDE does not fetch or update
-either repository implicitly. `auxiliary` is reserved for other non-versioned reference source.
+may cite, while `wiki` marks a pinned navigation snapshot. MDE only fetches a Wiki catalog when
+the CLI is given a URL or `MDE_WIKI_CATALOG_URL`; source entries are never updated implicitly.
+`auxiliary` is reserved for other non-versioned reference source.
 GUI and agent roles do not assume MXU, a programming language, or a fixed repository layout.
 Optional source adapters handle discovery.
+
+MaaLLMWiki can be supplied as a local Git checkout, extracted catalog snapshot, or released ZIP.
+The ZIP manifest is verified before extraction into the knowledge cache and pins the Wiki commit,
+upstream versions, file sizes, and SHA-256 digests:
+
+```powershell
+uv run maa-diagnostic-expert knowledge-status --wiki ../MaaLLMWiki
+uv run maa-diagnostic-expert knowledge-status --wiki ./maa-llm-wiki-catalog-v1.zip
+uv run maa-diagnostic-expert prepare --request request.json --wiki ../MaaLLMWiki
+uv run maa-diagnostic-expert knowledge-status --wiki-url <release-asset-https-url>
+uv run maa-diagnostic-expert prepare --request request.json --wiki-url <release-asset-https-url>
+```
+
+Set `MDE_KNOWLEDGE_CACHE` or pass `--wiki-cache` to control where verified ZIP snapshots are
+stored. A URL is downloaded once and then reused by URL; use `--wiki-refresh` to fetch it again,
+`--wiki-offline` to require the cached copy, and `--wiki-sha256` to pin the ZIP itself. The URL
+and optional hash can also be configured through `MDE_WIKI_CATALOG_URL` and
+`MDE_WIKI_CATALOG_SHA256`. Wiki arguments are accepted by `prepare`, `inspect`, and
+`diagnose`. Snapshot navigation remains context evidence only; conclusions must return to the
+original version-pinned documentation or source.
 
 ## Host-agent integration
 

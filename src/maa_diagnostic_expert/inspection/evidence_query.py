@@ -16,6 +16,7 @@ from maa_diagnostic_expert.contracts.domain import (
     RevisionResolutionStatus,
     SourceSnapshot,
 )
+from maa_diagnostic_expert.knowledge.catalog import is_catalog_snapshot
 
 MAX_EVIDENCE_CHARACTERS = 40_000
 
@@ -143,7 +144,11 @@ def _select_lines(
 def query_evidence(prepared: PreparedAnalysis, query: EvidenceQuery) -> EvidenceWindow:
     source = _authorized_source(prepared, query.source_path)
     snapshot = source.snapshot
-    if snapshot is not None and snapshot.requested_revision is not None:
+    if (
+        snapshot is not None
+        and snapshot.requested_revision is not None
+        and not is_catalog_snapshot(snapshot.path)
+    ):
         content, source_label = _git_blob(snapshot, source.path)
         selected, actual_end, has_more_after, truncated = _select_lines(
             content.splitlines(keepends=True), query, source_label
@@ -151,7 +156,11 @@ def query_evidence(prepared: PreparedAnalysis, query: EvidenceQuery) -> Evidence
     else:
         if not source.path.is_file():
             raise ValueError(f"Evidence source is not a file: {source.path}")
-        source_label = str(source.path)
+        if snapshot is not None and is_catalog_snapshot(snapshot.path):
+            relative = source.path.relative_to(snapshot.path).as_posix()
+            source_label = f"catalog:{snapshot.source_id}@{snapshot.current_revision}:{relative}"
+        else:
+            source_label = str(source.path)
         with source.path.open("r", encoding="utf-8", errors="replace") as handle:
             selected, actual_end, has_more_after, truncated = _select_lines(
                 handle, query, source_label

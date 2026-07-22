@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 from typing import cast
@@ -15,11 +16,18 @@ from maa_diagnostic_expert.contracts.domain import (
     EvidenceQuery,
     EvidenceWindow,
     PreparedAnalysis,
+    SourceRole,
 )
+from maa_diagnostic_expert.contracts.knowledge import WikiCatalogStatus
 from maa_diagnostic_expert.discovery.preparation import prepare_analysis
 from maa_diagnostic_expert.inspection.evidence_query import query_evidence
 from maa_diagnostic_expert.inspection.models import DeterministicInspection
 from maa_diagnostic_expert.inspection.service import inspect_analysis
+from maa_diagnostic_expert.knowledge.catalog import (
+    catalog_source_input,
+    resolve_remote_wiki_catalog,
+    resolve_wiki_catalog,
+)
 from maa_diagnostic_expert.reasoning.langchain import make_langchain_backend
 from maa_diagnostic_expert.reasoning.model_config import ModelConfig
 from maa_diagnostic_expert.reasoning.prompts import make_stub_backend
@@ -37,17 +45,48 @@ def _add_output_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output", type=Path)
 
 
+def _add_wiki_arguments(parser: argparse.ArgumentParser) -> None:
+    location = parser.add_mutually_exclusive_group()
+    location.add_argument(
+        "--wiki",
+        type=Path,
+        help="MaaLLMWiki checkout, extracted snapshot, or catalog ZIP.",
+    )
+    location.add_argument(
+        "--wiki-url",
+        help="HTTPS URL for a MaaLLMWiki catalog ZIP.",
+    )
+    parser.add_argument("--wiki-cache", type=Path)
+    parser.add_argument(
+        "--wiki-sha256",
+        help="Expected SHA-256 of the remote catalog ZIP.",
+    )
+    network = parser.add_mutually_exclusive_group()
+    network.add_argument(
+        "--wiki-refresh",
+        action="store_true",
+        help="Download the remote catalog again even when its URL is cached.",
+    )
+    network.add_argument(
+        "--wiki-offline",
+        action="store_true",
+        help="Require an already cached remote catalog and do not access the network.",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="maa-diagnostic-expert")
     commands = parser.add_subparsers(dest="command", required=True)
 
     prepare = commands.add_parser("prepare")
     prepare.add_argument("--request", type=Path, required=True)
+    _add_wiki_arguments(prepare)
     _add_output_argument(prepare)
 
     inspect = commands.add_parser("inspect")
     inspect.add_argument("--request", type=Path, required=True)
     inspect.add_argument("--tool-adapter", type=Path)
+    _add_wiki_arguments(inspect)
     _add_output_argument(inspect)
 
     query = commands.add_parser("query-evidence")
@@ -58,6 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
     diagnose = commands.add_parser("diagnose")
     diagnose.add_argument("--request", type=Path, required=True)
     diagnose.add_argument("--tool-adapter", type=Path)
+    _add_wiki_arguments(diagnose)
     diagnose.add_argument(
         "--model-config",
         type=Path,
@@ -87,6 +127,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Additional authoritative EvidenceWindow; may be repeated.",
     )
     _add_output_argument(validate)
+
+    knowledge_status = commands.add_parser("knowledge-status")
+    _add_wiki_arguments(knowledge_status)
+    _add_output_argument(knowledge_status)
     return parser
 
 
@@ -105,6 +149,45 @@ def _load_prepared_context(path: Path) -> PreparedAnalysis:
             raise ValueError(
                 "Expected a PreparedAnalysis or DeterministicInspection context."
             ) from error
+
+
+def _resolve_wiki_argument(args: argparse.Namespace) -> WikiCatalogStatus | None:
+    wiki = cast(Path | None, getattr(args, "wiki", None))
+    url = cast(str | None, getattr(args, "wiki_url", None))
+    expected_sha256 = cast(str | None, getattr(args, "wiki_sha256", None))
+    refresh = cast(bool, getattr(args, "wiki_refresh", False))
+    offline = cast(bool, getattr(args, "wiki_offline", False))
+    cache = cast(Path | None, getattr(args, "wiki_cache", None))
+    if wiki is not None:
+        if expected_sha256 is not None or refresh or offline:
+            raise ValueError("Remote Wiki options require --wiki-url, not --wiki")
+        return resolve_wiki_catalog(wiki, cache_root=cache)
+    url = url or os.environ.get("MDE_WIKI_CATALOG_URL")
+    if url is None:
+        if expected_sha256 is not None or refresh or offline:
+            raise ValueError("Remote Wiki options require --wiki-url or MDE_WIKI_CATALOG_URL")
+        return None
+    return resolve_remote_wiki_catalog(
+        url,
+        cache_root=cache,
+        expected_sha256=expected_sha256 or os.environ.get("MDE_WIKI_CATALOG_SHA256"),
+        refresh=refresh,
+        offline=offline,
+    )
+
+
+def _attach_wiki(request: AnalysisRequest, args: argparse.Namespace) -> AnalysisRequest:
+    status = _resolve_wiki_argument(args)
+    if status is None:
+        return request
+    if any(source.role is SourceRole.WIKI for source in request.sources):
+        raise ValueError("AnalysisRequest already contains an explicit Wiki source")
+    return request.model_copy(update={"sources": [*request.sources, catalog_source_input(status)]})
+
+
+def _load_request(args: argparse.Namespace) -> AnalysisRequest:
+    request = _load_model(cast(Path, args.request), AnalysisRequest)
+    return _attach_wiki(request, args)
 
 
 def _emit_model(model: BaseModel, output: Path | None) -> None:
@@ -129,7 +212,7 @@ def _resolve_adapter_path(configured: Path | None) -> Path:
 
 
 def _run_diagnose(args: argparse.Namespace) -> None:
-    request = _load_model(cast(Path, args.request), AnalysisRequest)
+    request = _load_request(args)
     adapter_path = _resolve_adapter_path(cast(Path | None, args.tool_adapter))
     model_config_path = cast(Path | None, args.model_config)
     reasoning_backend = (
@@ -174,11 +257,11 @@ def _run_command(args: argparse.Namespace) -> None:
     command = cast(str, args.command)
     output = cast(Path | None, args.output)
     if command == "prepare":
-        request = _load_model(cast(Path, args.request), AnalysisRequest)
+        request = _load_request(args)
         _emit_model(prepare_analysis(request), output)
         return
     if command == "inspect":
-        request = _load_model(cast(Path, args.request), AnalysisRequest)
+        request = _load_request(args)
         adapter_path = _resolve_adapter_path(cast(Path | None, args.tool_adapter))
         _emit_model(
             inspect_analysis(request, JsonlToolAdapterClient(adapter_path=adapter_path)),
@@ -201,6 +284,14 @@ def _run_command(args: argparse.Namespace) -> None:
             for path in cast(list[Path], args.evidence_window)
         ]
         _emit_model(validate_result_against_inspection(result, inspection, windows), output)
+        return
+    if command == "knowledge-status":
+        status = _resolve_wiki_argument(args)
+        if status is None:
+            raise ValueError(
+                "knowledge-status requires --wiki, --wiki-url, or MDE_WIKI_CATALOG_URL"
+            )
+        _emit_model(status, output)
         return
     raise ValueError(f"Unsupported command: {command}")
 

@@ -23,6 +23,12 @@ from .contracts.domain import (
     SourceRole,
     SourceSnapshot,
 )
+from .contracts.knowledge import (
+    WikiCatalogKind,
+    WikiCatalogManifest,
+    WikiCatalogSource,
+    WikiCatalogStatus,
+)
 from .contracts.mla import (
     MlaCompatibility,
     MlaCompatibilityStatus,
@@ -136,6 +142,12 @@ from .inspection.source_search import (
     synthesize_source_search_evidence,
 )
 from .interfaces.report import render_markdown_report
+from .knowledge.catalog import (
+    catalog_source_input,
+    default_knowledge_cache,
+    resolve_remote_wiki_catalog,
+    resolve_wiki_catalog,
+)
 from .reasoning.langchain import (
     LangChainReasoningBackend,
     LangChainReasoningSession,
@@ -208,6 +220,10 @@ __all__ = [
     "InvestigationBranch",
     "InvestigationPlan",
     "KnowledgeResearchPlan",
+    "WikiCatalogKind",
+    "WikiCatalogManifest",
+    "WikiCatalogSource",
+    "WikiCatalogStatus",
     "MissingEvidence",
     "LangChainReasoningBackend",
     "LangChainReasoningSession",
@@ -275,9 +291,11 @@ __all__ = [
     "build_source_research_context",
     "build_incident_correlation_context",
     "build_knowledge_research_context",
+    "catalog_source_input",
     "build_log_overviews",
     "collect_inspection_evidence",
     "collect_log_overview_missing_evidence",
+    "default_knowledge_cache",
     "classify_artifact_sources",
     "compare_incident_execution",
     "finalize_diagnosis_draft",
@@ -289,6 +307,8 @@ __all__ = [
     "make_langchain_backend",
     "render_markdown_report",
     "resolve_incident_pipeline_tasks",
+    "resolve_remote_wiki_catalog",
+    "resolve_wiki_catalog",
     "resolve_focused_source_guidance",
     "synthesize_evidence",
     "synthesize_log_overview_evidence",

@@ -1,0 +1,114 @@
+{
+  "$defs": {
+    "WikiCatalogKind": {
+      "enum": [
+        "local_checkout",
+        "bundle_snapshot",
+        "remote_bundle"
+      ],
+      "title": "WikiCatalogKind",
+      "type": "string"
+    },
+    "WikiCatalogSource": {
+      "additionalProperties": false,
+      "properties": {
+        "source_id": {
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "version",
+        "revision"
+      ],
+      "title": "WikiCatalogSource",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "wiki-catalog-status/v1",
+      "default": "wiki-catalog-status/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/WikiCatalogKind"
+    },
+    "input_path": {
+      "format": "path",
+      "title": "Input Path",
+      "type": "string"
+    },
+    "input_url": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Input Url"
+    },
+    "bundle_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Bundle Sha256"
+    },
+    "catalog_path": {
+      "format": "path",
+      "title": "Catalog Path",
+      "type": "string"
+    },
+    "wiki_revision": {
+      "pattern": "^[0-9a-f]{40}$",
+      "title": "Wiki Revision",
+      "type": "string"
+    },
+    "working_tree_clean": {
+      "title": "Working Tree Clean",
+      "type": "boolean"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/WikiCatalogSource"
+      },
+      "minItems": 1,
+      "title": "Sources",
+      "type": "array"
+    }
+  },
+  "required": [
+    "kind",
+    "input_path",
+    "catalog_path",
+    "wiki_revision",
+    "working_tree_clean",
+    "sources"
+  ],
+  "title": "WikiCatalogStatus",
+  "type": "object"
+}

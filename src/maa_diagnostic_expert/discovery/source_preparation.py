@@ -11,6 +11,7 @@ from maa_diagnostic_expert.contracts.domain import (
     SourceRole,
     SourceSnapshot,
 )
+from maa_diagnostic_expert.knowledge.catalog import snapshot_revision
 
 from .inputs import resolve_project_root
 
@@ -56,8 +57,19 @@ def _snapshot(source: SourceInput) -> SourceSnapshot:
     elif not source_path.is_dir():
         status = RevisionResolutionStatus.NOT_A_DIRECTORY
     else:
-        current_revision = _git_revision(source_path, "HEAD")
-        if current_revision is None:
+        catalog_revision = (
+            snapshot_revision(source_path) if source.role is SourceRole.WIKI else None
+        )
+        current_revision = catalog_revision or _git_revision(source_path, "HEAD")
+        if catalog_revision is not None:
+            if source.revision is None:
+                status = RevisionResolutionStatus.NOT_REQUESTED
+            elif source.revision == catalog_revision:
+                resolved_revision = catalog_revision
+                status = RevisionResolutionStatus.RESOLVED
+            else:
+                status = RevisionResolutionStatus.UNRESOLVED
+        elif current_revision is None:
             status = RevisionResolutionStatus.NOT_A_GIT_REPOSITORY
         elif source.revision is None:
             status = RevisionResolutionStatus.NOT_REQUESTED

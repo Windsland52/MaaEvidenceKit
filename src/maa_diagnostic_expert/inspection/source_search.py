@@ -20,6 +20,7 @@ from maa_diagnostic_expert.contracts.workflow import (
 from maa_diagnostic_expert.discovery.source_preparation import (
     source_snapshot_matches_checkout,
 )
+from maa_diagnostic_expert.knowledge.catalog import is_catalog_snapshot
 
 from .evidence_query import query_evidence
 from .models import DeterministicInspection, SourceSearchMatch
@@ -92,6 +93,8 @@ def _grep_lines(
     snapshot: SourceSnapshot,
     query: SourceSearchQuery,
 ) -> tuple[list[tuple[Path, int, str]], bool]:
+    if is_catalog_snapshot(snapshot.path):
+        return _grep_snapshot_files(snapshot, query)
     repository_root = _repository_root(snapshot)
     arguments = ["grep", "-n", "-I", "-F"]
     for term in query.terms:
@@ -134,6 +137,39 @@ def _grep_lines(
             break
         matches.append((source_path, line_number, matched_line))
     return matches, truncated
+
+
+def _grep_snapshot_files(
+    snapshot: SourceSnapshot,
+    query: SourceSearchQuery,
+) -> tuple[list[tuple[Path, int, str]], bool]:
+    root = snapshot.path.resolve()
+    requested_paths = query.paths or ["."]
+    files: set[Path] = set()
+    for requested_path in requested_paths:
+        candidate = (root / requested_path).resolve()
+        if not candidate.is_relative_to(root):
+            raise ValueError(f"Knowledge search path escapes catalog: {requested_path}")
+        if candidate.is_file():
+            files.add(candidate)
+        elif candidate.is_dir():
+            files.update(path for path in candidate.rglob("*") if path.is_file())
+
+    matches: list[tuple[Path, int, str]] = []
+    for path in sorted(files):
+        if path.name == "catalog-manifest.json" or path.stat().st_size > 2_000_000:
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for line_number, line in enumerate(lines, start=1):
+            if not any(term in line for term in query.terms):
+                continue
+            if len(matches) >= query.max_results:
+                return matches, True
+            matches.append((path, line_number, line))
+    return matches, False
 
 
 def execute_source_research(

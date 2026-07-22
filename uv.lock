@@ -815,6 +815,7 @@ dependencies = [
     { name = "langchain-core" },
     { name = "langgraph" },
     { name = "pydantic" },
+    { name = "pyyaml" },
 ]
 
 [package.optional-dependencies]
@@ -888,6 +889,7 @@ requires-dist = [
     { name = "langchain-xai", marker = "extra == 'xai'", specifier = ">=1,<2" },
     { name = "langgraph", specifier = ">=1,<2" },
     { name = "pydantic", specifier = ">=2.12,<3" },
+    { name = "pyyaml", specifier = ">=6.0.2,<7" },
 ]
 provides-extras = ["openai", "anthropic", "bedrock", "deepseek", "google", "groq", "mistral", "ollama", "xai", "models"]
 
