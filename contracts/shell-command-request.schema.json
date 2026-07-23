@@ -1,0 +1,55 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "shell-command-request/v1",
+      "default": "shell-command-request/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "kind": {
+      "const": "shell",
+      "default": "shell",
+      "title": "Kind",
+      "type": "string"
+    },
+    "command": {
+      "maxLength": 100000,
+      "minLength": 1,
+      "title": "Command",
+      "type": "string"
+    },
+    "cwd": {
+      "format": "path",
+      "title": "Cwd",
+      "type": "string"
+    },
+    "timeout_seconds": {
+      "default": 60,
+      "exclusiveMinimum": 0,
+      "maximum": 3600,
+      "title": "Timeout Seconds",
+      "type": "number"
+    },
+    "max_output_bytes": {
+      "default": 100000,
+      "maximum": 10000000,
+      "minimum": 1024,
+      "title": "Max Output Bytes",
+      "type": "integer"
+    },
+    "max_output_lines": {
+      "default": 2000,
+      "maximum": 100000,
+      "minimum": 10,
+      "title": "Max Output Lines",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "command",
+    "cwd"
+  ],
+  "title": "ShellCommandRequest",
+  "type": "object"
+}

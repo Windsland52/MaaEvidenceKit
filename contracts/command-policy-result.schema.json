@@ -1,0 +1,48 @@
+{
+  "$defs": {
+    "CommandPolicyDecision": {
+      "enum": [
+        "allow",
+        "require_approval",
+        "deny"
+      ],
+      "title": "CommandPolicyDecision",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "command-policy-result/v1",
+      "default": "command-policy-result/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "decision": {
+      "$ref": "#/$defs/CommandPolicyDecision"
+    },
+    "reason": {
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "matched_rule": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Matched Rule"
+    }
+  },
+  "required": [
+    "decision",
+    "reason"
+  ],
+  "title": "CommandPolicyResult",
+  "type": "object"
+}

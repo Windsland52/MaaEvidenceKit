@@ -7,6 +7,12 @@ from maa_diagnostic_expert.inspection.log_overview import LogOverviewCollection
 from maa_diagnostic_expert.inspection.models import DeterministicInspection
 from maa_diagnostic_expert.reasoning.model_config import ModelConfig
 
+from .command import (
+    CommandExecutionResult,
+    CommandPolicyResult,
+    ProcessCommandRequest,
+    ShellCommandRequest,
+)
 from .domain import (
     AnalysisRequest,
     DiagnosisDraft,
@@ -37,6 +43,8 @@ from .workflow import (
 
 CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "analysis-request.schema.json": AnalysisRequest,
+    "command-execution-result.schema.json": CommandExecutionResult,
+    "command-policy-result.schema.json": CommandPolicyResult,
     "diagnostic-event.schema.json": DiagnosticEvent,
     "deterministic-inspection.schema.json": DeterministicInspection,
     "diagnosis-draft.schema.json": DiagnosisDraft,
@@ -46,6 +54,8 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "evidence-window.schema.json": EvidenceWindow,
     "prepared-analysis.schema.json": PreparedAnalysis,
     "reasoning-request.schema.json": ReasoningRequest,
+    "process-command-request.schema.json": ProcessCommandRequest,
+    "shell-command-request.schema.json": ShellCommandRequest,
     "mla-preflight.schema.json": MlaPreflightResult,
     "mla-runtime-inspection.schema.json": MlaRuntimeInspectionResult,
     "mse-project-preflight.schema.json": MseProjectPreflightResult,

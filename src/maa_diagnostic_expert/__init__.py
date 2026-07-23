@@ -1,3 +1,13 @@
+from .contracts.command import (
+    CommandExecutionResult,
+    CommandExecutionStatus,
+    CommandKind,
+    CommandPolicyDecision,
+    CommandPolicyResult,
+    CommandToolMode,
+    ProcessCommandRequest,
+    ShellCommandRequest,
+)
 from .contracts.domain import (
     AnalysisRequest,
     ArtifactAvailability,
@@ -171,6 +181,7 @@ from .reasoning.protocol import (
     ReasoningContext,
     ReasoningSession,
 )
+from .reasoning.tools.command import CommandExecutor, CommandExecutorConfig, CommandPolicy
 from .workflow.graph import DiagnosticWorkflow
 from .workflow.validation import (
     collect_inspection_evidence,
@@ -194,6 +205,15 @@ __all__ = [
     "ArtifactRecord",
     "BranchDecision",
     "BranchDisposition",
+    "CommandExecutionResult",
+    "CommandExecutionStatus",
+    "CommandExecutor",
+    "CommandExecutorConfig",
+    "CommandKind",
+    "CommandPolicy",
+    "CommandPolicyDecision",
+    "CommandPolicyResult",
+    "CommandToolMode",
     "Conclusion",
     "DiagnosisDraft",
     "DiagnosticEvent",
@@ -240,6 +260,7 @@ __all__ = [
     "LogSeverityCount",
     "LogSourceProfile",
     "PreparedAnalysis",
+    "ProcessCommandRequest",
     "ReasoningBackend",
     "ReasoningContext",
     "ReasoningRequest",
@@ -283,6 +304,7 @@ __all__ = [
     "SourceResearchStatus",
     "SourceSearchMatch",
     "SourceSearchQuery",
+    "ShellCommandRequest",
     "StubReasoningBackend",
     "StubReasoningSession",
     "StructuredOutputMethod",

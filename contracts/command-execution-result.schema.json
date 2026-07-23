@@ -1,0 +1,325 @@
+{
+  "$defs": {
+    "CommandExecutionStatus": {
+      "enum": [
+        "completed",
+        "failed",
+        "timed_out",
+        "approval_required",
+        "denied",
+        "execution_error"
+      ],
+      "title": "CommandExecutionStatus",
+      "type": "string"
+    },
+    "CommandPolicyDecision": {
+      "enum": [
+        "allow",
+        "require_approval",
+        "deny"
+      ],
+      "title": "CommandPolicyDecision",
+      "type": "string"
+    },
+    "CommandPolicyResult": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "const": "command-policy-result/v1",
+          "default": "command-policy-result/v1",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "decision": {
+          "$ref": "#/$defs/CommandPolicyDecision"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "matched_rule": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Matched Rule"
+        }
+      },
+      "required": [
+        "decision",
+        "reason"
+      ],
+      "title": "CommandPolicyResult",
+      "type": "object"
+    },
+    "ProcessCommandRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "const": "process-command-request/v1",
+          "default": "process-command-request/v1",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "kind": {
+          "const": "process",
+          "default": "process",
+          "title": "Kind",
+          "type": "string"
+        },
+        "executable": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Executable",
+          "type": "string"
+        },
+        "arguments": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Arguments",
+          "type": "array"
+        },
+        "cwd": {
+          "format": "path",
+          "title": "Cwd",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "default": 60,
+          "exclusiveMinimum": 0,
+          "maximum": 3600,
+          "title": "Timeout Seconds",
+          "type": "number"
+        },
+        "max_output_bytes": {
+          "default": 100000,
+          "maximum": 10000000,
+          "minimum": 1024,
+          "title": "Max Output Bytes",
+          "type": "integer"
+        },
+        "max_output_lines": {
+          "default": 2000,
+          "maximum": 100000,
+          "minimum": 10,
+          "title": "Max Output Lines",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "executable",
+        "cwd"
+      ],
+      "title": "ProcessCommandRequest",
+      "type": "object"
+    },
+    "ShellCommandRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "const": "shell-command-request/v1",
+          "default": "shell-command-request/v1",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "kind": {
+          "const": "shell",
+          "default": "shell",
+          "title": "Kind",
+          "type": "string"
+        },
+        "command": {
+          "maxLength": 100000,
+          "minLength": 1,
+          "title": "Command",
+          "type": "string"
+        },
+        "cwd": {
+          "format": "path",
+          "title": "Cwd",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "default": 60,
+          "exclusiveMinimum": 0,
+          "maximum": 3600,
+          "title": "Timeout Seconds",
+          "type": "number"
+        },
+        "max_output_bytes": {
+          "default": 100000,
+          "maximum": 10000000,
+          "minimum": 1024,
+          "title": "Max Output Bytes",
+          "type": "integer"
+        },
+        "max_output_lines": {
+          "default": 2000,
+          "maximum": 100000,
+          "minimum": 10,
+          "title": "Max Output Lines",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "command",
+        "cwd"
+      ],
+      "title": "ShellCommandRequest",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "api_version": {
+      "const": "command-execution-result/v1",
+      "default": "command-execution-result/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "execution_id": {
+      "minLength": 1,
+      "title": "Execution Id",
+      "type": "string"
+    },
+    "request": {
+      "discriminator": {
+        "mapping": {
+          "process": "#/$defs/ProcessCommandRequest",
+          "shell": "#/$defs/ShellCommandRequest"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ProcessCommandRequest"
+        },
+        {
+          "$ref": "#/$defs/ShellCommandRequest"
+        }
+      ],
+      "title": "Request"
+    },
+    "policy": {
+      "$ref": "#/$defs/CommandPolicyResult"
+    },
+    "approved": {
+      "default": false,
+      "title": "Approved",
+      "type": "boolean"
+    },
+    "status": {
+      "$ref": "#/$defs/CommandExecutionStatus"
+    },
+    "command_display": {
+      "minLength": 1,
+      "title": "Command Display",
+      "type": "string"
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "finished_at": {
+      "format": "date-time",
+      "title": "Finished At",
+      "type": "string"
+    },
+    "duration_ms": {
+      "minimum": 0,
+      "title": "Duration Ms",
+      "type": "integer"
+    },
+    "exit_code": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Exit Code"
+    },
+    "stdout_preview": {
+      "default": "",
+      "title": "Stdout Preview",
+      "type": "string"
+    },
+    "stderr_preview": {
+      "default": "",
+      "title": "Stderr Preview",
+      "type": "string"
+    },
+    "stdout_path": {
+      "anyOf": [
+        {
+          "format": "path",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Stdout Path"
+    },
+    "stderr_path": {
+      "anyOf": [
+        {
+          "format": "path",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Stderr Path"
+    },
+    "stdout_truncated": {
+      "default": false,
+      "title": "Stdout Truncated",
+      "type": "boolean"
+    },
+    "stderr_truncated": {
+      "default": false,
+      "title": "Stderr Truncated",
+      "type": "boolean"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error"
+    }
+  },
+  "required": [
+    "execution_id",
+    "request",
+    "policy",
+    "status",
+    "command_display",
+    "started_at",
+    "finished_at",
+    "duration_ms"
+  ],
+  "title": "CommandExecutionResult",
+  "type": "object"
+}

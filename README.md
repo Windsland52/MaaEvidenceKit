@@ -19,7 +19,7 @@ src/maa_diagnostic_expert/
   contracts/                Serialized domain, MLA, and workflow contracts
   discovery/                Input, source, and artifact discovery
   inspection/               Deterministic inspection and evidence extraction
-  reasoning/                Model protocols, prompts, and provider integrations
+  reasoning/                Model protocols, prompts, providers, and command tools
   workflow/                 LangGraph planning, orchestration, and validation
   interfaces/               CLI, JSONL tool adapter, and report rendering
 packages/tool-adapter/       Thin TypeScript adapter for MLA/MSE
@@ -40,6 +40,7 @@ The framework-independent foundation includes:
 - project-root discovery that uses `cwd` only when Maa project markers are present;
 - evidence and diagnosis result contracts;
 - an agent protocol without a LangGraph dependency in domain code;
+- typed local command execution with explicit policy and audit results;
 - a versioned JSONL tool-adapter protocol.
 
 The deterministic vertical slice provides artifact preparation, bounded evidence windows, result
@@ -77,10 +78,21 @@ The reasoning stage is delegated to a pluggable `ReasoningBackend` protocol. A d
 `StubReasoningBackend` ships with the project for model-free testing; LangChain model providers
 can plug in without changing graph transitions or evidence validation.
 
+The standalone harness also has a Python command-execution foundation. It does not use an OS
+sandbox: `safe` mode automatically permits only a small set of read-only-intent `gh`, `git`,
+and `rg` process calls, requires approval for other processes and all complete shell strings,
+and requires configured working-directory roots. These roots constrain cwd selection rather than
+filesystem access and are not a sandbox. `trusted` and `disabled` modes are explicit.
+Timeouts, filtered environments, bounded previews, full truncated output files, and serialized
+execution results are implemented. The model-facing tool-call loop and approval pause are the
+next workflow layer; current structured-output reasoning nodes do not execute commands.
+
 The runtime and orchestration decisions are recorded in
 [ADR 0001](docs/adr/0001-runtime-and-agent-surfaces.md) and
 [ADR 0002](docs/adr/0002-langgraph-workflow-orchestration.md), while model-provider selection
 is recorded in [ADR 0003](docs/adr/0003-langchain-model-providers.md).
+Local command execution policy is recorded in
+[ADR 0004](docs/adr/0004-command-tool-execution.md).
 
 ## CLI
 
@@ -125,8 +137,8 @@ keeps incident candidates ambiguous and reports that free-form correlation was u
 MaaFramework logs have a built-in classifier; files under a `custom/` directory receive a
 conservative custom-log classification. Known GUI and project formats plug in through
 `LogSourceProfile`, while unmatched logs remain `unknown` instead of being guessed or sent to MLA.
-Dump inspection, unrestricted general source investigation, online knowledge synchronization,
-and Wiki-to-original-document follow-up search remain deferred. See
+Dump inspection, unrestricted general source investigation, the model command-tool loop, and
+Wiki-to-original-document follow-up search remain deferred. See
 [the workflow architecture](docs/workflow-architecture.md) for the target flow and implementation
 status.
 
