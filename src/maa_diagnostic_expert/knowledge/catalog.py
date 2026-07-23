@@ -2,18 +2,20 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 from zipfile import BadZipFile, ZipFile
 
 import yaml
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
 from maa_diagnostic_expert.contracts.domain import SourceInput, SourceRole
 from maa_diagnostic_expert.contracts.knowledge import (
@@ -25,11 +27,40 @@ from maa_diagnostic_expert.contracts.knowledge import (
 
 _MANIFEST_NAME = "catalog-manifest.json"
 _MAX_BUNDLE_BYTES = 512 * 1024 * 1024
+DEFAULT_WIKI_GITHUB_REPOSITORY = "Windsland52/MaaLLMWiki"
+_GITHUB_REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_GITHUB_ASSET_PATTERN = re.compile(r"^maa-llm-wiki-catalog-v[0-9]+\.[0-9]+\.[0-9]+\.zip$")
 _INVENTORY_DIRECTORIES = {
     "maafw": "maa-framework",
     "maa-framework-go": "maa-framework-go",
     "maa-framework-rs": "maa-framework-rs",
 }
+
+
+class _GitHubReleaseAsset(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    name: str
+    browser_download_url: str
+    digest: str
+
+
+class _GitHubRelease(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    tag_name: str
+    assets: list[_GitHubReleaseAsset]
+
+
+class _GitHubCatalogDiscovery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    api_version: Literal["github-wiki-catalog-discovery/v1"] = "github-wiki-catalog-discovery/v1"
+    repository: str
+    tag: str
+    asset_name: str
+    asset_url: str
+    bundle_sha256: str
 
 
 def default_knowledge_cache() -> Path:
@@ -83,7 +114,10 @@ def _bundle_digest(bundle: Path) -> str:
 
 
 def _download_bundle(url: str) -> bytes:
-    request = Request(url, headers={"User-Agent": "MaaDiagnosticExpert"})
+    headers = {"User-Agent": "MaaDiagnosticExpert"}
+    if token := os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"):
+        headers["Authorization"] = f"Bearer {token}"
+    request = Request(url, headers=headers)
     try:
         with urlopen(request, timeout=60) as response:  # noqa: S310
             content_length = response.headers.get("Content-Length")
@@ -277,6 +311,76 @@ def resolve_remote_wiki_catalog(
             "input_url": url,
             "bundle_sha256": digest,
         }
+    )
+
+
+def resolve_github_wiki_catalog(
+    repository: str = DEFAULT_WIKI_GITHUB_REPOSITORY,
+    *,
+    cache_root: Path | None = None,
+    expected_sha256: str | None = None,
+    refresh: bool = False,
+    offline: bool = False,
+    downloader: Callable[[str], bytes] = _download_bundle,
+) -> WikiCatalogStatus:
+    if not _GITHUB_REPOSITORY_PATTERN.fullmatch(repository):
+        raise ValueError("GitHub Wiki repository must have the form owner/name")
+    root = (cache_root or default_knowledge_cache()).expanduser().resolve()
+    discovery_directory = root / "github-releases"
+    discovery_key = hashlib.sha256(repository.lower().encode()).hexdigest()
+    discovery_path = discovery_directory / f"{discovery_key}.json"
+
+    if offline:
+        if not discovery_path.is_file():
+            raise ValueError(
+                "No cached GitHub release discovery is available for offline repository: "
+                f"{repository}"
+            )
+        try:
+            discovery = _GitHubCatalogDiscovery.model_validate_json(discovery_path.read_bytes())
+        except ValidationError as error:
+            raise ValueError(f"Invalid cached GitHub release discovery: {error}") from error
+        if discovery.repository.lower() != repository.lower():
+            raise ValueError("Cached GitHub release discovery repository differs from request")
+    else:
+        api_url = f"https://api.github.com/repos/{repository}/releases/latest"
+        try:
+            release = _GitHubRelease.model_validate_json(downloader(api_url))
+        except ValidationError as error:
+            raise ValueError(f"Invalid GitHub latest release response: {error}") from error
+        assets = [asset for asset in release.assets if _GITHUB_ASSET_PATTERN.fullmatch(asset.name)]
+        if len(assets) != 1:
+            raise ValueError(
+                "GitHub latest release must contain exactly one versioned MaaLLMWiki catalog"
+            )
+        asset = assets[0]
+        digest_prefix = "sha256:"
+        if not asset.digest.startswith(digest_prefix):
+            raise ValueError("GitHub catalog asset is missing a SHA-256 digest")
+        digest = asset.digest.removeprefix(digest_prefix)
+        if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+            raise ValueError("GitHub catalog asset has an invalid SHA-256 digest")
+        discovery = _GitHubCatalogDiscovery(
+            repository=repository,
+            tag=release.tag_name,
+            asset_name=asset.name,
+            asset_url=asset.browser_download_url,
+            bundle_sha256=digest,
+        )
+        discovery_directory.mkdir(parents=True, exist_ok=True)
+        temporary = discovery_path.with_suffix(".tmp")
+        temporary.write_text(discovery.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        temporary.replace(discovery_path)
+
+    if expected_sha256 is not None and expected_sha256 != discovery.bundle_sha256:
+        raise ValueError("Configured Wiki SHA-256 differs from GitHub release asset digest")
+    return resolve_remote_wiki_catalog(
+        discovery.asset_url,
+        cache_root=root,
+        expected_sha256=discovery.bundle_sha256,
+        refresh=refresh,
+        offline=offline,
+        downloader=downloader,
     )
 
 

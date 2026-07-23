@@ -143,8 +143,10 @@ from .inspection.source_search import (
 )
 from .interfaces.report import render_markdown_report
 from .knowledge.catalog import (
+    DEFAULT_WIKI_GITHUB_REPOSITORY,
     catalog_source_input,
     default_knowledge_cache,
+    resolve_github_wiki_catalog,
     resolve_remote_wiki_catalog,
     resolve_wiki_catalog,
 )
@@ -178,6 +180,7 @@ from .workflow.validation import (
 )
 
 __all__ = [
+    "DEFAULT_WIKI_GITHUB_REPOSITORY",
     "AnalysisRequest",
     "AnalysisRelevance",
     "ArtifactSourceClassification",
@@ -307,6 +310,7 @@ __all__ = [
     "make_langchain_backend",
     "render_markdown_report",
     "resolve_incident_pipeline_tasks",
+    "resolve_github_wiki_catalog",
     "resolve_remote_wiki_catalog",
     "resolve_wiki_catalog",
     "resolve_focused_source_guidance",

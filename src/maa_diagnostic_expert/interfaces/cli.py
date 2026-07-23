@@ -24,7 +24,9 @@ from maa_diagnostic_expert.inspection.evidence_query import query_evidence
 from maa_diagnostic_expert.inspection.models import DeterministicInspection
 from maa_diagnostic_expert.inspection.service import inspect_analysis
 from maa_diagnostic_expert.knowledge.catalog import (
+    DEFAULT_WIKI_GITHUB_REPOSITORY,
     catalog_source_input,
+    resolve_github_wiki_catalog,
     resolve_remote_wiki_catalog,
     resolve_wiki_catalog,
 )
@@ -55,6 +57,16 @@ def _add_wiki_arguments(parser: argparse.ArgumentParser) -> None:
     location.add_argument(
         "--wiki-url",
         help="HTTPS URL for a MaaLLMWiki catalog ZIP.",
+    )
+    location.add_argument(
+        "--wiki-latest",
+        action="store_true",
+        help="Discover the latest catalog from the default MaaLLMWiki GitHub Release.",
+    )
+    location.add_argument(
+        "--wiki-github-repository",
+        metavar="OWNER/REPOSITORY",
+        help="Discover the latest versioned catalog from a GitHub Release.",
     )
     parser.add_argument("--wiki-cache", type=Path)
     parser.add_argument(
@@ -154,6 +166,8 @@ def _load_prepared_context(path: Path) -> PreparedAnalysis:
 def _resolve_wiki_argument(args: argparse.Namespace) -> WikiCatalogStatus | None:
     wiki = cast(Path | None, getattr(args, "wiki", None))
     url = cast(str | None, getattr(args, "wiki_url", None))
+    latest = cast(bool, getattr(args, "wiki_latest", False))
+    repository = cast(str | None, getattr(args, "wiki_github_repository", None))
     expected_sha256 = cast(str | None, getattr(args, "wiki_sha256", None))
     refresh = cast(bool, getattr(args, "wiki_refresh", False))
     offline = cast(bool, getattr(args, "wiki_offline", False))
@@ -162,13 +176,31 @@ def _resolve_wiki_argument(args: argparse.Namespace) -> WikiCatalogStatus | None
         if expected_sha256 is not None or refresh or offline:
             raise ValueError("Remote Wiki options require --wiki-url, not --wiki")
         return resolve_wiki_catalog(wiki, cache_root=cache)
-    url = url or os.environ.get("MDE_WIKI_CATALOG_URL")
-    if url is None:
+    if latest:
+        repository = DEFAULT_WIKI_GITHUB_REPOSITORY
+    repository = repository or os.environ.get("MDE_WIKI_GITHUB_REPOSITORY")
+    configured_url = url or os.environ.get("MDE_WIKI_CATALOG_URL")
+    if repository is not None and configured_url is not None and not latest:
+        raise ValueError(
+            "Configure only one of a GitHub Wiki repository and a direct Wiki catalog URL"
+        )
+    if repository is not None:
+        return resolve_github_wiki_catalog(
+            repository,
+            cache_root=cache,
+            expected_sha256=expected_sha256 or os.environ.get("MDE_WIKI_CATALOG_SHA256"),
+            refresh=refresh,
+            offline=offline,
+        )
+    if configured_url is None:
         if expected_sha256 is not None or refresh or offline:
-            raise ValueError("Remote Wiki options require --wiki-url or MDE_WIKI_CATALOG_URL")
+            raise ValueError(
+                "Remote Wiki options require --wiki-latest, --wiki-url, or a Wiki environment "
+                "configuration"
+            )
         return None
     return resolve_remote_wiki_catalog(
-        url,
+        configured_url,
         cache_root=cache,
         expected_sha256=expected_sha256 or os.environ.get("MDE_WIKI_CATALOG_SHA256"),
         refresh=refresh,
@@ -289,7 +321,8 @@ def _run_command(args: argparse.Namespace) -> None:
         status = _resolve_wiki_argument(args)
         if status is None:
             raise ValueError(
-                "knowledge-status requires --wiki, --wiki-url, or MDE_WIKI_CATALOG_URL"
+                "knowledge-status requires a local Wiki, direct URL, GitHub repository, or Wiki "
+                "environment configuration"
             )
         _emit_model(status, output)
         return

@@ -181,17 +181,21 @@ upstream versions, file sizes, and SHA-256 digests:
 uv run maa-diagnostic-expert knowledge-status --wiki ../MaaLLMWiki
 uv run maa-diagnostic-expert knowledge-status --wiki ./maa-llm-wiki-catalog-v1.zip
 uv run maa-diagnostic-expert prepare --request request.json --wiki ../MaaLLMWiki
-uv run maa-diagnostic-expert knowledge-status --wiki-url <release-asset-https-url>
-uv run maa-diagnostic-expert prepare --request request.json --wiki-url <release-asset-https-url>
+uv run maa-diagnostic-expert knowledge-status --wiki-latest
+uv run maa-diagnostic-expert prepare --request request.json --wiki-latest
+uv run maa-diagnostic-expert knowledge-status --wiki-github-repository owner/repository
 ```
 
 Set `MDE_KNOWLEDGE_CACHE` or pass `--wiki-cache` to control where verified ZIP snapshots are
 stored. A URL is downloaded once and then reused by URL; use `--wiki-refresh` to fetch it again,
 `--wiki-offline` to require the cached copy, and `--wiki-sha256` to pin the ZIP itself. The URL
 and optional hash can also be configured through `MDE_WIKI_CATALOG_URL` and
-`MDE_WIKI_CATALOG_SHA256`. Wiki arguments are accepted by `prepare`, `inspect`, and
-`diagnose`. Snapshot navigation remains context evidence only; conclusions must return to the
-original version-pinned documentation or source.
+`MDE_WIKI_CATALOG_SHA256`. `--wiki-latest` queries the GitHub Releases API for the latest
+versioned asset from `Windsland52/MaaLLMWiki`, verifies GitHub's asset digest, and stores discovery
+metadata for offline reuse. Set `MDE_WIKI_GITHUB_REPOSITORY` for another repository and
+`GH_TOKEN` or `GITHUB_TOKEN` for authenticated API access. Wiki arguments are accepted by
+`prepare`, `inspect`, and `diagnose`. Snapshot navigation remains context evidence only;
+conclusions must return to the original version-pinned documentation or source.
 
 ## Host-agent integration
 

@@ -1,4 +1,5 @@
 import hashlib
+import json
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -22,6 +23,7 @@ from maa_diagnostic_expert.inspection.source_search import (
 )
 from maa_diagnostic_expert.knowledge.catalog import (
     catalog_source_input,
+    resolve_github_wiki_catalog,
     resolve_remote_wiki_catalog,
     resolve_wiki_catalog,
 )
@@ -183,3 +185,47 @@ def test_invalid_bundle_does_not_leave_partial_revision_cache(tmp_path: Path) ->
         raise AssertionError("Expected invalid bundle content")
 
     assert not (cache / _REVISION).exists()
+
+
+def test_github_latest_discovers_versioned_asset_and_reuses_it_offline(
+    tmp_path: Path,
+) -> None:
+    bundle = _bundle(tmp_path / "catalog.zip").read_bytes()
+    digest = hashlib.sha256(bundle).hexdigest()
+    asset_url = (
+        "https://github.com/Windsland52/MaaLLMWiki/releases/download/"
+        "v0.1.0/maa-llm-wiki-catalog-v0.1.0.zip"
+    )
+    api_url = "https://api.github.com/repos/Windsland52/MaaLLMWiki/releases/latest"
+    release = json.dumps(
+        {
+            "tag_name": "v0.1.0",
+            "assets": [
+                {
+                    "name": "maa-llm-wiki-catalog-v0.1.0.zip",
+                    "browser_download_url": asset_url,
+                    "digest": f"sha256:{digest}",
+                }
+            ],
+        }
+    ).encode()
+    calls: list[str] = []
+
+    def download(url: str) -> bytes:
+        calls.append(url)
+        return release if url == api_url else bundle
+
+    status = resolve_github_wiki_catalog(
+        cache_root=tmp_path / "cache",
+        downloader=download,
+    )
+    offline = resolve_github_wiki_catalog(
+        cache_root=tmp_path / "cache",
+        offline=True,
+        downloader=download,
+    )
+
+    assert calls == [api_url, asset_url]
+    assert status.input_url == asset_url
+    assert status.bundle_sha256 == digest
+    assert offline.catalog_path == status.catalog_path
