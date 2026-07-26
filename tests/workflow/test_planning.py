@@ -200,13 +200,117 @@ def test_plan_exposes_mse_when_project_revision_is_resolved(tmp_path: Path) -> N
     )
 
     mse = _decision(prepared, InvestigationBranch.MSE_PROJECT_PREFLIGHT)
+    project_source = _decision(prepared, InvestigationBranch.PROJECT_SOURCE)
 
     assert mse.disposition is BranchDisposition.RUN
     assert mse.relevance is AnalysisRelevance.USEFUL
+    assert project_source.disposition is BranchDisposition.RUN
+    assert project_source.relevance is AnalysisRelevance.USEFUL
+
+
+def test_plan_runs_focused_source_research_for_current_project(tmp_path: Path) -> None:
+    (tmp_path / "interface.json").write_text("{}", encoding="utf-8")
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    _git(tmp_path, "config", "user.email", "mde@example.invalid")
+    _git(tmp_path, "config", "user.name", "MDE Test")
+    _git(tmp_path, "add", "interface.json")
+    _git(tmp_path, "commit", "-m", "project")
+    revision = _git(tmp_path, "rev-parse", "HEAD")
+    prepared = PreparedAnalysis(
+        request=AnalysisRequest(question="Inspect the current project."),
+        source_snapshots=[
+            SourceSnapshot(
+                source_id="project",
+                role=SourceRole.PROJECT,
+                path=tmp_path,
+                revision_backend=SourceRevisionBackend.GIT,
+                current_revision=revision,
+                resolution_status=RevisionResolutionStatus.NOT_REQUESTED,
+            )
+        ],
+    )
+
+    project_source = _decision(prepared, InvestigationBranch.PROJECT_SOURCE)
+
+    assert project_source.disposition is BranchDisposition.RUN
+
+
+def test_plan_defers_general_source_search_without_supported_focus(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "README.md").write_text("project", encoding="utf-8")
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    _git(tmp_path, "config", "user.email", "mde@example.invalid")
+    _git(tmp_path, "config", "user.name", "MDE Test")
+    _git(tmp_path, "add", "README.md")
+    _git(tmp_path, "commit", "-m", "project")
+    revision = _git(tmp_path, "rev-parse", "HEAD")
+    prepared = PreparedAnalysis(
+        request=AnalysisRequest(question="Inspect the project."),
+        source_snapshots=[
+            SourceSnapshot(
+                source_id="project",
+                role=SourceRole.PROJECT,
+                path=tmp_path,
+                revision_backend=SourceRevisionBackend.GIT,
+                current_revision=revision,
+                resolution_status=RevisionResolutionStatus.NOT_REQUESTED,
+            )
+        ],
+    )
+
+    project_source = _decision(prepared, InvestigationBranch.PROJECT_SOURCE)
+
+    assert project_source.disposition is BranchDisposition.DEFERRED
+    assert "general source search remains deferred" in project_source.reason
+
+
+def test_plan_defers_focused_source_research_for_maa_syntax(tmp_path: Path) -> None:
+    (tmp_path / "interface.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "src" / "MaaCore").mkdir(parents=True)
+    (tmp_path / "src" / "MaaCore" / "CMakeLists.txt").write_text(
+        "# MaaCore",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    _git(tmp_path, "config", "user.email", "mde@example.invalid")
+    _git(tmp_path, "config", "user.name", "MDE Test")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "maa-project")
+    revision = _git(tmp_path, "rev-parse", "HEAD")
+    prepared = PreparedAnalysis(
+        request=AnalysisRequest(question="Inspect the current project."),
+        source_snapshots=[
+            SourceSnapshot(
+                source_id="project",
+                role=SourceRole.PROJECT,
+                path=tmp_path,
+                revision_backend=SourceRevisionBackend.GIT,
+                current_revision=revision,
+                resolution_status=RevisionResolutionStatus.NOT_REQUESTED,
+            )
+        ],
+    )
+
+    mse = _decision(prepared, InvestigationBranch.MSE_PROJECT_PREFLIGHT)
+    project_source = _decision(prepared, InvestigationBranch.PROJECT_SOURCE)
+
+    assert mse.disposition is BranchDisposition.RUN
+    assert project_source.disposition is BranchDisposition.DEFERRED
 
 
 def test_plan_skips_mse_when_resolved_revision_is_not_checked_out(tmp_path: Path) -> None:
     (tmp_path / "interface.json").write_text("{}", encoding="utf-8")
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    _git(tmp_path, "config", "user.email", "mde@example.invalid")
+    _git(tmp_path, "config", "user.name", "MDE Test")
+    _git(tmp_path, "add", "interface.json")
+    _git(tmp_path, "commit", "-m", "old")
+    old_revision = _git(tmp_path, "rev-parse", "HEAD")
+    (tmp_path / "README.md").write_text("new checkout", encoding="utf-8")
+    _git(tmp_path, "add", "README.md")
+    _git(tmp_path, "commit", "-m", "new")
+    current_revision = _git(tmp_path, "rev-parse", "HEAD")
     prepared = PreparedAnalysis(
         request=AnalysisRequest(issue="Project task fails."),
         source_snapshots=[
@@ -215,17 +319,19 @@ def test_plan_skips_mse_when_resolved_revision_is_not_checked_out(tmp_path: Path
                 role=SourceRole.PROJECT,
                 path=tmp_path,
                 revision_backend=SourceRevisionBackend.GIT,
-                requested_revision="v1",
-                resolved_revision="old",
-                current_revision="new",
+                requested_revision=old_revision,
+                resolved_revision=old_revision,
+                current_revision=current_revision,
                 resolution_status=RevisionResolutionStatus.RESOLVED,
             )
         ],
     )
 
     mse = _decision(prepared, InvestigationBranch.MSE_PROJECT_PREFLIGHT)
+    project_source = _decision(prepared, InvestigationBranch.PROJECT_SOURCE)
 
     assert mse.disposition is BranchDisposition.SKIP
+    assert project_source.disposition is BranchDisposition.DEFERRED
 
 
 def test_plan_runs_knowledge_research_for_explicit_documentation(tmp_path: Path) -> None:

@@ -8,6 +8,7 @@ from maa_diagnostic_expert.contracts.domain import (
     RevisionResolutionStatus,
     SourceRole,
 )
+from maa_diagnostic_expert.contracts.mse import MseSyntaxMode
 from maa_diagnostic_expert.contracts.workflow import (
     AnalysisRelevance,
     ArtifactSourceInventory,
@@ -19,6 +20,7 @@ from maa_diagnostic_expert.contracts.workflow import (
 )
 from maa_diagnostic_expert.discovery.artifact_classification import classify_artifact_sources
 from maa_diagnostic_expert.discovery.inputs import find_maa_interface
+from maa_diagnostic_expert.discovery.mse_syntax import detect_mse_syntax_mode
 from maa_diagnostic_expert.discovery.source_preparation import (
     source_snapshot_matches_checkout,
     source_snapshot_supports_object_read,
@@ -93,6 +95,36 @@ def _has_usable_mse_project(prepared: PreparedAnalysis) -> bool:
     )
 
 
+def _has_usable_source(prepared: PreparedAnalysis, role: SourceRole) -> bool:
+    require_revision = prepared.request.issue is not None
+    return any(
+        snapshot.role is role
+        and source_snapshot_supports_object_read(
+            snapshot,
+            require_requested_revision=require_revision,
+        )
+        for snapshot in prepared.source_snapshots
+    )
+
+
+def _can_run_project_source_research(prepared: PreparedAnalysis) -> bool:
+    require_revision = prepared.request.issue is not None
+    return any(
+        snapshot.role is SourceRole.PROJECT
+        and source_snapshot_supports_object_read(
+            snapshot,
+            require_requested_revision=require_revision,
+        )
+        and source_snapshot_matches_checkout(
+            snapshot,
+            require_requested_revision=require_revision,
+        )
+        and find_maa_interface(snapshot.path) is not None
+        and detect_mse_syntax_mode(snapshot.path) is MseSyntaxMode.MAAFW
+        for snapshot in prepared.source_snapshots
+    )
+
+
 def _has_usable_knowledge_source(prepared: PreparedAnalysis) -> bool:
     knowledge_roles = {
         SourceRole.MAA_FRAMEWORK,
@@ -116,7 +148,8 @@ def plan_initial_investigation(
     """Plan the currently available overview branches without inferring a diagnosis."""
     source_inventory = classify_artifact_sources(prepared) if inventory is None else inventory
     mla_candidate = _has_mla_candidate(prepared, source_inventory)
-    project_source = _has_resolved_source(prepared, SourceRole.PROJECT)
+    project_source = _has_usable_source(prepared, SourceRole.PROJECT)
+    runnable_project_source = _can_run_project_source_research(prepared)
     mse_project = _has_usable_mse_project(prepared)
     gui_source = _has_resolved_source(prepared, SourceRole.GUI)
     framework_source = _has_resolved_source(prepared, SourceRole.MAA_FRAMEWORK)
@@ -176,16 +209,24 @@ def plan_initial_investigation(
             BranchDecision(
                 branch=InvestigationBranch.PROJECT_SOURCE,
                 disposition=(
-                    BranchDisposition.DEFERRED if project_source else BranchDisposition.SKIP
+                    BranchDisposition.RUN
+                    if runnable_project_source
+                    else (BranchDisposition.DEFERRED if project_source else BranchDisposition.SKIP)
                 ),
                 relevance=(
                     AnalysisRelevance.USEFUL if project_source else AnalysisRelevance.NOT_RELEVANT
                 ),
                 reason=(
-                    "Project source is resolved; focused AGENTS.md guidance is available "
-                    "after task resolution, while general source search remains deferred."
-                    if project_source
-                    else "No version-resolved project source is available."
+                    "A revision-matched MaaFramework project interface is available for "
+                    "focused task resolution, scoped guidance, and bounded source search."
+                    if runnable_project_source
+                    else (
+                        "Project source is available, but current source research cannot "
+                        "derive a supported focused task target; general source search "
+                        "remains deferred."
+                        if project_source
+                        else "No usable project source is available."
+                    )
                 ),
             ),
             BranchDecision(
