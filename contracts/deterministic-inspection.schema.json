@@ -3858,8 +3858,8 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
-      "const": "deterministic-inspection/v13",
-      "default": "deterministic-inspection/v13",
+      "const": "deterministic-inspection/v14",
+      "default": "deterministic-inspection/v14",
       "title": "Api Version",
       "type": "string"
     },

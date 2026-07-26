@@ -49,6 +49,7 @@ from .models import (
 from .mse_policy import apply_mse_project_policy
 from .mse_preflight import synthesize_mse_evidence, synthesize_mse_task_evidence
 from .runtime_identity import extract_runtime_identity, synthesize_runtime_identity_evidence
+from .screenshot_evidence import synthesize_screenshot_evidence
 from .source_guidance import synthesize_source_guidance_evidence
 from .source_search import (
     synthesize_knowledge_search_evidence,
@@ -233,6 +234,7 @@ def synthesize_inspection_evidence(
 ) -> DeterministicInspection:
     """Attach project-owned evidence records derived from deterministic facts."""
     evidence = [
+        *synthesize_screenshot_evidence(inspection.prepared),
         *synthesize_runtime_identity_evidence(inspection.runtime_identity),
         *synthesize_log_overview_evidence(inspection.log_overviews),
         *synthesize_evidence(inspection.mla_runtime_inspections),
