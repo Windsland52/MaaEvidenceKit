@@ -23,6 +23,7 @@ from maa_diagnostic_expert.contracts.workflow import (
     SourceResearchStatus,
 )
 
+from .evidence_budget import render_model_evidence_item
 from .protocol import ReasoningContext
 
 _REASONING_RELIABILITY_ORDER: dict[EvidenceReliability, int] = {
@@ -230,18 +231,7 @@ def render_evidence_block(evidence: list[Evidence]) -> str:
     """Render evidence records as a text block for model consumption."""
     if not evidence:
         return "(no evidence available)"
-    blocks: list[str] = []
-    for item in evidence:
-        header = f"[{item.id}] ({item.reliability.value}/{item.role.value}/{item.kind})"
-        body = item.content
-        if item.line_start is not None:
-            if item.line_end is not None and item.line_end != item.line_start:
-                loc = f"lines {item.line_start}-{item.line_end}"
-            else:
-                loc = f"line {item.line_start}"
-            body = f"location: {item.source_path} {loc}\n{body}"
-        blocks.append(f"{header}\n{body}")
-    return "\n\n".join(blocks)
+    return "\n\n".join(render_model_evidence_item(item) for item in evidence)
 
 
 def build_reasoning_context(

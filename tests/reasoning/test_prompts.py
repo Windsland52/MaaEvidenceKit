@@ -28,6 +28,11 @@ from maa_diagnostic_expert.contracts.workflow import (
     SourceResearchPlan,
     SourceResearchStatus,
 )
+from maa_diagnostic_expert.reasoning.evidence_budget import (
+    MODEL_EVIDENCE_MAX_CHARACTERS,
+    MODEL_EVIDENCE_MAX_ITEM_CHARACTERS,
+    MODEL_EVIDENCE_MAX_ITEMS,
+)
 from maa_diagnostic_expert.reasoning.prompts import (
     StubReasoningBackend,
     StubReasoningSession,
@@ -197,6 +202,67 @@ def test_build_reasoning_context_orders_evidence() -> None:
     assert [e.id for e in context.evidence] == ["pri", "ctx"]
     request = context.to_request()
     assert request.evidence_ids == ["pri", "ctx"]
+
+
+def test_reasoning_context_bounds_model_evidence_count_and_reports_omissions() -> None:
+    evidence = [
+        _evidence(
+            f"failure-{index:03d}",
+            EvidenceReliability.PRIMARY,
+            role=EvidenceRole.FAILURE,
+        )
+        for index in range(MODEL_EVIDENCE_MAX_ITEMS + 5)
+    ]
+
+    context = build_reasoning_context("Diagnose", evidence)
+
+    assert len(context.evidence) == MODEL_EVIDENCE_MAX_ITEMS
+    assert context.available_evidence_count == MODEL_EVIDENCE_MAX_ITEMS + 5
+    assert context.omitted_evidence_count == 5
+    assert context.truncated_evidence_count == 0
+    assert "received 40 of 45 records; omitted=5" in context.instruction
+    assert "Do not infer that omitted content is absent" in context.instruction
+
+
+def test_reasoning_context_bounds_single_item_and_total_rendered_characters() -> None:
+    evidence = [
+        _evidence(
+            f"failure-{index:03d}",
+            EvidenceReliability.PRIMARY,
+            role=EvidenceRole.FAILURE,
+            content="x" * (MODEL_EVIDENCE_MAX_ITEM_CHARACTERS * 2),
+        )
+        for index in range(MODEL_EVIDENCE_MAX_ITEMS)
+    ]
+
+    context = build_reasoning_context("Diagnose", evidence)
+    rendered = render_evidence_block(context.evidence)
+
+    assert len(rendered) <= MODEL_EVIDENCE_MAX_CHARACTERS
+    assert all(
+        len(render_evidence_block([item])) <= MODEL_EVIDENCE_MAX_ITEM_CHARACTERS
+        for item in context.evidence
+    )
+    assert context.truncated_evidence_count == len(context.evidence)
+    assert context.omitted_evidence_count > 0
+    assert "evidence content truncated for model context" in rendered
+
+
+def test_reasoning_context_does_not_mutate_authoritative_evidence() -> None:
+    original = _evidence(
+        "large-failure",
+        EvidenceReliability.PRIMARY,
+        role=EvidenceRole.FAILURE,
+        content="original" * MODEL_EVIDENCE_MAX_ITEM_CHARACTERS,
+    )
+
+    context = build_reasoning_context("Diagnose", [original])
+
+    assert context.evidence[0] is not original
+    assert context.evidence[0].id == original.id
+    assert len(context.evidence[0].content) < len(original.content)
+    assert original.content == "original" * MODEL_EVIDENCE_MAX_ITEM_CHARACTERS
+    assert context.to_request().evidence_ids == [original.id]
 
 
 def test_incident_correlation_context_focuses_candidate_evidence() -> None:

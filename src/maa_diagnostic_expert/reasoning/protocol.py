@@ -14,14 +14,17 @@ from maa_diagnostic_expert.contracts.domain import (
 )
 from maa_diagnostic_expert.contracts.workflow import IncidentComparison, IncidentSelection
 
+from .evidence_budget import bound_model_evidence
+
 
 @dataclass(frozen=True, slots=True)
 class ReasoningContext:
-    """Resolved reasoning context: instruction plus full evidence content.
+    """Resolved reasoning context with a bounded model-facing evidence projection.
 
-    Carries the evidence records (with content) that a reasoning session
-    should consider, alongside the stage name and instruction text. The
-    serializable audit record is produced via ``to_request``.
+    The authoritative evidence ledger stays outside this object. Construction
+    selects a bounded copy for model consumption and records any omissions or
+    content truncation in the instruction. The serializable audit record is
+    produced via ``to_request``.
     """
 
     stage: str
@@ -29,6 +32,26 @@ class ReasoningContext:
     evidence: list[Evidence] = field(default_factory=list[Evidence])
     incident_selection: IncidentSelection | None = None
     incident_comparison: IncidentComparison | None = None
+    available_evidence_count: int = field(init=False)
+    omitted_evidence_count: int = field(init=False)
+    truncated_evidence_count: int = field(init=False)
+
+    def __post_init__(self) -> None:
+        selection = bound_model_evidence(self.evidence)
+        object.__setattr__(self, "evidence", selection.evidence)
+        object.__setattr__(self, "available_evidence_count", selection.available_count)
+        object.__setattr__(self, "omitted_evidence_count", selection.omitted_count)
+        object.__setattr__(self, "truncated_evidence_count", selection.truncated_count)
+        if selection.omitted_count or selection.truncated_count:
+            note = (
+                "Model evidence budget: "
+                f"received {len(selection.evidence)} of {selection.available_count} records; "
+                f"omitted={selection.omitted_count}; "
+                f"content_truncated={selection.truncated_count}. "
+                "This is a bounded view of the authoritative evidence ledger. Do not infer "
+                "that omitted content is absent from the inspected artifacts."
+            )
+            object.__setattr__(self, "instruction", f"{self.instruction}\n\n{note}")
 
     def to_request(self) -> ReasoningRequest:
         return ReasoningRequest(
