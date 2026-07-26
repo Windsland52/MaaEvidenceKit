@@ -84,8 +84,11 @@ and `rg` process calls, requires approval for other processes and all complete s
 and requires configured working-directory roots. These roots constrain cwd selection rather than
 filesystem access and are not a sandbox. `trusted` and `disabled` modes are explicit.
 Timeouts, filtered environments, bounded previews, full truncated output files, and serialized
-execution results are implemented. The model-facing tool-call loop and approval pause are the
-next workflow layer; current structured-output reasoning nodes do not execute commands.
+execution results are implemented. A reusable LangGraph command workflow exposes explicit
+submit, approval pause, approve/reject resume, and audited execution transitions. Approval is a
+harness-owned response and is never accepted from a model call. The diagnosis repair nodes do not
+yet issue commands; they will consume this boundary instead of executing inside a one-shot
+structured-output reasoning call.
 
 The runtime and orchestration decisions are recorded in
 [ADR 0001](docs/adr/0001-runtime-and-agent-surfaces.md) and

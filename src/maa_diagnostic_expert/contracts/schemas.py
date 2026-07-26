@@ -8,6 +8,9 @@ from maa_diagnostic_expert.inspection.models import DeterministicInspection
 from maa_diagnostic_expert.reasoning.model_config import ModelConfig
 
 from .command import (
+    CommandApprovalOutcome,
+    CommandApprovalPrompt,
+    CommandApprovalResponse,
     CommandExecutionResult,
     CommandPolicyResult,
     ProcessCommandRequest,
@@ -44,6 +47,9 @@ from .workflow import (
 
 CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "analysis-request.schema.json": AnalysisRequest,
+    "command-approval-outcome.schema.json": CommandApprovalOutcome,
+    "command-approval-prompt.schema.json": CommandApprovalPrompt,
+    "command-approval-response.schema.json": CommandApprovalResponse,
     "command-execution-result.schema.json": CommandExecutionResult,
     "command-policy-result.schema.json": CommandPolicyResult,
     "diagnostic-event.schema.json": DiagnosticEvent,

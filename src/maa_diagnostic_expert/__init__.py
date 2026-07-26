@@ -1,4 +1,9 @@
 from .contracts.command import (
+    CommandApprovalDecision,
+    CommandApprovalOutcome,
+    CommandApprovalPrompt,
+    CommandApprovalResponse,
+    CommandApprovalStatus,
     CommandExecutionResult,
     CommandExecutionStatus,
     CommandKind,
@@ -189,6 +194,7 @@ from .reasoning.protocol import (
     ReasoningSession,
 )
 from .reasoning.tools.command import CommandExecutor, CommandExecutorConfig, CommandPolicy
+from .workflow.command_approval import CommandApprovalWorkflow
 from .workflow.graph import DiagnosticWorkflow
 from .workflow.validation import (
     collect_deterministic_missing_evidence,
@@ -214,6 +220,12 @@ __all__ = [
     "ArtifactRecord",
     "BranchDecision",
     "BranchDisposition",
+    "CommandApprovalDecision",
+    "CommandApprovalOutcome",
+    "CommandApprovalPrompt",
+    "CommandApprovalResponse",
+    "CommandApprovalStatus",
+    "CommandApprovalWorkflow",
     "CommandExecutionResult",
     "CommandExecutionStatus",
     "CommandExecutor",

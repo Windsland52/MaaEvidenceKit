@@ -5,7 +5,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from .domain import ContractModel
 
@@ -34,6 +34,17 @@ class CommandExecutionStatus(StrEnum):
     APPROVAL_REQUIRED = "approval_required"
     DENIED = "denied"
     EXECUTION_ERROR = "execution_error"
+
+
+class CommandApprovalDecision(StrEnum):
+    APPROVE = "approve"
+    REJECT = "reject"
+
+
+class CommandApprovalStatus(StrEnum):
+    AWAITING_APPROVAL = "awaiting_approval"
+    FINISHED = "finished"
+    REJECTED = "rejected"
 
 
 class ProcessCommandRequest(ContractModel):
@@ -104,3 +115,75 @@ class CommandExecutionResult(ContractModel):
     stdout_truncated: bool = False
     stderr_truncated: bool = False
     error: str | None = None
+
+
+class CommandApprovalPrompt(ContractModel):
+    """Auditable command policy result presented to a human approval surface."""
+
+    api_version: Literal["command-approval-prompt/v1"] = "command-approval-prompt/v1"
+    approval_id: str = Field(min_length=1)
+    pending_execution: CommandExecutionResult
+
+    @model_validator(mode="after")
+    def validate_pending_execution(self) -> CommandApprovalPrompt:
+        if self.pending_execution.status is not CommandExecutionStatus.APPROVAL_REQUIRED:
+            raise ValueError("An approval prompt requires an approval-required execution result")
+        return self
+
+
+class CommandApprovalResponse(ContractModel):
+    """A harness-owned approval response; this is never a model-call parameter."""
+
+    api_version: Literal["command-approval-response/v1"] = "command-approval-response/v1"
+    approval_id: str = Field(min_length=1)
+    decision: CommandApprovalDecision
+    reason: str | None = Field(default=None, min_length=1, max_length=2000)
+
+
+class CommandApprovalOutcome(ContractModel):
+    """Current or terminal state of one approval-aware command execution."""
+
+    api_version: Literal["command-approval-outcome/v1"] = "command-approval-outcome/v1"
+    approval_id: str = Field(min_length=1)
+    status: CommandApprovalStatus
+    approval: CommandApprovalPrompt | None = None
+    response: CommandApprovalResponse | None = None
+    execution: CommandExecutionResult | None = None
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> CommandApprovalOutcome:
+        if self.approval is not None and self.approval.approval_id != self.approval_id:
+            raise ValueError("Approval prompt ID must match the outcome")
+        if self.response is not None and self.response.approval_id != self.approval_id:
+            raise ValueError("Approval response ID must match the outcome")
+        if self.status is CommandApprovalStatus.AWAITING_APPROVAL:
+            if self.approval is None or self.response is not None or self.execution is not None:
+                raise ValueError("An awaiting outcome requires only an approval prompt")
+        elif self.status is CommandApprovalStatus.REJECTED:
+            if (
+                self.approval is None
+                or self.response is None
+                or self.response.decision is not CommandApprovalDecision.REJECT
+                or self.execution is not None
+            ):
+                raise ValueError(
+                    "A rejected outcome requires a rejection response and no execution"
+                )
+        elif self.execution is None:
+            raise ValueError("A finished outcome requires an execution result")
+        elif self.execution.status is CommandExecutionStatus.APPROVAL_REQUIRED:
+            raise ValueError("A finished outcome cannot remain approval-required")
+        elif self.approval is None:
+            if self.response is not None:
+                raise ValueError("An automatically finished outcome cannot contain a response")
+        elif (
+            self.response is None
+            or self.response.decision is not CommandApprovalDecision.APPROVE
+            or not self.execution.approved
+        ):
+            raise ValueError(
+                "An approved outcome requires an approval response and approved execution"
+            )
+        elif self.execution.request != self.approval.pending_execution.request:
+            raise ValueError("Approved execution must replay the exact pending request")
+        return self
