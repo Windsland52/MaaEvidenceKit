@@ -1,0 +1,109 @@
+{
+  "$defs": {
+    "VerificationMethod": {
+      "enum": [
+        "offline_screenshot",
+        "static_configuration",
+        "runtime_execution",
+        "manual_observation"
+      ],
+      "title": "VerificationMethod",
+      "type": "string"
+    },
+    "VerificationPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "const": "verification-plan/v2",
+          "default": "verification-plan/v2",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "fix_id": {
+          "minLength": 1,
+          "title": "Fix Id",
+          "type": "string"
+        },
+        "methods": {
+          "items": {
+            "$ref": "#/$defs/VerificationMethod"
+          },
+          "minItems": 1,
+          "title": "Methods",
+          "type": "array"
+        },
+        "steps": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        },
+        "business_milestones": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Business Milestones",
+          "type": "array"
+        },
+        "regression_checks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Regression Checks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "fix_id",
+        "methods",
+        "steps",
+        "business_milestones"
+      ],
+      "title": "VerificationPlan",
+      "type": "object"
+    },
+    "VerificationPlanningStatus": {
+      "enum": [
+        "planned",
+        "skip"
+      ],
+      "title": "VerificationPlanningStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Pre-execution verification plans paired with validated fix candidates.",
+  "properties": {
+    "api_version": {
+      "const": "verification-plan-set/v1",
+      "default": "verification-plan-set/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/VerificationPlanningStatus"
+    },
+    "plans": {
+      "items": {
+        "$ref": "#/$defs/VerificationPlan"
+      },
+      "maxItems": 3,
+      "title": "Plans",
+      "type": "array"
+    },
+    "rationale": {
+      "minLength": 1,
+      "title": "Rationale",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "rationale"
+  ],
+  "title": "VerificationPlanSet",
+  "type": "object"
+}

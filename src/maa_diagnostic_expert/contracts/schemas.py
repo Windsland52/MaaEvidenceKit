@@ -44,6 +44,7 @@ from .workflow import (
     SourceGuidance,
     SourceResearchPlan,
     VerificationPlan,
+    VerificationPlanSet,
 )
 
 CONTRACT_MODELS: dict[str, type[BaseModel]] = {
@@ -80,6 +81,7 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "fix-candidate.schema.json": FixCandidate,
     "fix-candidate-plan.schema.json": FixCandidatePlan,
     "verification-plan.schema.json": VerificationPlan,
+    "verification-plan-set.schema.json": VerificationPlanSet,
     "source-guidance.schema.json": SourceGuidance,
     "source-research-plan.schema.json": SourceResearchPlan,
     "knowledge-research-plan.schema.json": KnowledgeResearchPlan,

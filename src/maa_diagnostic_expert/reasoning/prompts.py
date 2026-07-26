@@ -26,6 +26,8 @@ from maa_diagnostic_expert.contracts.workflow import (
     KnowledgeResearchPlan,
     SourceResearchPlan,
     SourceResearchStatus,
+    VerificationPlanningStatus,
+    VerificationPlanSet,
 )
 from maa_diagnostic_expert.inspection.adaptive_evidence import available_evidence_query_paths
 
@@ -496,6 +498,53 @@ def build_fix_candidate_context(
     )
 
 
+def build_verification_plan_context(
+    reported_context: str,
+    evidence: list[Evidence],
+    fix_candidates: FixCandidatePlan,
+) -> ReasoningContext:
+    """Build pre-execution checks for every validated repair candidate."""
+    lines = [
+        "Create a concrete pre-execution verification plan for each repair candidate.",
+        "Return plans only; do not execute a repair or claim any check has passed.",
+        "",
+        "Reported diagnostic context:",
+        reported_context,
+        "Validated repair candidates:",
+    ]
+    for candidate in fix_candidates.candidates:
+        lines.extend(
+            [
+                f"- {candidate.fix_id}: target={candidate.target}; "
+                f"scope={candidate.scope.value}; method={candidate.method.value}",
+                f"  rationale={candidate.rationale}",
+                f"  suggested_steps={'; '.join(candidate.verification_steps)}",
+                f"  regression_risks={'; '.join(candidate.regression_risks) or 'none recorded'}",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "Rules:",
+            "1. Return exactly one plan for every listed fix ID and no unknown fix IDs.",
+            "2. Give ordered, concrete steps and at least one explicit business milestone.",
+            "3. A MaaFramework success event alone is not a business milestone. Check the",
+            "   reported user-visible task outcome or another explicit task milestone.",
+            "4. Cover every recorded regression risk with adjacent or representative checks.",
+            "5. Prefer offline screenshot/static checks when they can prove the change; use",
+            "   runtime execution or manual observation when offline evidence is insufficient.",
+            "6. Keep verification read-only at this stage. Do not write files or run commands.",
+            "7. Do not mark checks passed, failed, or unavailable; this is planning only.",
+            "8. Include applicable required checks listed by source_guidance evidence.",
+        ]
+    )
+    return ReasoningContext(
+        stage="plan_verification",
+        instruction="\n".join(lines),
+        evidence=order_evidence_for_reasoning(evidence),
+    )
+
+
 def _stub_diagnose(context: ReasoningContext) -> DiagnosisDraft:
     """Produce a deterministic diagnosis from the evidence without a model.
 
@@ -586,6 +635,13 @@ def _stub_plan_fix_candidates() -> FixCandidatePlan:
     )
 
 
+def _stub_plan_verification() -> VerificationPlanSet:
+    return VerificationPlanSet(
+        status=VerificationPlanningStatus.SKIP,
+        rationale="The deterministic stub has no repair candidates to verify.",
+    )
+
+
 class StubReasoningSession:
     """Deterministic reasoning session for testing without a model."""
 
@@ -620,6 +676,8 @@ class StubReasoningSession:
             return cast(ResultT, _stub_plan_evidence_research())
         if result_type is FixCandidatePlan:
             return cast(ResultT, _stub_plan_fix_candidates())
+        if result_type is VerificationPlanSet:
+            return cast(ResultT, _stub_plan_verification())
         raise TypeError(f"Stub backend cannot produce {result_type.__name__}")
 
     async def close(self) -> None:

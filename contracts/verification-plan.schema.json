@@ -14,8 +14,8 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
-      "const": "verification-plan/v1",
-      "default": "verification-plan/v1",
+      "const": "verification-plan/v2",
+      "default": "verification-plan/v2",
       "title": "Api Version",
       "type": "string"
     },
@@ -30,6 +30,14 @@
       },
       "minItems": 1,
       "title": "Methods",
+      "type": "array"
+    },
+    "steps": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Steps",
       "type": "array"
     },
     "business_milestones": {
@@ -51,6 +59,7 @@
   "required": [
     "fix_id",
     "methods",
+    "steps",
     "business_milestones"
   ],
   "title": "VerificationPlan",

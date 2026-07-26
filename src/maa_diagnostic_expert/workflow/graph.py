@@ -36,6 +36,8 @@ from maa_diagnostic_expert.contracts.workflow import (
     KnowledgeResearchPlan,
     SourceResearchPlan,
     SourceResearchStatus,
+    VerificationPlanningStatus,
+    VerificationPlanSet,
 )
 from maa_diagnostic_expert.discovery.artifact_classification import (
     LogSourceProfile,
@@ -85,6 +87,7 @@ from maa_diagnostic_expert.reasoning.prompts import (
     build_reasoning_context,
     build_reported_context,
     build_source_research_context,
+    build_verification_plan_context,
 )
 from maa_diagnostic_expert.reasoning.protocol import ReasoningBackend, ReasoningContext
 
@@ -95,6 +98,7 @@ from .validation import (
     finalize_diagnosis_draft,
     validate_fix_candidate_plan,
     validate_incident_correlation,
+    validate_verification_plan_set,
 )
 
 _DEFAULT_QUESTION = "Diagnose the runtime failures and their likely causes."
@@ -163,6 +167,7 @@ class DiagnosticState(TypedDict):
     knowledge_research_plan: NotRequired[KnowledgeResearchPlan]
     draft: NotRequired[DiagnosisDraft]
     fix_candidate_plan: NotRequired[FixCandidatePlan]
+    verification_plan_set: NotRequired[VerificationPlanSet]
     result: NotRequired[DiagnosisResult]
     error_message: NotRequired[str]
     error_type: NotRequired[str]
@@ -181,6 +186,7 @@ class _DiagnosticStateUpdate(TypedDict, total=False):
     knowledge_research_plan: KnowledgeResearchPlan
     draft: DiagnosisDraft
     fix_candidate_plan: FixCandidatePlan
+    verification_plan_set: VerificationPlanSet
     result: DiagnosisResult
     error_message: str
     error_type: str
@@ -206,6 +212,7 @@ class _WorkflowUpdate:
     message: str
     data: dict[str, JsonValue] = field(default_factory=dict[str, JsonValue])
     fix_candidate_plan: FixCandidatePlan | None = None
+    verification_plan_set: VerificationPlanSet | None = None
     result: DiagnosisResult | None = None
 
 
@@ -263,6 +270,11 @@ class DiagnosticWorkflow:
     run_id: str = field(default_factory=_new_run_id)
     _cancelled: set[str] = field(default_factory=set[str], init=False, repr=False)
     _fix_candidate_plan: FixCandidatePlan | None = field(default=None, init=False, repr=False)
+    _verification_plan_set: VerificationPlanSet | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
     _result: DiagnosisResult | None = field(default=None, init=False, repr=False)
 
     @property
@@ -275,12 +287,18 @@ class DiagnosticWorkflow:
         """Validated repair proposals produced by the most recent run, if reached."""
         return self._fix_candidate_plan
 
+    @property
+    def verification_plan_set(self) -> VerificationPlanSet | None:
+        """Validated pre-execution checks produced by the most recent run, if reached."""
+        return self._verification_plan_set
+
     async def cancel(self, run_id: str) -> None:
         self._cancelled.add(run_id)
 
     async def diagnose(self, request: AnalysisRequest) -> DiagnosisResult:
         self._result = None
         self._fix_candidate_plan = None
+        self._verification_plan_set = None
         async for _ in self._run(request):
             pass
         if self._result is None:
@@ -290,6 +308,7 @@ class DiagnosticWorkflow:
     def stream(self, request: AnalysisRequest) -> AsyncIterator[DiagnosticEvent]:
         self._result = None
         self._fix_candidate_plan = None
+        self._verification_plan_set = None
         return self._run(request)
 
     def _start_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
@@ -1202,7 +1221,72 @@ class DiagnosticWorkflow:
         return {"fix_candidate_plan": plan}
 
     @staticmethod
-    def _after_propose_fix(state: DiagnosticState) -> Literal["complete", "fail"]:
+    def _after_propose_fix(state: DiagnosticState) -> Literal["plan_verification", "fail"]:
+        return "fail" if "error_message" in state else "plan_verification"
+
+    async def _plan_verification_node(
+        self,
+        state: DiagnosticState,
+    ) -> _DiagnosticStateUpdate:
+        try:
+            if self.run_id in self._cancelled:
+                raise RuntimeError("workflow cancelled before verification planning")
+            fixes = state.get("fix_candidate_plan")
+            if fixes is None:
+                raise RuntimeError("verification planning requires validated fix candidates")
+            evidence = state.get("evidence", [])
+            model_requested = fixes.status is FixPlanningStatus.PROPOSED
+            if fixes.status is FixPlanningStatus.SKIP:
+                verification = VerificationPlanSet(
+                    status=VerificationPlanningStatus.SKIP,
+                    rationale="Verification planning requires at least one fix candidate.",
+                )
+            else:
+                context = build_verification_plan_context(
+                    _reported_context(state["request"]),
+                    evidence,
+                    fixes,
+                )
+                _emit(
+                    _WorkflowUpdate(
+                        kind=DiagnosticEventKind.MODEL_REQUESTED,
+                        stage="plan_verification",
+                        message="Requesting repair verification plans",
+                        data={
+                            "fix_candidates": len(fixes.candidates),
+                            "evidence_count": len(context.evidence),
+                        },
+                    )
+                )
+                session = await self.reasoning_backend.start(run_id=self.run_id)
+                try:
+                    verification = await session.reason(context, VerificationPlanSet)
+                finally:
+                    await session.close()
+                validate_verification_plan_set(verification, fixes)
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("plan_verification", error)
+
+        _emit(
+            _WorkflowUpdate(
+                kind=(
+                    DiagnosticEventKind.MODEL_COMPLETED
+                    if model_requested
+                    else DiagnosticEventKind.STAGE_COMPLETED
+                ),
+                stage="plan_verification",
+                message="Repair verification planning complete",
+                data={
+                    "status": verification.status.value,
+                    "plans": len(verification.plans),
+                },
+                verification_plan_set=verification,
+            )
+        )
+        return {"verification_plan_set": verification}
+
+    @staticmethod
+    def _after_plan_verification(state: DiagnosticState) -> Literal["complete", "fail"]:
         return "fail" if "error_message" in state else "complete"
 
     def _validate_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
@@ -1332,6 +1416,7 @@ class DiagnosticWorkflow:
         _add_graph_node(graph, "search_knowledge", self._search_knowledge_node)
         _add_graph_node(graph, "reason", self._reason_node)
         _add_graph_node(graph, "propose_fix", self._propose_fix_node)
+        _add_graph_node(graph, "plan_verification", self._plan_verification_node)
         _add_graph_node(graph, "validate", self._validate_node)
         _add_graph_node(graph, "fail", self._fail_node)
         _add_graph_node(graph, "complete", self._complete_node)
@@ -1369,6 +1454,7 @@ class DiagnosticWorkflow:
         graph.add_conditional_edges("reason", self._after_reason)
         graph.add_conditional_edges("validate", self._after_validate)
         graph.add_conditional_edges("propose_fix", self._after_propose_fix)
+        graph.add_conditional_edges("plan_verification", self._after_plan_verification)
         graph.add_edge("fail", END)
         graph.add_edge("complete", END)
         return _compile_graph(graph)
@@ -1383,6 +1469,8 @@ class DiagnosticWorkflow:
             update = raw_update
             if update.fix_candidate_plan is not None:
                 self._fix_candidate_plan = update.fix_candidate_plan
+            if update.verification_plan_set is not None:
+                self._verification_plan_set = update.verification_plan_set
             if update.result is not None:
                 self._result = update.result
             yield DiagnosticEvent(

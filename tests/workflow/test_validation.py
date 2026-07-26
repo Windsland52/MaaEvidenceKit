@@ -29,6 +29,10 @@ from maa_diagnostic_expert.contracts.workflow import (
     IncidentCorrelationDraft,
     IncidentSelection,
     IncidentSelectionStatus,
+    VerificationMethod,
+    VerificationPlan,
+    VerificationPlanningStatus,
+    VerificationPlanSet,
 )
 from maa_diagnostic_expert.inspection.log_overview import (
     LogArtifactOverview,
@@ -42,6 +46,7 @@ from maa_diagnostic_expert.workflow.validation import (
     validate_fix_candidate_plan,
     validate_incident_correlation,
     validate_result_against_inspection,
+    validate_verification_plan_set,
 )
 
 
@@ -87,6 +92,26 @@ def _fix_plan(evidence_id: str = "ev:known") -> FixCandidatePlan:
                 evidence_ids=[evidence_id],
                 regression_risks=["A broad replacement could accept unrelated text."],
                 verification_steps=["Replay the failure screenshot."],
+            )
+        ],
+    )
+
+
+def _verification_plan(*, regression_checks: list[str] | None = None) -> VerificationPlanSet:
+    return VerificationPlanSet(
+        status=VerificationPlanningStatus.PLANNED,
+        rationale="Verify the target milestone and regression risk.",
+        plans=[
+            VerificationPlan(
+                fix_id="fix-1",
+                methods=[VerificationMethod.RUNTIME_EXECUTION],
+                steps=["Replay the affected task."],
+                business_milestones=["The affected task reaches its expected completion state."],
+                regression_checks=(
+                    ["The adjacent OCR variant remains accepted."]
+                    if regression_checks is None
+                    else regression_checks
+                ),
             )
         ],
     )
@@ -163,6 +188,50 @@ def test_fix_candidate_plan_requires_complete_diagnosis() -> None:
 
     with pytest.raises(ValueError, match="complete evidence-backed diagnosis"):
         validate_fix_candidate_plan(_fix_plan(), diagnosis, [_evidence()])
+
+
+def test_verification_plan_set_covers_every_fix_and_regression_risk() -> None:
+    verification = _verification_plan()
+
+    assert validate_verification_plan_set(verification, _fix_plan()) is verification
+
+
+def test_verification_plan_set_rejects_missing_fix_plan() -> None:
+    verification = _verification_plan().model_copy(update={"plans": []})
+
+    with pytest.raises(ValueError, match="missing verification plans"):
+        validate_verification_plan_set(verification, _fix_plan())
+
+
+def test_verification_plan_set_rejects_unknown_fix_id() -> None:
+    [plan] = _verification_plan().plans
+    verification = _verification_plan().model_copy(
+        update={"plans": [plan.model_copy(update={"fix_id": "fix-invented"})]}
+    )
+
+    with pytest.raises(ValueError, match="unknown fix IDs"):
+        validate_verification_plan_set(verification, _fix_plan())
+
+
+def test_verification_plan_set_requires_regression_coverage() -> None:
+    with pytest.raises(ValueError, match="must cover recorded regression risks"):
+        validate_verification_plan_set(
+            _verification_plan(regression_checks=[]),
+            _fix_plan(),
+        )
+
+
+def test_verification_plan_set_skips_when_fix_planning_skips() -> None:
+    fixes = FixCandidatePlan(
+        status=FixPlanningStatus.SKIP,
+        rationale="No fix candidate exists.",
+    )
+    verification = VerificationPlanSet(
+        status=VerificationPlanningStatus.SKIP,
+        rationale="No fix candidate exists.",
+    )
+
+    assert validate_verification_plan_set(verification, fixes) is verification
 
 
 def test_finalize_draft_attaches_only_authoritative_evidence() -> None:

@@ -16,6 +16,8 @@ from maa_diagnostic_expert.contracts.workflow import (
     IncidentCorrelationDraft,
     IncidentSelection,
     IncidentSelectionStatus,
+    VerificationPlanningStatus,
+    VerificationPlanSet,
 )
 from maa_diagnostic_expert.inspection.log_overview import (
     LogOverviewCollection,
@@ -106,6 +108,36 @@ def validate_fix_candidate_plan(
                 f"Fix candidate '{candidate.fix_id}' must cite diagnosis conclusion evidence"
             )
     return plan
+
+
+def validate_verification_plan_set(
+    verification: VerificationPlanSet,
+    fixes: FixCandidatePlan,
+) -> VerificationPlanSet:
+    """Require one concrete, risk-aware verification plan per repair candidate."""
+    if fixes.status is FixPlanningStatus.SKIP:
+        if verification.status is not VerificationPlanningStatus.SKIP:
+            raise ValueError("Verification must be skipped when no fix candidates exist")
+        return verification
+    if verification.status is not VerificationPlanningStatus.PLANNED:
+        raise ValueError("Every proposed fix candidate requires a verification plan")
+    candidates = {candidate.fix_id: candidate for candidate in fixes.candidates}
+    plan_ids = {plan.fix_id for plan in verification.plans}
+    unknown_ids = plan_ids - set(candidates)
+    if unknown_ids:
+        unknown = ", ".join(sorted(unknown_ids))
+        raise ValueError(f"Verification plans reference unknown fix IDs: {unknown}")
+    missing_ids = set(candidates) - plan_ids
+    if missing_ids:
+        missing = ", ".join(sorted(missing_ids))
+        raise ValueError(f"Fix candidates are missing verification plans: {missing}")
+    for plan in verification.plans:
+        candidate = candidates[plan.fix_id]
+        if candidate.regression_risks and not plan.regression_checks:
+            raise ValueError(
+                f"Verification plan for '{plan.fix_id}' must cover recorded regression risks"
+            )
+    return verification
 
 
 def collect_inspection_evidence(

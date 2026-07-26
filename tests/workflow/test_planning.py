@@ -34,6 +34,10 @@ from maa_diagnostic_expert.contracts.workflow import (
     InvestigationBranch,
     SourceGuidance,
     SourceResearchStatus,
+    VerificationMethod,
+    VerificationPlan,
+    VerificationPlanningStatus,
+    VerificationPlanSet,
 )
 from maa_diagnostic_expert.discovery.preparation import prepare_analysis
 from maa_diagnostic_expert.workflow.planning import plan_initial_investigation
@@ -500,6 +504,44 @@ def test_fix_candidate_plan_requires_bounded_unique_candidates() -> None:
             status=FixPlanningStatus.SKIP,
             candidates=[candidate],
             rationale="Invalid skipped plan.",
+        )
+
+
+def test_verification_plan_set_requires_unique_fix_plans() -> None:
+    verification = VerificationPlan(
+        fix_id="fix-1",
+        methods=[VerificationMethod.STATIC_CONFIGURATION],
+        steps=["Validate the updated pipeline configuration."],
+        business_milestones=["The target task reaches the expected next node."],
+        regression_checks=["The adjacent recognition variant still works."],
+    )
+    plans = VerificationPlanSet(
+        status=VerificationPlanningStatus.PLANNED,
+        plans=[verification],
+        rationale="The candidate has static and business-level checks.",
+    )
+
+    assert verification.api_version == "verification-plan/v2"
+    assert plans.api_version == "verification-plan-set/v1"
+
+    with pytest.raises(ValidationError, match="fix IDs must be unique"):
+        VerificationPlanSet(
+            status=VerificationPlanningStatus.PLANNED,
+            plans=[verification, verification],
+            rationale="Duplicate plans.",
+        )
+    with pytest.raises(ValidationError, match="cannot contain plans"):
+        VerificationPlanSet(
+            status=VerificationPlanningStatus.SKIP,
+            plans=[verification],
+            rationale="Invalid skipped set.",
+        )
+    with pytest.raises(ValidationError, match="must not be blank"):
+        VerificationPlan(
+            fix_id="fix-1",
+            methods=[VerificationMethod.MANUAL_OBSERVATION],
+            steps=[" "],
+            business_milestones=["The user-visible task succeeds."],
         )
 
 

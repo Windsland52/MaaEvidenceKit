@@ -388,11 +388,55 @@ class VerificationStatus(StrEnum):
 
 
 class VerificationPlan(ContractModel):
-    api_version: Literal["verification-plan/v1"] = "verification-plan/v1"
+    api_version: Literal["verification-plan/v2"] = "verification-plan/v2"
     fix_id: str = Field(min_length=1)
     methods: list[VerificationMethod] = Field(min_length=1)
+    steps: list[str] = Field(min_length=1)
     business_milestones: list[str] = Field(min_length=1)
     regression_checks: list[str] = Field(default_factory=_new_strings)
+
+    @field_validator("methods")
+    @classmethod
+    def validate_unique_verification_methods(
+        cls, value: list[VerificationMethod]
+    ) -> list[VerificationMethod]:
+        if len(value) != len(set(value)):
+            raise ValueError("Verification methods must be unique")
+        return value
+
+    @field_validator("steps", "business_milestones", "regression_checks")
+    @classmethod
+    def validate_unique_verification_items(cls, value: list[str]) -> list[str]:
+        if any(not item.strip() for item in value):
+            raise ValueError("Verification plan items must not be blank")
+        if len(value) != len(set(value)):
+            raise ValueError("Verification plan list items must be unique")
+        return value
+
+
+class VerificationPlanningStatus(StrEnum):
+    PLANNED = "planned"
+    SKIP = "skip"
+
+
+class VerificationPlanSet(ContractModel):
+    """Pre-execution verification plans paired with validated fix candidates."""
+
+    api_version: Literal["verification-plan-set/v1"] = "verification-plan-set/v1"
+    status: VerificationPlanningStatus
+    plans: list[VerificationPlan] = Field(default_factory=list[VerificationPlan], max_length=3)
+    rationale: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_plan_set(self) -> VerificationPlanSet:
+        fix_ids = [plan.fix_id for plan in self.plans]
+        if len(fix_ids) != len(set(fix_ids)):
+            raise ValueError("Verification plan fix IDs must be unique")
+        if self.status is VerificationPlanningStatus.PLANNED and not self.plans:
+            raise ValueError("A planned verification set requires at least one plan")
+        if self.status is VerificationPlanningStatus.SKIP and self.plans:
+            raise ValueError("A skipped verification set cannot contain plans")
+        return self
 
 
 class SourceGuidance(ContractModel):

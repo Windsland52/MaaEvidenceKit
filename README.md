@@ -76,6 +76,10 @@ Python rejects unknown evidence IDs, navigation-only citations, and candidates t
 at least one diagnosis-conclusion evidence record. These are proposals only: they do not write
 files or run commands. SDK callers can inspect the validated `DiagnosticWorkflow.fix_candidate_plan`
 after a run; insufficient diagnoses produce an explicit skipped plan.
+Every proposed candidate then receives a separate pre-execution verification plan with concrete
+steps, business milestones, and regression checks. Python requires exactly one plan per candidate
+and rejects risk-bearing candidates without regression coverage. These plans are available through
+`DiagnosticWorkflow.verification_plan_set` or `diagnose --verification-plan`.
 Inputs that are unrelated to MaaFramework logs can therefore bypass MLA. Explicit graph state
 keeps the plan, inspection facts, authoritative evidence, model drafts, failures, and final
 results separate.
@@ -112,6 +116,7 @@ uv run maa-diagnostic-expert inspect --request request.json --output inspection.
 uv run maa-diagnostic-expert diagnose --request request.json --output diagnosis.json
 uv run maa-diagnostic-expert diagnose --request request.json --model-config model.json --output diagnosis.json
 uv run maa-diagnostic-expert diagnose --request request.json --fix-plan fix-plan.json --output diagnosis.json
+uv run maa-diagnostic-expert diagnose --request request.json --verification-plan verification.json --output diagnosis.json
 uv run maa-diagnostic-expert query-evidence --prepared inspection.json --request evidence-query.json --output evidence-window.json
 uv run maa-diagnostic-expert validate-result --input diagnosis.json --inspection inspection.json --evidence-window evidence-window.json
 ~~~

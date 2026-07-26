@@ -131,6 +131,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Optional path to write the validated FixCandidatePlan JSON.",
     )
+    diagnose.add_argument(
+        "--verification-plan",
+        type=Path,
+        help="Optional path to write the validated VerificationPlanSet JSON.",
+    )
     _add_output_argument(diagnose)
 
     validate = commands.add_parser("validate-result")
@@ -274,6 +279,11 @@ def _run_diagnose(args: argparse.Namespace) -> None:
         if workflow.fix_candidate_plan is None:
             raise RuntimeError("workflow completed without producing a fix candidate plan")
         _emit_model(workflow.fix_candidate_plan, fix_plan_path)
+    verification_plan_path = cast(Path | None, args.verification_plan)
+    if verification_plan_path is not None:
+        if workflow.verification_plan_set is None:
+            raise RuntimeError("workflow completed without producing a verification plan set")
+        _emit_model(workflow.verification_plan_set, verification_plan_path)
     if fmt == "markdown":
         _emit_text(render_markdown_report(result), output)
     else:

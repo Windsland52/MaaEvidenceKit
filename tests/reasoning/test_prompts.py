@@ -20,8 +20,11 @@ from maa_diagnostic_expert.contracts.domain import (
     SourceRole,
 )
 from maa_diagnostic_expert.contracts.workflow import (
+    FixCandidate,
     FixCandidatePlan,
+    FixMethod,
     FixPlanningStatus,
+    FixScope,
     IncidentCandidate,
     IncidentComparison,
     IncidentComparisonFinding,
@@ -34,6 +37,8 @@ from maa_diagnostic_expert.contracts.workflow import (
     KnowledgeResearchPlan,
     SourceResearchPlan,
     SourceResearchStatus,
+    VerificationPlanningStatus,
+    VerificationPlanSet,
 )
 from maa_diagnostic_expert.discovery.preparation import prepare_analysis
 from maa_diagnostic_expert.reasoning.evidence_budget import (
@@ -51,6 +56,7 @@ from maa_diagnostic_expert.reasoning.prompts import (
     build_reasoning_context,
     build_reported_context,
     build_source_research_context,
+    build_verification_plan_context,
     order_evidence_for_reasoning,
     render_evidence_block,
     render_instruction,
@@ -622,6 +628,50 @@ def test_stub_backend_skips_semantic_fix_planning() -> None:
 
     assert result.status is FixPlanningStatus.SKIP
     assert result.candidates == []
+
+
+def test_verification_plan_context_requires_business_and_regression_checks() -> None:
+    fixes = FixCandidatePlan(
+        status=FixPlanningStatus.PROPOSED,
+        rationale="A focused configuration change is supported.",
+        candidates=[
+            FixCandidate(
+                fix_id="fix-ocr",
+                target="pipeline.json:LoginButton.expected",
+                scope=FixScope.NODE,
+                method=FixMethod.EXPECTED_REPLACE,
+                rationale="Normalize the observed OCR variant.",
+                evidence_ids=["failure"],
+                regression_risks=["Unrelated text might be accepted."],
+                verification_steps=["Replay the captured failure."],
+            )
+        ],
+    )
+
+    context = build_verification_plan_context("Why did OCR fail?", [], fixes)
+
+    assert context.stage == "plan_verification"
+    assert "exactly one plan for every listed fix ID" in context.instruction
+    assert "success event alone is not a business milestone" in context.instruction
+    assert "Unrelated text might be accepted" in context.instruction
+    assert "do not execute a repair" in context.instruction
+
+
+def test_stub_backend_skips_verification_without_fix_candidates() -> None:
+    session = StubReasoningSession(run_id="run-verification-planning")
+    context = build_verification_plan_context(
+        "Diagnose",
+        [],
+        FixCandidatePlan(
+            status=FixPlanningStatus.SKIP,
+            rationale="No fix candidates exist.",
+        ),
+    )
+
+    result = asyncio.run(session.reason(context, VerificationPlanSet))
+
+    assert result.status is VerificationPlanningStatus.SKIP
+    assert result.plans == []
 
 
 def test_stub_backend_produces_complete_draft_with_direct_failure() -> None:

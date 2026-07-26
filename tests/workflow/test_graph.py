@@ -37,6 +37,10 @@ from maa_diagnostic_expert.contracts.workflow import (
     SourceResearchPlan,
     SourceResearchStatus,
     SourceSearchQuery,
+    VerificationMethod,
+    VerificationPlan,
+    VerificationPlanningStatus,
+    VerificationPlanSet,
 )
 from maa_diagnostic_expert.inspection import log_overview
 from maa_diagnostic_expert.reasoning.prompts import StubReasoningBackend
@@ -503,6 +507,29 @@ class _AdaptiveEvidenceSession:
                     ],
                 ),
             )
+        if result_type is VerificationPlanSet:
+            return cast(
+                ResultT,
+                VerificationPlanSet(
+                    status=VerificationPlanningStatus.PLANNED,
+                    rationale="Verify the reported outcome and retry-risk regression.",
+                    plans=[
+                        VerificationPlan(
+                            fix_id="fix-retry-policy",
+                            methods=[VerificationMethod.RUNTIME_EXECUTION],
+                            steps=["Replay the previously failed custom operation."],
+                            business_milestones=[
+                                "The custom operation reaches its expected completion state."
+                            ],
+                            regression_checks=[
+                                "A persistent failure still terminates after the configured bound."
+                            ]
+                            if not self.backend.omit_regression_checks
+                            else [],
+                        )
+                    ],
+                ),
+            )
         raise TypeError(result_type.__name__)
 
     async def close(self) -> None:
@@ -510,9 +537,16 @@ class _AdaptiveEvidenceSession:
 
 
 class _AdaptiveEvidenceBackend:
-    def __init__(self, log_path: Path, *, invent_fix_evidence: bool = False) -> None:
+    def __init__(
+        self,
+        log_path: Path,
+        *,
+        invent_fix_evidence: bool = False,
+        omit_regression_checks: bool = False,
+    ) -> None:
         self.log_path = log_path
         self.invent_fix_evidence = invent_fix_evidence
+        self.omit_regression_checks = omit_regression_checks
         self.plan_calls = 0
 
     async def start(self, *, run_id: str) -> _AdaptiveEvidenceSession:
@@ -604,6 +638,8 @@ def test_diagnose_returns_insufficient_without_failures(tmp_path: Path) -> None:
     assert "incident_candidates_not_found" in result.missing_evidence
     assert workflow.fix_candidate_plan is not None
     assert workflow.fix_candidate_plan.status is FixPlanningStatus.SKIP
+    assert workflow.verification_plan_set is not None
+    assert workflow.verification_plan_set.status is VerificationPlanningStatus.SKIP
 
 
 def test_workflow_rejects_model_invented_evidence_ids(tmp_path: Path) -> None:
@@ -688,6 +724,7 @@ def test_stream_emits_events_in_order(tmp_path: Path) -> None:
         "inspect_source_guidance",
         "compare_incident",
         "validate",
+        "plan_verification",
     ]
     assert kinds[-1] is DiagnosticEventKind.RUN_COMPLETED
     assert workflow.result is not None
@@ -850,8 +887,14 @@ def test_workflow_adaptively_queries_focused_raw_evidence(tmp_path: Path) -> Non
     [candidate] = workflow.fix_candidate_plan.candidates
     assert candidate.fix_id == "fix-retry-policy"
     assert candidate.evidence_ids == [window.id]
+    assert workflow.verification_plan_set is not None
+    assert workflow.verification_plan_set.status is VerificationPlanningStatus.PLANNED
+    [verification] = workflow.verification_plan_set.plans
+    assert verification.fix_id == candidate.fix_id
+    assert verification.business_milestones
     assert any(event.stage == "query_evidence" for event in events)
     assert any(event.stage == "propose_fix" for event in events)
+    assert any(event.stage == "plan_verification" for event in events)
 
 
 def test_workflow_rejects_fix_candidate_with_invented_evidence(tmp_path: Path) -> None:
@@ -877,6 +920,34 @@ def test_workflow_rejects_fix_candidate_with_invented_evidence(tmp_path: Path) -
     assert workflow.result.status is DiagnosisStatus.FAILED
     assert "unknown evidence IDs" in workflow.result.summary
     assert workflow.fix_candidate_plan is None
+
+
+def test_workflow_rejects_verification_without_regression_coverage(
+    tmp_path: Path,
+) -> None:
+    log = tmp_path / "agent.log"
+    log.write_text(
+        "operation started\nretry exhausted\noperation failed\n",
+        encoding="utf-8",
+    )
+    workflow = DiagnosticWorkflow(
+        _ToolCaller(),
+        _AdaptiveEvidenceBackend(log.resolve(), omit_regression_checks=True),
+    )
+    request = AnalysisRequest(
+        question="Why did the custom operation fail?",
+        artifacts=[ArtifactInput(path=log, kind=ArtifactKind.FILE)],
+    )
+
+    events = _collect_events(workflow, request)
+
+    assert events[-1].kind is DiagnosticEventKind.RUN_FAILED
+    assert events[-1].stage == "plan_verification"
+    assert workflow.result is not None
+    assert workflow.result.status is DiagnosisStatus.FAILED
+    assert "must cover recorded regression risks" in workflow.result.summary
+    assert workflow.fix_candidate_plan is not None
+    assert workflow.verification_plan_set is None
 
 
 def test_workflow_runs_model_planned_versioned_source_search(

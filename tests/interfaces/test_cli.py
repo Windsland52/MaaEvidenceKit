@@ -4,6 +4,8 @@ from maa_diagnostic_expert.contracts.domain import AnalysisRequest, DiagnosisRes
 from maa_diagnostic_expert.contracts.workflow import (
     FixCandidatePlan,
     FixPlanningStatus,
+    VerificationPlanningStatus,
+    VerificationPlanSet,
 )
 from maa_diagnostic_expert.interfaces.cli import build_parser, main
 
@@ -28,6 +30,7 @@ def test_diagnose_writes_fix_plan_output(tmp_path: Path) -> None:
     request_path = tmp_path / "request.json"
     diagnosis_path = tmp_path / "diagnosis.json"
     fix_plan_path = tmp_path / "fix-plan.json"
+    verification_plan_path = tmp_path / "verification-plan.json"
     request_path.write_text(
         AnalysisRequest(question="Diagnose without artifacts.").model_dump_json(),
         encoding="utf-8",
@@ -40,6 +43,8 @@ def test_diagnose_writes_fix_plan_output(tmp_path: Path) -> None:
             str(request_path),
             "--fix-plan",
             str(fix_plan_path),
+            "--verification-plan",
+            str(verification_plan_path),
             "--output",
             str(diagnosis_path),
         ]
@@ -47,6 +52,10 @@ def test_diagnose_writes_fix_plan_output(tmp_path: Path) -> None:
 
     diagnosis = DiagnosisResult.model_validate_json(diagnosis_path.read_text(encoding="utf-8"))
     fix_plan = FixCandidatePlan.model_validate_json(fix_plan_path.read_text(encoding="utf-8"))
+    verification_plan = VerificationPlanSet.model_validate_json(
+        verification_plan_path.read_text(encoding="utf-8")
+    )
     assert exit_code == 0
     assert diagnosis.summary
     assert fix_plan.status is FixPlanningStatus.SKIP
+    assert verification_plan.status is VerificationPlanningStatus.SKIP

@@ -108,6 +108,8 @@ from .contracts.workflow import (
     SourceSearchQuery,
     VerificationMethod,
     VerificationPlan,
+    VerificationPlanningStatus,
+    VerificationPlanSet,
     VerificationStatus,
     VersionObservationKind,
 )
@@ -188,6 +190,7 @@ from .reasoning.prompts import (
     build_knowledge_research_context,
     build_reasoning_context,
     build_source_research_context,
+    build_verification_plan_context,
     make_stub_backend,
 )
 from .reasoning.protocol import (
@@ -206,6 +209,7 @@ from .workflow.validation import (
     validate_fix_candidate_plan,
     validate_incident_correlation,
     validate_result_against_inspection,
+    validate_verification_plan_set,
 )
 
 __all__ = [
@@ -341,12 +345,15 @@ __all__ = [
     "StructuredOutputMethod",
     "VerificationMethod",
     "VerificationPlan",
+    "VerificationPlanningStatus",
+    "VerificationPlanSet",
     "VerificationStatus",
     "VersionObservationKind",
     "build_reasoning_context",
     "build_evidence_research_context",
     "build_fix_candidate_context",
     "build_source_research_context",
+    "build_verification_plan_context",
     "build_incident_correlation_context",
     "build_knowledge_research_context",
     "catalog_source_input",
@@ -383,4 +390,5 @@ __all__ = [
     "source_guidance_evidence_id",
     "validate_result_against_inspection",
     "validate_incident_correlation",
+    "validate_verification_plan_set",
 ]
