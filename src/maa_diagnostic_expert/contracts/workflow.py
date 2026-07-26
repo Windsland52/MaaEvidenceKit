@@ -13,7 +13,7 @@ from .command import (
     CommandExecutionStatus,
     CommandRequest,
 )
-from .domain import ContractModel, EvidenceQuery, MissingEvidence, SourceRole
+from .domain import ContractModel, Evidence, EvidenceQuery, MissingEvidence, SourceRole
 
 
 class RuntimeComponent(StrEnum):
@@ -481,15 +481,69 @@ class FixExecutionStatus(StrEnum):
     COMMAND_FAILED = "command_failed"
 
 
+class FixFileState(StrEnum):
+    MISSING = "missing"
+    FILE = "file"
+    DIRECTORY = "directory"
+    UNREADABLE = "unreadable"
+    OUTSIDE_CWD = "outside_cwd"
+
+
+class FixFileSnapshot(ContractModel):
+    state: FixFileState
+    size_bytes: int | None = Field(default=None, ge=0)
+    sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    content_preview: str = ""
+    content_truncated: bool = False
+    error: str | None = None
+
+    @model_validator(mode="after")
+    def validate_state(self) -> FixFileSnapshot:
+        if self.state is FixFileState.FILE:
+            if self.size_bytes is None or self.sha256 is None:
+                raise ValueError("File snapshots require a size and SHA-256 digest")
+            if self.error is not None:
+                raise ValueError("Readable file snapshots cannot contain an error")
+            return self
+        if self.size_bytes is not None or self.sha256 is not None or self.content_preview:
+            raise ValueError("Non-file snapshots cannot contain file content metadata")
+        if self.content_truncated:
+            raise ValueError("Only file snapshots can contain truncated content")
+        if self.state in {FixFileState.UNREADABLE, FixFileState.OUTSIDE_CWD}:
+            if self.error is None:
+                raise ValueError("Unavailable file snapshots require an error")
+        elif self.error is not None:
+            raise ValueError("Missing and directory snapshots cannot contain an error")
+        return self
+
+
+class FixFileChange(ContractModel):
+    path: str = Field(min_length=1)
+    before: FixFileSnapshot
+    after: FixFileSnapshot | None = None
+    changed: bool | None = None
+
+    @model_validator(mode="after")
+    def validate_change(self) -> FixFileChange:
+        if self.after is None and self.changed is not None:
+            raise ValueError("A pending file change cannot declare whether it changed")
+        if self.after is not None and self.changed is None:
+            raise ValueError("A completed file change must declare whether it changed")
+        if self.after is not None and self.changed != (self.before != self.after):
+            raise ValueError("File change status must match the before and after snapshots")
+        return self
+
+
 class FixExecutionOutcome(ContractModel):
     """Audited command outcome; command completion is not repair verification."""
 
-    api_version: Literal["fix-execution-outcome/v1"] = "fix-execution-outcome/v1"
+    api_version: Literal["fix-execution-outcome/v2"] = "fix-execution-outcome/v2"
     status: FixExecutionStatus
     request: FixExecutionRequest
     candidate: FixCandidate
     verification_plan: VerificationPlan
     command_outcome: CommandApprovalOutcome
+    file_changes: list[FixFileChange] = Field(min_length=1, max_length=20)
 
     @model_validator(mode="after")
     def validate_outcome(self) -> FixExecutionOutcome:
@@ -497,6 +551,9 @@ class FixExecutionOutcome(ContractModel):
             raise ValueError("Fix execution request must match its candidate")
         if self.verification_plan.fix_id != self.candidate.fix_id:
             raise ValueError("Fix execution verification plan must match its candidate")
+        change_paths = [change.path for change in self.file_changes]
+        if change_paths != self.request.expected_changed_paths:
+            raise ValueError("Fix execution file changes must match expected changed paths")
         if self.command_outcome.approval is not None:
             pending_request = self.command_outcome.approval.pending_execution.request
             if pending_request != self.request.command:
@@ -507,17 +564,110 @@ class FixExecutionOutcome(ContractModel):
         if self.status is FixExecutionStatus.AWAITING_APPROVAL:
             if self.command_outcome.status is not CommandApprovalStatus.AWAITING_APPROVAL:
                 raise ValueError("Awaiting fix execution requires a pending command approval")
+            if any(change.after is not None for change in self.file_changes):
+                raise ValueError("Pending fix execution cannot contain after snapshots")
         elif self.status is FixExecutionStatus.REJECTED:
             if self.command_outcome.status is not CommandApprovalStatus.REJECTED:
                 raise ValueError("Rejected fix execution requires a rejected command")
+            if any(change.after is not None for change in self.file_changes):
+                raise ValueError("Rejected fix execution cannot contain after snapshots")
         elif self.command_outcome.status is not CommandApprovalStatus.FINISHED or execution is None:
             raise ValueError("Terminal fix execution requires a terminal command result")
+        elif any(change.after is None for change in self.file_changes):
+            raise ValueError("Terminal fix execution requires after snapshots")
         elif self.status is FixExecutionStatus.COMMAND_COMPLETED:
             if execution.status is not CommandExecutionStatus.COMPLETED:
                 raise ValueError("Completed fix execution requires a completed command")
         elif execution.status is CommandExecutionStatus.COMPLETED:
             raise ValueError("Failed fix execution cannot contain a completed command")
         return self
+
+
+class FixVerificationCheckKind(StrEnum):
+    FILE_CHANGE = "file_change"
+    STEP = "step"
+    BUSINESS_MILESTONE = "business_milestone"
+    REGRESSION = "regression"
+
+
+class FixVerificationCheck(ContractModel):
+    kind: FixVerificationCheckKind
+    requirement: str = Field(min_length=1)
+    status: VerificationStatus
+    statement: str = Field(min_length=1)
+    evidence_ids: list[str] = Field(default_factory=_new_strings)
+    missing_evidence: list[str] = Field(default_factory=_new_strings)
+
+    @model_validator(mode="after")
+    def validate_check(self) -> FixVerificationCheck:
+        if self.status is VerificationStatus.PLANNED:
+            raise ValueError("Verification results cannot remain planned")
+        if self.status in {VerificationStatus.PASSED, VerificationStatus.FAILED}:
+            if not self.evidence_ids:
+                raise ValueError("Passed or failed verification checks require evidence")
+        elif not self.missing_evidence:
+            raise ValueError("Unavailable verification checks require missing evidence")
+        if len(self.evidence_ids) != len(set(self.evidence_ids)):
+            raise ValueError("Verification check evidence IDs must be unique")
+        return self
+
+
+class FixVerificationDraft(ContractModel):
+    """Model assessment without authority to create verification evidence."""
+
+    api_version: Literal["fix-verification-draft/v1"] = "fix-verification-draft/v1"
+    fix_id: str = Field(min_length=1)
+    status: VerificationStatus
+    summary: str = Field(min_length=1)
+    checks: list[FixVerificationCheck] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_draft(self) -> FixVerificationDraft:
+        _validate_fix_verification_status(self.status, self.checks)
+        return self
+
+
+class FixVerificationResult(ContractModel):
+    api_version: Literal["fix-verification-result/v1"] = "fix-verification-result/v1"
+    fix_id: str = Field(min_length=1)
+    status: VerificationStatus
+    summary: str = Field(min_length=1)
+    checks: list[FixVerificationCheck] = Field(min_length=1)
+    evidence: list[Evidence] = Field(default_factory=list[Evidence])
+
+    @model_validator(mode="after")
+    def validate_result(self) -> FixVerificationResult:
+        evidence_ids = [item.id for item in self.evidence]
+        if len(evidence_ids) != len(set(evidence_ids)):
+            raise ValueError("Fix verification evidence IDs must be unique")
+        referenced = {evidence_id for check in self.checks for evidence_id in check.evidence_ids}
+        unknown = referenced - set(evidence_ids)
+        if unknown:
+            raise ValueError(
+                "Fix verification checks reference unknown evidence IDs: "
+                + ", ".join(sorted(unknown))
+            )
+        _validate_fix_verification_status(self.status, self.checks)
+        return self
+
+
+def _validate_fix_verification_status(
+    status: VerificationStatus,
+    checks: list[FixVerificationCheck],
+) -> None:
+    statuses = {check.status for check in checks}
+    if status is VerificationStatus.PASSED and statuses != {VerificationStatus.PASSED}:
+        raise ValueError("Passed fix verification requires every check to pass")
+    if status is VerificationStatus.FAILED and VerificationStatus.FAILED not in statuses:
+        raise ValueError("Failed fix verification requires a failed check")
+    if status is VerificationStatus.UNAVAILABLE and (
+        VerificationStatus.FAILED in statuses or VerificationStatus.UNAVAILABLE not in statuses
+    ):
+        raise ValueError(
+            "Unavailable fix verification requires an unavailable check and no failed checks"
+        )
+    if status is VerificationStatus.PLANNED:
+        raise ValueError("Fix verification results cannot remain planned")
 
 
 class SourceGuidance(ContractModel):

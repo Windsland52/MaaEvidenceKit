@@ -20,6 +20,7 @@ from maa_diagnostic_expert.contracts.workflow import (
     EvidenceResearchPlan,
     FixCandidate,
     FixCandidatePlan,
+    FixExecutionOutcome,
     FixPlanningStatus,
     IncidentComparison,
     IncidentCorrelationDraft,
@@ -594,6 +595,48 @@ def build_fix_execution_context(
         stage="plan_fix_execution",
         instruction="\n".join(lines),
         evidence=focused,
+    )
+
+
+def build_fix_verification_context(
+    execution: FixExecutionOutcome,
+    evidence: list[Evidence],
+) -> ReasoningContext:
+    """Build an evidence-only post-execution repair assessment request."""
+    plan = execution.verification_plan
+    lines = [
+        "Assess the executed repair against every planned verification requirement.",
+        "Return a verification draft only. Do not invent evidence or run more commands.",
+        "",
+        f"Fix ID: {execution.request.fix_id}",
+        f"Command execution status: {execution.status.value}",
+        "Expected changed paths:",
+        *(f"- {path}" for path in execution.request.expected_changed_paths),
+        "Verification steps:",
+        *(f"- {step}" for step in plan.steps),
+        "Business milestones:",
+        *(f"- {milestone}" for milestone in plan.business_milestones),
+        "Regression checks:",
+        *(f"- {check}" for check in plan.regression_checks),
+        "",
+        "Rules:",
+        "1. Return exactly one check for every path, step, business milestone, and regression",
+        "   requirement above, preserving each requirement string exactly.",
+        "2. Passed and failed checks must cite only supplied evidence IDs. Use unavailable and",
+        "   record missing evidence when the supplied evidence cannot prove an outcome.",
+        "3. Command exit code 0 proves only that the command completed, not that files changed,",
+        "   validation steps passed, or the repair works.",
+        "4. A MaaFramework success/task summary is not business-success evidence. A passed",
+        "   business milestone must cite explicit business_milestone evidence.",
+        "5. A passed file-change check requires deterministic before/after change evidence.",
+        "6. Mark the overall result passed only when every check passes; failed when any check",
+        "   fails; otherwise use unavailable.",
+        "7. Do not use current source or configuration to rewrite what pre-fix evidence showed.",
+    ]
+    return ReasoningContext(
+        stage="verify_fix",
+        instruction="\n".join(lines),
+        evidence=order_evidence_for_reasoning(evidence),
     )
 
 

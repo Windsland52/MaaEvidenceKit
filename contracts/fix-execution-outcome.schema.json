@@ -480,6 +480,120 @@
       "title": "FixExecutionStatus",
       "type": "string"
     },
+    "FixFileChange": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "before": {
+          "$ref": "#/$defs/FixFileSnapshot"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FixFileSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "changed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Changed"
+        }
+      },
+      "required": [
+        "path",
+        "before"
+      ],
+      "title": "FixFileChange",
+      "type": "object"
+    },
+    "FixFileSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "$ref": "#/$defs/FixFileState"
+        },
+        "size_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Bytes"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "content_preview": {
+          "default": "",
+          "title": "Content Preview",
+          "type": "string"
+        },
+        "content_truncated": {
+          "default": false,
+          "title": "Content Truncated",
+          "type": "boolean"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "FixFileSnapshot",
+      "type": "object"
+    },
+    "FixFileState": {
+      "enum": [
+        "missing",
+        "file",
+        "directory",
+        "unreadable",
+        "outside_cwd"
+      ],
+      "title": "FixFileState",
+      "type": "string"
+    },
     "FixMethod": {
       "enum": [
         "configuration",
@@ -695,8 +809,8 @@
   "description": "Audited command outcome; command completion is not repair verification.",
   "properties": {
     "api_version": {
-      "const": "fix-execution-outcome/v1",
-      "default": "fix-execution-outcome/v1",
+      "const": "fix-execution-outcome/v2",
+      "default": "fix-execution-outcome/v2",
       "title": "Api Version",
       "type": "string"
     },
@@ -714,6 +828,15 @@
     },
     "command_outcome": {
       "$ref": "#/$defs/CommandApprovalOutcome"
+    },
+    "file_changes": {
+      "items": {
+        "$ref": "#/$defs/FixFileChange"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "title": "File Changes",
+      "type": "array"
     }
   },
   "required": [
@@ -721,7 +844,8 @@
     "request",
     "candidate",
     "verification_plan",
-    "command_outcome"
+    "command_outcome",
+    "file_changes"
   ],
   "title": "FixExecutionOutcome",
   "type": "object"

@@ -85,6 +85,12 @@ backend can translate that one candidate into one exact `FixExecutionRequest`, b
 pauses for a harness-owned approval—even when the command executor is configured as `trusted`.
 Approval replays the exact pending command; rejection has no command side effect. A zero exit code
 is recorded only as `command_completed`, not as proof that the repair works.
+`FixVerificationWorkflow` captures bounded before/after snapshots for every declared changed path,
+then assesses every planned step, business milestone, and regression check against an authoritative
+evidence ledger. A file-change check cannot pass without a real snapshot difference, and a business
+milestone cannot pass from a command exit code or framework task summary; it must cite explicit
+`business_milestone` evidence from a replay or observation surface. Missing runtime evidence yields
+`unavailable`, never a guessed pass.
 Inputs that are unrelated to MaaFramework logs can therefore bypass MLA. Explicit graph state
 keeps the plan, inspection facts, authoritative evidence, model drafts, failures, and final
 results separate.

@@ -21,6 +21,8 @@ from maa_diagnostic_expert.contracts.workflow import (
     FixCandidatePlan,
     FixExecutionRequest,
     FixExecutionStatus,
+    FixFileSnapshot,
+    FixFileState,
     FixMethod,
     FixPlanningStatus,
     FixScope,
@@ -161,6 +163,9 @@ def test_model_planned_fix_waits_for_exact_explicit_approval(tmp_path: Path) -> 
 
     assert pending.status is FixExecutionStatus.AWAITING_APPROVAL
     assert not marker.exists()
+    [pending_change] = pending.file_changes
+    assert pending_change.before.state.value == "missing"
+    assert pending_change.after is None
     assert pending.command_outcome.approval is not None
     assert (
         pending.command_outcome.approval.pending_execution.policy.matched_rule
@@ -183,6 +188,10 @@ def test_model_planned_fix_waits_for_exact_explicit_approval(tmp_path: Path) -> 
     assert completed.command_outcome.execution is not None
     assert completed.command_outcome.execution.request == request.command
     assert completed.command_outcome.execution.approved
+    [completed_change] = completed.file_changes
+    assert completed_change.changed is True
+    assert completed_change.after is not None
+    assert completed_change.after.content_preview == "fixed"
 
 
 def test_rejected_fix_execution_has_no_side_effect(tmp_path: Path) -> None:
@@ -289,6 +298,11 @@ def test_fix_execution_denies_cwd_outside_configured_roots(tmp_path: Path) -> No
     assert outcome.command_outcome.approval is None
     assert outcome.command_outcome.execution is not None
     assert outcome.command_outcome.execution.status is CommandExecutionStatus.DENIED
+    [change] = outcome.file_changes
+    assert change.changed is False
+    assert change.before.state is FixFileState.UNREADABLE
+    assert change.before.error is not None
+    assert "not captured" in change.before.error
 
 
 def test_execution_request_rejects_path_traversal(tmp_path: Path) -> None:
@@ -303,3 +317,17 @@ def test_execution_request_rejects_path_traversal(tmp_path: Path) -> None:
             rationale="Invalid changed path.",
             expected_changed_paths=["../outside.txt"],
         )
+
+
+def test_file_snapshot_state_requires_matching_metadata() -> None:
+    with pytest.raises(ValidationError, match="require a size and SHA-256"):
+        FixFileSnapshot(state=FixFileState.FILE)
+
+    with pytest.raises(ValidationError, match="cannot contain file content metadata"):
+        FixFileSnapshot(
+            state=FixFileState.MISSING,
+            content_preview="invented content",
+        )
+
+    with pytest.raises(ValidationError, match="require an error"):
+        FixFileSnapshot(state=FixFileState.OUTSIDE_CWD)
