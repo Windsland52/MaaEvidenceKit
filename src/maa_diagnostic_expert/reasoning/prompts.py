@@ -323,12 +323,12 @@ def build_source_research_context(
         ]
     )
     lines = [
-        "Plan a bounded search of version-matched Maa project source.",
+        "Plan a bounded search of version-matched Maa implementation source.",
         "Return a structured source research plan, not a diagnosis.",
         "",
         "Reported diagnostic context:",
         reported_context,
-        f"Available source IDs: {', '.join(source_ids)}",
+        f"Available project/framework source IDs: {', '.join(source_ids)}",
         f"Actual/expected comparison status: {incident_comparison.status.value}",
         "",
         "Rules:",
@@ -341,7 +341,8 @@ def build_source_research_context(
         "6. Keep the plan small: at most five queries and only searches that could distinguish",
         "   plausible explanations or locate relevant project behavior.",
         "7. Use skip when focused source search is unlikely to add useful evidence.",
-        "8. Applicable source_guidance evidence must be respected when choosing paths.",
+        "8. Applicable source_guidance evidence must be respected when choosing paths for its",
+        "   project source; MaaFramework implementation queries may search implementation files.",
     ]
     return ReasoningContext(
         stage="plan_source_research",

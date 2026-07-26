@@ -460,7 +460,7 @@ def test_source_research_context_focuses_comparison_and_guidance() -> None:
         "pipeline",
         "guidance",
     ]
-    assert "Available source IDs: project" in context.instruction
+    assert "Available project/framework source IDs: project" in context.instruction
     assert "not a diagnosis" in context.instruction
 
 

@@ -95,6 +95,21 @@ _KNOWLEDGE_SOURCE_ROLES = {
     SourceRole.WIKI,
 }
 
+_IMPLEMENTATION_SOURCE_ROLES = {SourceRole.MAA_FRAMEWORK}
+
+
+def _available_implementation_source_ids(inspection: DeterministicInspection) -> list[str]:
+    require_revision = inspection.prepared.request.issue is not None
+    return [
+        snapshot.source_id
+        for snapshot in inspection.prepared.source_snapshots
+        if snapshot.role in _IMPLEMENTATION_SOURCE_ROLES
+        and source_snapshot_supports_object_read(
+            snapshot,
+            require_requested_revision=require_revision,
+        )
+    ]
+
 
 def _available_knowledge_sources(
     inspection: DeterministicInspection,
@@ -779,7 +794,10 @@ class DiagnosticWorkflow:
         if "error_message" in state:
             return "fail"
         inspection = state.get("inspection")
-        if inspection is not None and inspection.source_guidance_inspections:
+        if inspection is not None and (
+            inspection.source_guidance_inspections
+            or _available_implementation_source_ids(inspection)
+        ):
             return "plan_source_research"
         if inspection is not None and _available_knowledge_sources(inspection):
             return "plan_knowledge_research"
@@ -797,7 +815,13 @@ class DiagnosticWorkflow:
                 raise RuntimeError("source research planning requires deterministic inspection")
             source_ids = list(
                 dict.fromkeys(
-                    item.guidance.source_id for item in inspection.source_guidance_inspections
+                    [
+                        *(
+                            item.guidance.source_id
+                            for item in inspection.source_guidance_inspections
+                        ),
+                        *_available_implementation_source_ids(inspection),
+                    ]
                 )
             )
             context = build_source_research_context(

@@ -152,7 +152,7 @@ def plan_initial_investigation(
     runnable_project_source = _can_run_project_source_research(prepared)
     mse_project = _has_usable_mse_project(prepared)
     gui_source = _has_resolved_source(prepared, SourceRole.GUI)
-    framework_source = _has_resolved_source(prepared, SourceRole.MAA_FRAMEWORK)
+    framework_source = _has_usable_source(prepared, SourceRole.MAA_FRAMEWORK)
     has_dump = _has_available_dump(prepared)
     knowledge_source = _has_usable_knowledge_source(prepared)
 
@@ -244,16 +244,13 @@ def plan_initial_investigation(
             ),
             BranchDecision(
                 branch=InvestigationBranch.FRAMEWORK_SOURCE,
-                disposition=(
-                    BranchDisposition.DEFERRED if framework_source else BranchDisposition.SKIP
-                ),
+                disposition=BranchDisposition.RUN if framework_source else BranchDisposition.SKIP,
                 relevance=(
-                    AnalysisRelevance.UNDETERMINED
-                    if framework_source
-                    else AnalysisRelevance.NOT_RELEVANT
+                    AnalysisRelevance.USEFUL if framework_source else AnalysisRelevance.NOT_RELEVANT
                 ),
                 reason=(
-                    "MaaFramework source is resolved and may be investigated only when required."
+                    "Version-matched MaaFramework implementation source is available for "
+                    "bounded model-planned search."
                     if framework_source
                     else "No version-resolved MaaFramework source is available."
                 ),

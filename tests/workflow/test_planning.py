@@ -265,6 +265,36 @@ def test_plan_defers_general_source_search_without_supported_focus(
     assert "general source search remains deferred" in project_source.reason
 
 
+def test_plan_runs_version_matched_framework_implementation_search(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "Tasker.cpp").write_text("void run_task();", encoding="utf-8")
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    _git(tmp_path, "config", "user.email", "mde@example.invalid")
+    _git(tmp_path, "config", "user.name", "MDE Test")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "framework")
+    revision = _git(tmp_path, "rev-parse", "HEAD")
+    prepared = PreparedAnalysis(
+        request=AnalysisRequest(question="Inspect framework behavior."),
+        source_snapshots=[
+            SourceSnapshot(
+                source_id="framework",
+                role=SourceRole.MAA_FRAMEWORK,
+                path=tmp_path,
+                revision_backend=SourceRevisionBackend.GIT,
+                current_revision=revision,
+                resolution_status=RevisionResolutionStatus.NOT_REQUESTED,
+            )
+        ],
+    )
+
+    decision = _decision(prepared, InvestigationBranch.FRAMEWORK_SOURCE)
+
+    assert decision.disposition is BranchDisposition.RUN
+    assert decision.relevance is AnalysisRelevance.USEFUL
+    assert "implementation source" in decision.reason
+
+
 def test_plan_defers_focused_source_research_for_maa_syntax(tmp_path: Path) -> None:
     (tmp_path / "interface.json").write_text("{}", encoding="utf-8")
     (tmp_path / "src" / "MaaCore").mkdir(parents=True)
