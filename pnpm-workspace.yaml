@@ -1,5 +1,7 @@
 packages:
   - "packages/*"
+allowBuilds:
+  esbuild: true
 minimumReleaseAgeExclude:
   - '@windsland52/maa-log-adapter@1.0.1'
   - '@windsland52/maa-log-kernel@1.0.1'

@@ -9,7 +9,7 @@
     "mde-tool-adapter": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && esbuild dist/bundle.js --bundle --platform=node --format=cjs --target=node24 --main-fields=module,main --define:import.meta.url=undefined --outfile=../../src/maa_diagnostic_expert/_tool_adapter/cli.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "pnpm run build && node --test dist/index.test.js dist/cli.test.js"
   },
@@ -22,6 +22,7 @@
     "@windsland52/maa-log-tools": "1.2.2"
   },
   "devDependencies": {
-    "@maaxyz/maa-node": "5.12.2"
+    "@maaxyz/maa-node": "5.12.2",
+    "esbuild": "0.28.1"
   }
 }

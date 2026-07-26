@@ -45,8 +45,8 @@ def default_tool_adapter_path() -> Path:
     configured = os.environ.get("MDE_TOOL_ADAPTER_PATH")
     if configured:
         return Path(configured).expanduser().resolve()
-    repository_root = Path(__file__).resolve().parents[3]
-    return repository_root / "packages" / "tool-adapter" / "dist" / "cli.js"
+    package_root = Path(__file__).resolve().parents[1]
+    return package_root / "_tool_adapter" / "cli.cjs"
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,7 +59,8 @@ class JsonlToolAdapterClient:
         adapter_path = self.adapter_path.expanduser().resolve()
         if not adapter_path.is_file():
             raise ToolAdapterInvocationError(
-                f"Tool adapter is not built: {adapter_path}. Run 'pnpm build' first."
+                f"Tool adapter is unavailable: {adapter_path}. Reinstall the Python package or "
+                "configure MDE_TOOL_ADAPTER_PATH."
             )
         request = {
             "id": "python-inspect",

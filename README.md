@@ -117,8 +117,9 @@ sources, builds bounded GUI/custom overviews, and calls MLA only for classified 
 their containing input directories, or explicit ZIP inputs. When a project source checkout
 matches the requested revision (or represents the explicit current revision for a non-issue
 request), it also runs MSE project preflight. Python validates both analyzer outputs before adding
-facts to the evidence ledger. Run `pnpm build` first; use `--tool-adapter <path>` or
-`MDE_TOOL_ADAPTER_PATH` for a non-default adapter location.
+facts to the evidence ledger. The Python wheel ships a self-contained Node adapter; source
+checkouts refresh that bundled resource with `pnpm build`. Use `--tool-adapter <path>` or
+`MDE_TOOL_ADAPTER_PATH` for a non-default adapter location. Node.js 24 or newer is required.
 
 `diagnose` runs the currently implemented pipeline end to end: prepare, classify log sources,
 plan the overview, conditionally inspect with MLA/MSE, identify runtime versions, synthesize evidence,

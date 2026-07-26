@@ -33,15 +33,24 @@ def _client_with_response(
     return JsonlToolAdapterClient(adapter_path=adapter_path)
 
 
-def test_default_tool_adapter_path_still_resolves_from_repository_root(
+def test_default_tool_adapter_path_resolves_bundled_package_resource(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("MDE_TOOL_ADAPTER_PATH", raising=False)
-    repository_root = Path(__file__).resolve().parents[2]
+    package_root = Path(tool_adapter_module.__file__).resolve().parents[1]
 
-    assert default_tool_adapter_path() == (
-        repository_root / "packages" / "tool-adapter" / "dist" / "cli.js"
-    )
+    assert default_tool_adapter_path() == package_root / "_tool_adapter" / "cli.cjs"
+    assert default_tool_adapter_path().is_file()
+
+
+def test_default_tool_adapter_path_respects_environment_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configured = tmp_path / "custom-adapter.js"
+    monkeypatch.setenv("MDE_TOOL_ADAPTER_PATH", str(configured))
+
+    assert default_tool_adapter_path() == configured.resolve()
 
 
 def test_jsonl_client_accepts_matching_success_envelope(
