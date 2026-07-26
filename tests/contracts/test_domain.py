@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from maa_diagnostic_expert.contracts.domain import (
     AnalysisRequest,
     Conclusion,
+    DiagnosisDraft,
     DiagnosisResult,
     DiagnosisStatus,
     Evidence,
@@ -97,6 +98,36 @@ def test_failure_evidence_requires_primary_reliability() -> None:
             role=EvidenceRole.FAILURE,
             reliability=EvidenceReliability.SECONDARY,
         )
+
+
+def test_complete_diagnosis_draft_requires_a_conclusion() -> None:
+    with pytest.raises(ValidationError, match="at least one conclusion"):
+        DiagnosisDraft(
+            status=DiagnosisStatus.COMPLETE,
+            summary="No conclusion was produced.",
+        )
+
+
+def test_complete_diagnosis_result_requires_an_evidence_backed_conclusion() -> None:
+    with pytest.raises(ValidationError, match="evidence-backed conclusion"):
+        DiagnosisResult(
+            status=DiagnosisStatus.COMPLETE,
+            summary="No conclusion was produced.",
+        )
+
+
+def test_non_complete_diagnoses_may_have_no_conclusions() -> None:
+    draft = DiagnosisDraft(
+        status=DiagnosisStatus.INSUFFICIENT_EVIDENCE,
+        summary="More runtime evidence is required.",
+    )
+    result = DiagnosisResult(
+        status=DiagnosisStatus.INSUFFICIENT_EVIDENCE,
+        summary="More runtime evidence is required.",
+    )
+
+    assert draft.conclusions == []
+    assert result.conclusions == []
 
 
 @pytest.mark.parametrize(

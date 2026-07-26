@@ -281,8 +281,26 @@ def _new_conclusions() -> list[Conclusion]:
     return []
 
 
+_COMPLETE_DIAGNOSIS_JSON_SCHEMA: dict[str, JsonValue] = {
+    "allOf": [
+        {
+            "if": {
+                "properties": {"status": {"const": DiagnosisStatus.COMPLETE.value}},
+                "required": ["status"],
+            },
+            "then": {
+                "properties": {"conclusions": {"minItems": 1}},
+                "required": ["conclusions"],
+            },
+        }
+    ]
+}
+
+
 class DiagnosisDraft(ContractModel):
     """Model-produced interpretation without authority to create evidence."""
+
+    model_config = ConfigDict(json_schema_extra=_COMPLETE_DIAGNOSIS_JSON_SCHEMA)
 
     api_version: str = "diagnosis-draft/v1"
     status: DiagnosisStatus
@@ -290,12 +308,20 @@ class DiagnosisDraft(ContractModel):
     conclusions: list[Conclusion] = Field(default_factory=_new_conclusions)
     missing_evidence: list[str] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def require_complete_conclusions(self) -> DiagnosisDraft:
+        if self.status is DiagnosisStatus.COMPLETE and not self.conclusions:
+            raise ValueError("Complete diagnosis drafts require at least one conclusion")
+        return self
+
 
 def _new_evidence_items() -> list[Evidence]:
     return []
 
 
 class DiagnosisResult(ContractModel):
+    model_config = ConfigDict(json_schema_extra=_COMPLETE_DIAGNOSIS_JSON_SCHEMA)
+
     api_version: str = "diagnosis/v2"
     status: DiagnosisStatus
     summary: str = Field(min_length=1)
@@ -318,6 +344,10 @@ class DiagnosisResult(ContractModel):
         if unknown_ids:
             unknown = ", ".join(sorted(unknown_ids))
             raise ValueError(f"Conclusions reference unknown evidence IDs: {unknown}")
+        if self.status is DiagnosisStatus.COMPLETE and not self.conclusions:
+            raise ValueError(
+                "Complete diagnosis results require at least one evidence-backed conclusion"
+            )
         return self
 
 
