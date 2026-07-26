@@ -227,6 +227,7 @@ uv run ruff format --check .
 uv run pyright
 uv run maa-generate-contracts
 pnpm install
+pnpm test
 pnpm typecheck
 pnpm build
 ```

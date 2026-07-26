@@ -5,6 +5,7 @@
   "packageManager": "pnpm@11.5.0",
   "scripts": {
     "build": "pnpm --filter @maa-diagnostic-expert/tool-adapter build",
+    "test": "pnpm --filter @maa-diagnostic-expert/tool-adapter test",
     "typecheck": "pnpm --filter @maa-diagnostic-expert/tool-adapter typecheck"
   },
   "devDependencies": {
