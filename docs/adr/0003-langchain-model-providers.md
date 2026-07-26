@@ -32,5 +32,6 @@ not control graph transitions and cannot write to the evidence ledger.
 - MDE can add or upgrade provider packages without changing LangGraph nodes or diagnosis contracts.
 - Users install only the provider extras they need; the model-free stub remains the CLI default.
 - Provider differences in structured output remain explicit through `structured_output_method`.
-- Future tool calling will be implemented as bounded MDE graph transitions rather than delegated to
-  a provider-specific agent runtime.
+- The general-purpose model command-tool loop remains a future bounded MDE graph concern rather
+  than a provider-specific agent-runtime feature. Repair execution already uses a separate,
+  workflow-owned exact-request approval boundary.

@@ -1,7 +1,7 @@
 # Diagnostic workflow architecture
 
-This document describes the target MaaDiagnosticExpert workflow and distinguishes it from the
-smaller graph that is executable today.
+This document describes the executable MaaDiagnosticExpert MVP workflow and its remaining
+post-MVP boundaries.
 
 ## Diagnostic model
 
@@ -22,60 +22,50 @@ back to generic classification. It must not assume MXU or a fixed custom-agent l
 
 ## Python package boundaries
 
-- `contracts` owns shared request, evidence, MLA, and workflow models, but no investigation policy;
+- `contracts` owns shared request, evidence, MLA, workflow, and benchmark models, but no
+  investigation policy;
 - `discovery` resolves supplied inputs, repositories, and artifact source classifications;
 - `inspection` owns deterministic inspection results, performs analysis, and constructs the
   authoritative evidence ledger;
+- `knowledge` acquires and resolves verified, versioned Wiki catalogs;
 - `reasoning` owns model protocols, prompts, configuration, and provider integrations;
 - `workflow` owns LangGraph planning, transitions, and diagnosis validation;
+- `benchmark` owns external diagnosis evaluation and deterministic scoring;
 - `interfaces` exposes the CLI, TypeScript adapter client, and reports.
 
 The root package only re-exports the supported SDK surface. Tests mirror these domain packages so
-module ownership remains visible during future MSE, source-research, and Wiki work.
+module ownership remains visible as the implementation grows.
 
-## Target flow
+## Executable MVP flow
 
 ```mermaid
 flowchart TD
-    A[Collect and classify artifacts and source inputs] --> B{Run overview branches}
+    A[Prepare and classify artifacts and source inputs] --> B{Run available overview branches}
     B --> G[GUI and custom log overview]
-    B --> L[MLA global session and task overview]
+    B --> L[MLA session and task inspection]
     B --> M[MSE project preflight]
-    B --> D[Dump preflight]
-    B --> V[Extract project GUI and MaaFW versions]
+    B --> D[Minidump metadata preflight]
+    B --> V[Resolve MaaFW project and GUI versions]
 
-    G --> I[Merge incident candidates]
+    G --> I[Generate incident candidates]
     L --> I
     M --> I
     D --> I
     V --> I
 
-    I --> S{Select incident and relevant branches}
-    S -->|MaaFW execution relevant| ML[Focused MLA evidence queries]
-    S -->|Task or pipeline semantics relevant| MS[MSE expected configuration]
-    S -->|Project behavior relevant| PS[Version-matched project source and docs]
-    S -->|GUI behavior relevant| GS[Version-matched GUI source and docs]
-    S -->|Framework behavior relevant| FS[Version-matched MaaFW source and docs]
-    S -->|Crash relevant| DS[Dump investigation]
-    S -->|General Maa knowledge relevant| K[Version-matched Maa docs and Wiki navigation]
+    I --> S[Correlate reported incident]
+    S --> MS[Resolve focused MSE task and scoped source guidance]
+    MS --> C[Compare observed execution with expected configuration]
+    C --> R[Bounded version-matched implementation and knowledge research]
+    R --> Q[Up to two rounds of focused artifact evidence queries]
+    Q --> N[Model diagnosis]
+    N --> Z[Validate citations and missing-evidence claims]
+    Z --> F[Propose repair candidates]
+    F --> P[Build verification plans]
+    P --> O[Return diagnosis plans and evidence]
 
-    ML --> C[Compare actual and expected paths]
-    MS --> C
-    PS --> C
-    GS --> C
-    FS --> C
-    DS --> C
-    K --> C
-
-    C --> F{Enough evidence?}
-    F -->|No and budget remains| Q[Request a focused evidence window]
-    Q --> C
-    F -->|No and blocked| E[Report missing evidence]
-    F -->|Yes| R[Identify first divergence and propose minimal stable fix]
-    R --> T[Offline or runtime verification]
-    T --> X{Business milestone and regressions pass?}
-    X -->|No| C
-    X -->|Yes| Z[Validate evidence citations and emit diagnosis]
+    O -. explicit caller selection .-> X[FixExecutionWorkflow approval and exact replay]
+    X -. authoritative replay or observation evidence .-> T[FixVerificationWorkflow]
 ```
 
 MLA is not merely a fallback after GUI/custom-log analysis fails. Its global session and task
@@ -89,11 +79,13 @@ custom logs can identify the affected task and approximate time; MLA provides th
 of MaaFramework execution. Candidates retain the observations that produced them, and ambiguous
 selection remains explicit instead of choosing silently.
 
-Project, GUI, and MaaFramework versions should be extracted from logs. A single artifact may span
-multiple runtime versions, so every observation remains bound to its source, session, and time
-where available. The workflow must resolve the issue revision before inspecting source; current
-source is useful only to determine whether a later fix exists. A custom project agent normally
-follows the project/resource revision rather than receiving a synthetic independent version.
+MaaFramework versions are extracted from runtime logs, while project and GUI versions can be
+recorded from explicit, adapter-owned declarations in their supplied source roots. A single
+artifact may span multiple runtime versions, so every observation remains bound to its source,
+session, and time where available. The workflow must resolve the issue revision before inspecting
+source; current source is useful only to determine whether a later fix exists. A custom project
+agent normally follows the project/resource revision rather than receiving a synthetic independent
+version.
 
 ## Source and knowledge lookup
 
@@ -101,7 +93,7 @@ Before source inspection, MDE resolves applicable `AGENTS.md` files for the repo
 and target directory. Their scoped instructions govern structure, commands, and validation. Source
 lookup then searches the project repository itself, including its own documentation.
 
-MaaFramework documentation and future pipeline-writing guidance are searched at a fixed revision.
+MaaFramework documentation and pipeline-writing guidance are searched at a fixed revision.
 MDE does not require a maintainer to hand-author chunks: the model issues bounded searches and the
 deterministic layer returns focused passages. A Wiki may live in a separate Git repository, be
 published online, and be cached locally at a pinned revision. It is navigation knowledge, not
@@ -140,9 +132,11 @@ Implemented now:
 - bounded GUI/custom overview statistics and traceable warning/error occurrences;
 - typed initial investigation planning;
 - conditional MLA preflight/runtime inspection;
+- bounded Minidump exception and system metadata extraction without inferred root cause;
 - revision-matched MSE project preflight through a one-shot read-only project snapshot;
 - MSE interface task bindings, controller/resource configuration summaries, and static diagnostics;
 - source- and session-scoped MaaFramework runtime-version extraction with line-backed evidence;
+- explicit project and GUI release-version declarations with source-backed observations;
 - bounded incident candidate generation from notable MLA tasks and GUI/custom log occurrences;
 - conditional model-assisted incident correlation with candidate/evidence reference validation;
 - bounded focused MSE task/node resolution after incident correlation, including effective
@@ -152,20 +146,33 @@ Implemented now:
 - bounded scoped `AGENTS.md` resolution for focused version-matched project files;
 - model-planned, bounded literal Git search over version-matched focused project source, with
   deterministic line-window evidence;
+- model-planned, bounded literal Git search over version-matched GUI and MaaFramework
+  implementation source;
 - model-planned, bounded literal Git search over explicit MaaFramework/documentation/Wiki inputs,
   with navigation-only Wiki citation enforcement;
 - deterministic Wiki-to-original follow-up for fixed-commit links and explicitly supplied,
   revision-matched original Git sources;
+- up to two model-planned rounds of focused raw-artifact evidence windows, with deterministic path
+  authorization and size limits;
+- validated repair candidates and per-candidate verification plans after a complete diagnosis;
+- standalone exact-request repair execution with mandatory harness-owned approval, plus bounded
+  before/after snapshots and evidence-backed milestone/regression verification;
+- external case/annotation contracts, independent model judging, and deterministic benchmark
+  scoring with provenance validation;
 - empty deterministic inspection when neither MLA nor MSE has an eligible input;
 - evidence synthesis, pluggable model reasoning, citation validation, and diagnostic events.
 
-Represented by contracts but deferred:
+Remaining beyond the MVP:
 
 - additional real-world GUI/custom source profiles;
-- dump analysis;
-- project/GUI version extraction and revision-matched source investigation;
-- online knowledge synchronization;
-- bounded evidence-query loops, fix execution, and verification nodes.
+- full native dump debugging beyond built-in Minidump exception/system metadata;
+- additional project/GUI version declaration adapters beyond the supported explicit formats;
+- unrestricted whole-repository project investigation when no supported focused task target can be
+  derived;
+- automatic upstream Wiki catalog construction and synchronization (verified remote catalog and
+  GitHub Release acquisition are already supported when explicitly requested);
+- a general-purpose model command-tool loop. Repair execution remains a deliberately separate,
+  caller-driven approval workflow instead of an automatic `DiagnosticWorkflow` transition.
 
-`deferred` is an implementation status, not evidence that a branch is irrelevant. Benchmarks and
-callers can use it to distinguish unavailable work from a deliberate `skip` decision.
+An investigation-plan `deferred` decision remains an implementation status, not evidence that a
+branch is irrelevant. Callers and benchmarks can distinguish it from a deliberate `skip` decision.

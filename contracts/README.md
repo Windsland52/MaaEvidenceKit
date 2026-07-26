@@ -26,7 +26,13 @@ Generated contracts cover:
   candidate and evidence references are validated by Python
 - `InvestigationPlan`, with run, skip, and deferred decisions for each diagnostic branch
 - `FixCandidate` and `VerificationPlan`, separating a proposed change from proof of its outcome
+- `FixExecutionRequest` and `FixExecutionOutcome`, preserving exact approved-command replay and
+  audit state
+- `FixVerificationDraft` and `FixVerificationResult`, separating model assessment from validated
+  file, milestone, and regression evidence
+- command request, policy, approval, and execution-result contracts for the Python harness boundary
 - external benchmark case, annotation, judge draft, and scored-result contracts, keeping
   observation-cutoff inputs separate from gold adjudication
+- Wiki catalog manifest and status contracts for pinned, verified knowledge snapshots
 - `SourceGuidance`, representing revision- and path-scoped `AGENTS.md` instructions
 - the JSONL tool-adapter request and response envelopes

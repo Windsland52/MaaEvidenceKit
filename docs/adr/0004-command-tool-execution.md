@@ -45,10 +45,11 @@ mode explicitly authorize execution in the host environment. A future hosted or 
 must replace this backend with a container, worker, or OS sandbox without changing the command
 contracts.
 
-Model tool calling will be added as explicit LangGraph transitions. It must not be hidden inside
-the existing one-shot structured-output reasoning calls. An approval-required result will pause
-or route the graph through a user-confirmation surface before the same request is resubmitted with
-approval.
+General-purpose model tool calling is not part of the current `DiagnosticWorkflow`. Any future
+tool loop must use explicit, bounded LangGraph transitions and must not be hidden inside one-shot
+structured-output reasoning calls. The reusable `CommandApprovalWorkflow` already pauses or routes
+an approval-required request through a user-confirmation surface before the same request is
+resubmitted with approval.
 
 Repair execution adds a stricter workflow-level override: a model-planned repair command always
 requires explicit approval, including in `trusted` mode. This override can turn an allowed command

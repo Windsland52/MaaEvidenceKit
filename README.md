@@ -1,6 +1,6 @@
 # MaaDiagnosticExpert
 
-`MaaDiagnosticExpert` is being rebuilt as a Python-first diagnostic agent for Maa projects.
+`MaaDiagnosticExpert` is a Python-first diagnostic agent for Maa projects.
 
 The new architecture separates three concerns:
 
@@ -16,9 +16,11 @@ commands; standalone MDE will use a small Python harness with a user-configured 
 
 ```text
 src/maa_diagnostic_expert/
+  benchmark/                External diagnosis evaluation and deterministic scoring
   contracts/                Serialized domain, MLA, and workflow contracts
   discovery/                Input, source, and artifact discovery
   inspection/               Deterministic inspection and evidence extraction
+  knowledge/                Versioned Wiki catalog acquisition and resolution
   reasoning/                Model protocols, prompts, providers, and command tools
   workflow/                 LangGraph planning, orchestration, and validation
   interfaces/               CLI, JSONL tool adapter, and report rendering
@@ -31,7 +33,19 @@ tests/                       Python tests mirroring the Python domain packages
 The root Python package is a public facade and module entry point. New implementation modules
 belong in one of the domain packages above instead of being added to the package root.
 
-## Current milestone
+## MVP status
+
+The diagnostic MVP is implemented. It can run the evidence-backed diagnosis pipeline end to end,
+produce validated repair candidates and verification plans, and expose explicitly approved repair
+execution and post-change verification as separate SDK workflows. The separation is deliberate:
+`DiagnosticWorkflow` never applies a proposed change automatically.
+
+The remaining items are post-MVP breadth and automation rather than missing diagnostic
+foundations: full native dump debugging beyond built-in Minidump metadata, unrestricted source
+investigation when no focused target can be derived, broader project/GUI/custom source adapters,
+and a general-purpose model command-tool loop.
+
+## Implemented milestone
 
 The framework-independent foundation includes:
 
@@ -110,9 +124,11 @@ filesystem access and are not a sandbox. `trusted` and `disabled` modes are expl
 Timeouts, filtered environments, bounded previews, full truncated output files, and serialized
 execution results are implemented. A reusable LangGraph command workflow exposes explicit
 submit, approval pause, approve/reject resume, and audited execution transitions. Approval is a
-harness-owned response and is never accepted from a model call. The diagnosis repair nodes do not
-yet issue commands; they will consume this boundary instead of executing inside a one-shot
-structured-output reasoning call.
+harness-owned response and is never accepted from a model call. `FixExecutionWorkflow` consumes
+this boundary for one explicitly selected repair candidate and always pauses for approval;
+`FixVerificationWorkflow` separately evaluates the resulting evidence. These caller-driven
+workflows are not hidden inside a one-shot structured-output reasoning call or automatically
+chained into `DiagnosticWorkflow`.
 
 The runtime and orchestration decisions are recorded in
 [ADR 0001](docs/adr/0001-runtime-and-agent-surfaces.md) and
@@ -172,10 +188,11 @@ keeps incident candidates ambiguous and reports that free-form correlation was u
 MaaFramework logs have a built-in classifier; files under a `custom/` directory receive a
 conservative custom-log classification. Known GUI and project formats plug in through
 `LogSourceProfile`, while unmatched logs remain `unknown` instead of being guessed or sent to MLA.
-Dump inspection, unrestricted general source investigation, and the model command-tool loop remain
-deferred. See
-[the workflow architecture](docs/workflow-architecture.md) for the target flow and implementation
-status.
+Built-in dump inspection is intentionally limited to direct Minidump metadata such as exception
+code, thread, address, and system information; it is not a native debugger. Unrestricted general
+source investigation and a general-purpose model command-tool loop remain deferred. See
+[the workflow architecture](docs/workflow-architecture.md) for the implemented flow and exact
+post-MVP boundaries.
 
 Pass `--model-config <path>` to use a LangChain chat model instead of the stub. Install only the
 provider integrations needed by the deployment, for example `uv sync --extra openai`,
