@@ -124,8 +124,12 @@ checkouts refresh that bundled resource with `pnpm build`. Use `--tool-adapter <
 `diagnose` runs the currently implemented pipeline end to end: prepare, classify log sources,
 plan the overview, conditionally inspect with MLA/MSE, identify runtime versions, synthesize evidence,
 generate incident candidates, conditionally correlate the reported issue, resolve focused expected
-pipeline configuration, compare actual execution with expected configuration, reason, and
-validate. It
+pipeline configuration, compare actual execution with expected configuration, gather focused raw
+artifact windows when the reasoning backend requests them, reason, and validate. Adaptive evidence
+research is limited to two rounds of at most three windows each. Every window must identify an
+explicitly prepared text, log, or configuration artifact and remains subject to the same 400-line
+and 40,000-character limits as `query-evidence`; accepted windows enter the validated evidence
+ledger before final reasoning. It
 uses the deterministic stub reasoning backend by default (no model credentials required). Pass `--events
 <path>` to write the diagnostic event stream as JSON lines alongside the result. When MLA runs,
 the produced `DiagnosisResult` cites evidence IDs that trace back to MLA runtime facts. A request

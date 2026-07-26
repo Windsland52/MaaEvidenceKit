@@ -19,11 +19,13 @@ from maa_diagnostic_expert.contracts.domain import (
     DiagnosisStatus,
     DiagnosticEvent,
     DiagnosticEventKind,
+    EvidenceQuery,
     EvidenceReliability,
     SourceInput,
     SourceRole,
 )
 from maa_diagnostic_expert.contracts.workflow import (
+    EvidenceResearchPlan,
     IncidentCorrelationDraft,
     IncidentSelectionStatus,
     KnowledgeResearchPlan,
@@ -132,6 +134,14 @@ class _InventingReasoningSession:
                     relevant_candidate_ids=[candidate.candidate_id],
                     evidence_ids=[candidate.evidence_ids[0]],
                     rationale="The report names the same task and time.",
+                ),
+            )
+        if result_type is EvidenceResearchPlan:
+            return cast(
+                ResultT,
+                EvidenceResearchPlan(
+                    status=SourceResearchStatus.SKIP,
+                    rationale="No focused window is needed for this test.",
                 ),
             )
         del context, result_type
@@ -295,6 +305,14 @@ class _SourceResearchSession:
                     ],
                 ),
             )
+        if result_type is EvidenceResearchPlan:
+            return cast(
+                ResultT,
+                EvidenceResearchPlan(
+                    status=SourceResearchStatus.SKIP,
+                    rationale="Current evidence is sufficient.",
+                ),
+            )
         if result_type is DiagnosisDraft:
             primary = next(
                 item for item in context.evidence if item.reliability is EvidenceReliability.PRIMARY
@@ -354,6 +372,14 @@ class _KnowledgeResearchSession:
                     ],
                 ),
             )
+        if result_type is EvidenceResearchPlan:
+            return cast(
+                ResultT,
+                EvidenceResearchPlan(
+                    status=SourceResearchStatus.SKIP,
+                    rationale="Current evidence is sufficient.",
+                ),
+            )
         if result_type is DiagnosisDraft:
             document = next(
                 item for item in context.evidence if item.kind == "knowledge_document_match"
@@ -385,6 +411,70 @@ class _KnowledgeResearchBackend:
     async def start(self, *, run_id: str) -> _KnowledgeResearchSession:
         del run_id
         return _KnowledgeResearchSession(self.contexts)
+
+
+class _AdaptiveEvidenceSession:
+    def __init__(self, backend: _AdaptiveEvidenceBackend) -> None:
+        self.backend = backend
+
+    async def reason[ResultT: ContractModel](
+        self, context: ReasoningContext, result_type: type[ResultT]
+    ) -> ResultT:
+        if result_type is EvidenceResearchPlan:
+            self.backend.plan_calls += 1
+            if self.backend.plan_calls == 1:
+                return cast(
+                    ResultT,
+                    EvidenceResearchPlan(
+                        status=SourceResearchStatus.RUN,
+                        rationale="Read the focused failure detail.",
+                        queries=[
+                            EvidenceQuery(
+                                source_path=self.backend.log_path,
+                                line_start=2,
+                                line_end=3,
+                                reason="Inspect the reported failure detail.",
+                            )
+                        ],
+                    ),
+                )
+            return cast(
+                ResultT,
+                EvidenceResearchPlan(
+                    status=SourceResearchStatus.SKIP,
+                    rationale="The focused detail is now available.",
+                ),
+            )
+        if result_type is DiagnosisDraft:
+            window = next(item for item in context.evidence if item.kind == "text_line_window")
+            return cast(
+                ResultT,
+                DiagnosisDraft(
+                    status=DiagnosisStatus.COMPLETE,
+                    summary="The focused custom log detail was inspected.",
+                    conclusions=[
+                        Conclusion(
+                            statement="The custom operation failed after its retry.",
+                            evidence_ids=[window.id],
+                            confidence=0.9,
+                        )
+                    ],
+                ),
+            )
+        raise TypeError(result_type.__name__)
+
+    async def close(self) -> None:
+        pass
+
+
+class _AdaptiveEvidenceBackend:
+    def __init__(self, log_path: Path) -> None:
+        self.log_path = log_path
+        self.plan_calls = 0
+
+    async def start(self, *, run_id: str) -> _AdaptiveEvidenceSession:
+        del run_id
+        return _AdaptiveEvidenceSession(self)
 
 
 def _make_directory_with_log(tmp_path: Path) -> Path:
@@ -536,6 +626,7 @@ def test_stream_emits_events_in_order(tmp_path: Path) -> None:
     ]
     assert model_request_stages == [
         "correlate_incident",
+        "plan_evidence_research",
         "reason",
     ]
     assert completed_stages == [
@@ -680,6 +771,34 @@ def test_workflow_does_not_send_custom_log_to_mla(tmp_path: Path) -> None:
     )
     assert any(event.stage == "overview_logs" for event in events)
     assert any(event.stage == "synthesize" and event.data.get("evidence") == 1 for event in events)
+
+
+def test_workflow_adaptively_queries_focused_raw_evidence(tmp_path: Path) -> None:
+    custom = tmp_path / "custom"
+    custom.mkdir()
+    log = custom / "agent.log"
+    log.write_text(
+        "operation started\nretry exhausted\noperation failed\nunrelated tail\n",
+        encoding="utf-8",
+    )
+    backend = _AdaptiveEvidenceBackend(log.resolve())
+    workflow = DiagnosticWorkflow(_ToolCaller(), backend)
+    request = AnalysisRequest(
+        question="Why did the custom operation fail?",
+        artifacts=[ArtifactInput(path=log, kind=ArtifactKind.FILE)],
+    )
+
+    events = _collect_events(workflow, request)
+
+    assert backend.plan_calls == 2
+    assert workflow.result is not None
+    assert workflow.result.status is DiagnosisStatus.COMPLETE
+    [window] = workflow.result.evidence
+    assert window.kind == "text_line_window"
+    assert window.line_start == 2
+    assert window.line_end == 3
+    assert window.content == "retry exhausted\noperation failed"
+    assert any(event.stage == "query_evidence" for event in events)
 
 
 def test_workflow_runs_model_planned_versioned_source_search(

@@ -11,9 +11,11 @@ from maa_diagnostic_expert.contracts.domain import (
     EvidenceReliability,
     EvidenceRole,
     MissingEvidence,
+    PreparedAnalysis,
     SourceRole,
 )
 from maa_diagnostic_expert.contracts.workflow import (
+    EvidenceResearchPlan,
     IncidentComparison,
     IncidentCorrelationDraft,
     IncidentSelection,
@@ -22,6 +24,7 @@ from maa_diagnostic_expert.contracts.workflow import (
     SourceResearchPlan,
     SourceResearchStatus,
 )
+from maa_diagnostic_expert.inspection.adaptive_evidence import available_evidence_query_paths
 
 from .evidence_budget import render_model_evidence_item
 from .protocol import ReasoningContext
@@ -260,6 +263,39 @@ def build_reasoning_context(
     )
 
 
+def build_evidence_research_context(
+    reported_context: str,
+    evidence: list[Evidence],
+    prepared: PreparedAnalysis,
+    *,
+    round_number: int,
+    max_rounds: int,
+) -> ReasoningContext:
+    paths = available_evidence_query_paths(prepared)
+    lines = [
+        "Decide whether focused raw artifact windows are needed before diagnosis.",
+        "Return a bounded evidence research plan, not a diagnosis.",
+        "",
+        "Reported diagnostic context:",
+        reported_context,
+        f"Adaptive evidence round: {round_number} of {max_rounds}.",
+        "Available text artifact paths:",
+        *(f"- {path}" for path in paths),
+        "",
+        "Rules:",
+        "1. Use only an exact path listed above.",
+        "2. Request at most three windows and at most 400 lines per window.",
+        "3. Use focused line ranges supported by current evidence; do not request whole logs.",
+        "4. Use skip when current evidence is sufficient or no focused window is justified.",
+        "5. Query results are evidence, not automatic root-cause conclusions.",
+    ]
+    return ReasoningContext(
+        stage="plan_evidence_research",
+        instruction="\n".join(lines),
+        evidence=order_evidence_for_reasoning(evidence),
+    )
+
+
 def build_incident_correlation_context(
     reported_context: str,
     evidence: list[Evidence],
@@ -487,6 +523,13 @@ def _stub_plan_knowledge_research() -> KnowledgeResearchPlan:
     )
 
 
+def _stub_plan_evidence_research() -> EvidenceResearchPlan:
+    return EvidenceResearchPlan(
+        status=SourceResearchStatus.SKIP,
+        rationale="The deterministic stub does not request additional raw evidence.",
+    )
+
+
 class StubReasoningSession:
     """Deterministic reasoning session for testing without a model."""
 
@@ -517,6 +560,8 @@ class StubReasoningSession:
             return cast(ResultT, _stub_plan_source_research())
         if result_type is KnowledgeResearchPlan:
             return cast(ResultT, _stub_plan_knowledge_research())
+        if result_type is EvidenceResearchPlan:
+            return cast(ResultT, _stub_plan_evidence_research())
         raise TypeError(f"Stub backend cannot produce {result_type.__name__}")
 
     async def close(self) -> None:

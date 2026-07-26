@@ -114,9 +114,10 @@ def _new_incident_comparison() -> IncidentComparison:
 
 
 class DeterministicInspection(ContractModel):
-    api_version: Literal["deterministic-inspection/v16"] = "deterministic-inspection/v16"
+    api_version: Literal["deterministic-inspection/v17"] = "deterministic-inspection/v17"
     prepared: PreparedAnalysis
     artifact_evidence: list[Evidence] = Field(default_factory=_new_synthesized_evidence)
+    queried_evidence: list[Evidence] = Field(default_factory=_new_synthesized_evidence)
     log_overviews: LogOverviewCollection = Field(default_factory=LogOverviewCollection)
     runtime_identity: RuntimeIdentity = Field(default_factory=RuntimeIdentity)
     incident_selection: IncidentSelection = Field(default_factory=_new_incident_selection)

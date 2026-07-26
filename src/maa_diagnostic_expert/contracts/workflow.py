@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
-from .domain import ContractModel, MissingEvidence, SourceRole
+from .domain import ContractModel, EvidenceQuery, MissingEvidence, SourceRole
 
 
 class RuntimeComponent(StrEnum):
@@ -468,4 +468,26 @@ class KnowledgeResearchPlan(ContractModel):
             raise ValueError("A running knowledge research plan requires at least one query")
         if self.status is SourceResearchStatus.SKIP and self.queries:
             raise ValueError("A skipped knowledge research plan cannot contain queries")
+        return self
+
+
+class EvidenceResearchPlan(ContractModel):
+    """A bounded request for focused windows from authorized diagnostic artifacts."""
+
+    api_version: Literal["evidence-research-plan/v1"] = "evidence-research-plan/v1"
+    status: SourceResearchStatus
+    queries: list[EvidenceQuery] = Field(default_factory=list[EvidenceQuery], max_length=3)
+    rationale: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_plan(self) -> EvidenceResearchPlan:
+        query_keys = [
+            (str(query.source_path), query.line_start, query.line_end) for query in self.queries
+        ]
+        if len(query_keys) != len(set(query_keys)):
+            raise ValueError("Evidence research queries must be unique")
+        if self.status is SourceResearchStatus.RUN and not self.queries:
+            raise ValueError("A running evidence research plan requires at least one query")
+        if self.status is SourceResearchStatus.SKIP and self.queries:
+            raise ValueError("A skipped evidence research plan cannot contain queries")
         return self

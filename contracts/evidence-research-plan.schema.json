@@ -1,0 +1,77 @@
+{
+  "$defs": {
+    "EvidenceQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "source_path": {
+          "format": "path",
+          "title": "Source Path",
+          "type": "string"
+        },
+        "line_start": {
+          "minimum": 1,
+          "title": "Line Start",
+          "type": "integer"
+        },
+        "line_end": {
+          "minimum": 1,
+          "title": "Line End",
+          "type": "integer"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_path",
+        "line_start",
+        "line_end",
+        "reason"
+      ],
+      "title": "EvidenceQuery",
+      "type": "object"
+    },
+    "SourceResearchStatus": {
+      "enum": [
+        "run",
+        "skip"
+      ],
+      "title": "SourceResearchStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A bounded request for focused windows from authorized diagnostic artifacts.",
+  "properties": {
+    "api_version": {
+      "const": "evidence-research-plan/v1",
+      "default": "evidence-research-plan/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/SourceResearchStatus"
+    },
+    "queries": {
+      "items": {
+        "$ref": "#/$defs/EvidenceQuery"
+      },
+      "maxItems": 3,
+      "title": "Queries",
+      "type": "array"
+    },
+    "rationale": {
+      "minLength": 1,
+      "title": "Rationale",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "rationale"
+  ],
+  "title": "EvidenceResearchPlan",
+  "type": "object"
+}

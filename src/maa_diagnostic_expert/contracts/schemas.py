@@ -29,6 +29,7 @@ from .mla import MlaPreflightResult, MlaRuntimeInspectionResult
 from .mse import MseProjectPreflightResult, MseTaskResolutionResult
 from .workflow import (
     ArtifactSourceInventory,
+    EvidenceResearchPlan,
     FixCandidate,
     IncidentComparison,
     IncidentCorrelationDraft,
@@ -52,6 +53,7 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "evidence.schema.json": Evidence,
     "evidence-query.schema.json": EvidenceQuery,
     "evidence-window.schema.json": EvidenceWindow,
+    "evidence-research-plan.schema.json": EvidenceResearchPlan,
     "prepared-analysis.schema.json": PreparedAnalysis,
     "reasoning-request.schema.json": ReasoningRequest,
     "process-command-request.schema.json": ProcessCommandRequest,

@@ -11,6 +11,7 @@ from maa_diagnostic_expert.contracts.domain import (
     AnalysisRequest,
     ArtifactInput,
     ArtifactKind,
+    EvidenceQuery,
     PreparedAnalysis,
     RevisionResolutionStatus,
     SourceRevisionBackend,
@@ -21,6 +22,7 @@ from maa_diagnostic_expert.contracts.workflow import (
     AnalysisRelevance,
     BranchDecision,
     BranchDisposition,
+    EvidenceResearchPlan,
     FixCandidate,
     FixMethod,
     FixScope,
@@ -29,6 +31,7 @@ from maa_diagnostic_expert.contracts.workflow import (
     IncidentSelectionStatus,
     InvestigationBranch,
     SourceGuidance,
+    SourceResearchStatus,
 )
 from maa_diagnostic_expert.discovery.preparation import prepare_analysis
 from maa_diagnostic_expert.workflow.planning import plan_initial_investigation
@@ -464,3 +467,32 @@ def test_standalone_workflow_contracts_are_versioned() -> None:
 
     assert fix.api_version == "fix-candidate/v1"
     assert guidance.api_version == "source-guidance/v1"
+
+
+def test_evidence_research_plan_requires_bounded_unique_queries(tmp_path: Path) -> None:
+    query = EvidenceQuery(
+        source_path=tmp_path / "debug.log",
+        line_start=10,
+        line_end=20,
+        reason="Inspect the failure boundary.",
+    )
+    plan = EvidenceResearchPlan(
+        status=SourceResearchStatus.RUN,
+        queries=[query],
+        rationale="A focused raw window can distinguish the failure mechanism.",
+    )
+
+    assert plan.api_version == "evidence-research-plan/v1"
+
+    with pytest.raises(ValidationError, match="must be unique"):
+        EvidenceResearchPlan(
+            status=SourceResearchStatus.RUN,
+            queries=[query, query],
+            rationale="Duplicate query.",
+        )
+    with pytest.raises(ValidationError, match="cannot contain queries"):
+        EvidenceResearchPlan(
+            status=SourceResearchStatus.SKIP,
+            queries=[query],
+            rationale="Invalid skipped plan.",
+        )

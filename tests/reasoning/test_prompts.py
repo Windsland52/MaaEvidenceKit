@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
 from maa_diagnostic_expert.contracts.domain import (
+    AnalysisRequest,
+    ArtifactInput,
+    ArtifactKind,
     ContractModel,
     DiagnosisDraft,
     DiagnosisStatus,
@@ -28,6 +32,7 @@ from maa_diagnostic_expert.contracts.workflow import (
     SourceResearchPlan,
     SourceResearchStatus,
 )
+from maa_diagnostic_expert.discovery.preparation import prepare_analysis
 from maa_diagnostic_expert.reasoning.evidence_budget import (
     MODEL_EVIDENCE_MAX_CHARACTERS,
     MODEL_EVIDENCE_MAX_ITEM_CHARACTERS,
@@ -36,6 +41,7 @@ from maa_diagnostic_expert.reasoning.evidence_budget import (
 from maa_diagnostic_expert.reasoning.prompts import (
     StubReasoningBackend,
     StubReasoningSession,
+    build_evidence_research_context,
     build_incident_correlation_context,
     build_knowledge_research_context,
     build_reasoning_context,
@@ -202,6 +208,36 @@ def test_build_reasoning_context_orders_evidence() -> None:
     assert [e.id for e in context.evidence] == ["pri", "ctx"]
     request = context.to_request()
     assert request.evidence_ids == ["pri", "ctx"]
+
+
+def test_evidence_research_context_lists_only_queryable_text_artifacts(tmp_path: Path) -> None:
+    log = tmp_path / "debug.log"
+    image = tmp_path / "failure.png"
+    log.write_text("first\nsecond\n", encoding="utf-8")
+    image.write_bytes(b"image")
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="Inspect the failure.",
+            artifacts=[
+                ArtifactInput(path=log, kind=ArtifactKind.FILE),
+                ArtifactInput(path=image, kind=ArtifactKind.FILE),
+            ],
+        )
+    )
+
+    context = build_evidence_research_context(
+        "Inspect the failure.",
+        [],
+        prepared,
+        round_number=1,
+        max_rounds=2,
+    )
+
+    assert context.stage == "plan_evidence_research"
+    assert str(log.resolve()) in context.instruction
+    assert str(image.resolve()) not in context.instruction
+    assert "Adaptive evidence round: 1 of 2" in context.instruction
+    assert "at most three windows" in context.instruction
 
 
 def test_reasoning_context_bounds_model_evidence_count_and_reports_omissions() -> None:

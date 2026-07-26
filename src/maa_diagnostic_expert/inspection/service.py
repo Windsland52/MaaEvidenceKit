@@ -246,6 +246,7 @@ def synthesize_inspection_evidence(
     """Attach project-owned evidence records derived from deterministic facts."""
     evidence = [
         *inspection.artifact_evidence,
+        *inspection.queried_evidence,
         *synthesize_runtime_identity_evidence(inspection.runtime_identity),
         *synthesize_log_overview_evidence(inspection.log_overviews),
         *synthesize_evidence(inspection.mla_runtime_inspections),

@@ -27,6 +27,7 @@ from maa_diagnostic_expert.contracts.domain import (
 from maa_diagnostic_expert.contracts.workflow import (
     ArtifactSourceInventory,
     BranchDisposition,
+    EvidenceResearchPlan,
     IncidentCorrelationDraft,
     InvestigationBranch,
     InvestigationPlan,
@@ -41,6 +42,10 @@ from maa_diagnostic_expert.discovery.artifact_classification import (
 from maa_diagnostic_expert.discovery.preparation import prepare_analysis
 from maa_diagnostic_expert.discovery.source_preparation import (
     source_snapshot_supports_object_read,
+)
+from maa_diagnostic_expert.inspection.adaptive_evidence import (
+    available_evidence_query_paths,
+    execute_evidence_research,
 )
 from maa_diagnostic_expert.inspection.incident_comparison import (
     compare_incident_execution,
@@ -71,6 +76,7 @@ from maa_diagnostic_expert.inspection.source_search import (
 from maa_diagnostic_expert.inspection.time_ranges import collect_time_range_missing_evidence
 from maa_diagnostic_expert.inspection.tooling import ToolCaller
 from maa_diagnostic_expert.reasoning.prompts import (
+    build_evidence_research_context,
     build_incident_correlation_context,
     build_knowledge_research_context,
     build_reasoning_context,
@@ -88,6 +94,7 @@ from .validation import (
 )
 
 _DEFAULT_QUESTION = "Diagnose the runtime failures and their likely causes."
+_MAX_ADAPTIVE_EVIDENCE_ROUNDS = 2
 
 _KNOWLEDGE_SOURCE_ROLES = {
     SourceRole.MAA_FRAMEWORK,
@@ -1028,26 +1035,79 @@ class DiagnosticWorkflow:
             inspection = state.get("inspection")
             if inspection is None:
                 raise RuntimeError("reasoning requires deterministic inspection")
-            evidence = state.get("evidence", [])
-            context: ReasoningContext = build_reasoning_context(
-                _reported_context(state["request"]),
-                evidence,
-                inspection.incident_selection,
-                state.get("incident_correlation"),
-                inspection.incident_comparison,
-                prepared_missing_evidence=inspection.prepared.missing_evidence,
-            )
-
-            _emit(
-                _WorkflowUpdate(
-                    kind=DiagnosticEventKind.MODEL_REQUESTED,
-                    stage="reason",
-                    message="Requesting diagnostic reasoning",
-                    data={"evidence_count": len(evidence)},
-                )
-            )
             session = await self.reasoning_backend.start(run_id=self.run_id)
             try:
+                evidence = state.get("evidence", [])
+                available_paths = available_evidence_query_paths(inspection.prepared)
+                authorized_paths = {path.resolve() for path in available_paths}
+                for round_number in range(1, _MAX_ADAPTIVE_EVIDENCE_ROUNDS + 1):
+                    if not available_paths:
+                        break
+                    research_context = build_evidence_research_context(
+                        _reported_context(state["request"]),
+                        evidence,
+                        inspection.prepared,
+                        round_number=round_number,
+                        max_rounds=_MAX_ADAPTIVE_EVIDENCE_ROUNDS,
+                    )
+                    _emit(
+                        _WorkflowUpdate(
+                            kind=DiagnosticEventKind.MODEL_REQUESTED,
+                            stage="plan_evidence_research",
+                            message="Requesting focused evidence window plan",
+                            data={
+                                "round": round_number,
+                                "evidence_count": len(research_context.evidence),
+                            },
+                        )
+                    )
+                    research_plan = await session.reason(
+                        research_context,
+                        EvidenceResearchPlan,
+                    )
+                    if research_plan.status is SourceResearchStatus.SKIP:
+                        break
+                    unknown_paths = {
+                        query.source_path.resolve()
+                        for query in research_plan.queries
+                        if query.source_path.resolve() not in authorized_paths
+                    }
+                    if unknown_paths:
+                        raise ValueError(
+                            "Evidence research plan references unauthorized paths: "
+                            + ", ".join(str(path) for path in sorted(unknown_paths, key=str))
+                        )
+                    inspection = execute_evidence_research(inspection, research_plan)
+                    inspection = synthesize_inspection_evidence(inspection)
+                    evidence = collect_inspection_evidence(inspection)
+                    _emit(
+                        _WorkflowUpdate(
+                            kind=DiagnosticEventKind.EVIDENCE_ADDED,
+                            stage="query_evidence",
+                            message="Focused evidence windows added",
+                            data={
+                                "round": round_number,
+                                "queried": len(inspection.queried_evidence),
+                            },
+                        )
+                    )
+
+                context: ReasoningContext = build_reasoning_context(
+                    _reported_context(state["request"]),
+                    evidence,
+                    inspection.incident_selection,
+                    state.get("incident_correlation"),
+                    inspection.incident_comparison,
+                    prepared_missing_evidence=inspection.prepared.missing_evidence,
+                )
+                _emit(
+                    _WorkflowUpdate(
+                        kind=DiagnosticEventKind.MODEL_REQUESTED,
+                        stage="reason",
+                        message="Requesting diagnostic reasoning",
+                        data={"evidence_count": len(evidence)},
+                    )
+                )
                 draft = await session.reason(context, DiagnosisDraft)
             finally:
                 await session.close()
@@ -1062,7 +1122,7 @@ class DiagnosticWorkflow:
                 data={"conclusions": len(draft.conclusions)},
             )
         )
-        return {"draft": draft}
+        return {"inspection": inspection, "evidence": evidence, "draft": draft}
 
     @staticmethod
     def _after_reason(state: DiagnosticState) -> Literal["validate", "fail"]:
