@@ -1,5 +1,6 @@
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -41,11 +42,20 @@ _REVISION = "a" * 40
 _DOCUMENT_PATH = "generated/maa-framework/5.12.2/documentation/zh-cn.md"
 
 
-def _manifest(content: bytes) -> WikiCatalogManifest:
+def _manifest(
+    content: bytes,
+    source_revision: str = "b" * 40,
+) -> WikiCatalogManifest:
     return WikiCatalogManifest(
         wiki_revision=_REVISION,
         working_tree_clean=True,
-        sources=[WikiCatalogSource(source_id="maafw", version="5.12.2", revision="b" * 40)],
+        sources=[
+            WikiCatalogSource(
+                source_id="maafw",
+                version="5.12.2",
+                revision=source_revision,
+            )
+        ],
         files=[
             WikiCatalogFile(
                 path=_DOCUMENT_PATH,
@@ -56,9 +66,12 @@ def _manifest(content: bytes) -> WikiCatalogManifest:
     )
 
 
-def _snapshot(path: Path) -> Path:
-    content = b"Pipeline next list recognition timeout.\n"
-    manifest = _manifest(content)
+def _snapshot(
+    path: Path,
+    content: bytes = b"Pipeline next list recognition timeout.\n",
+    source_revision: str = "b" * 40,
+) -> Path:
+    manifest = _manifest(content, source_revision)
     document = path / manifest.files[0].path
     document.parent.mkdir(parents=True)
     document.write_bytes(content)
@@ -66,6 +79,29 @@ def _snapshot(path: Path) -> Path:
         manifest.model_dump_json(indent=2) + "\n", encoding="utf-8"
     )
     return path
+
+
+def _git(repository: Path, *arguments: str) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(repository), *arguments],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    return completed.stdout.strip()
+
+
+def _original_repository(path: Path) -> tuple[Path, str]:
+    path.mkdir()
+    _git(path, "init")
+    _git(path, "config", "user.name", "MDE Test")
+    _git(path, "config", "user.email", "mde-test@example.invalid")
+    document = path / "docs" / "pipeline.md"
+    document.parent.mkdir()
+    document.write_text("Pipeline next list recognition timeout.\n", encoding="utf-8")
+    _git(path, "add", ".")
+    _git(path, "commit", "-m", "documentation")
+    return path, _git(path, "rev-parse", "HEAD")
 
 
 def _bundle(path: Path) -> Path:
@@ -127,6 +163,70 @@ def test_snapshot_is_revisioned_and_searchable_without_git(tmp_path: Path) -> No
     assert prepared.source_snapshots[0].resolved_revision == _REVISION
     assert match.source_locator.startswith(f"catalog:maa-llm-wiki@{_REVISION}:")
     assert evidence.kind == "wiki_navigation_match"
+
+
+def test_catalog_navigation_resolves_explicit_original_git_source(tmp_path: Path) -> None:
+    original, original_revision = _original_repository(tmp_path / "framework")
+    navigation = (
+        "Pipeline next list recognition timeout. "
+        "[`docs/pipeline.md`](https://github.com/example/framework/blob/"
+        f"{original_revision}/docs/pipeline.md)\n"
+    ).encode()
+    snapshot = _snapshot(
+        tmp_path / "wiki",
+        navigation,
+        original_revision,
+    )
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="Explain the timeout.",
+            sources=[
+                SourceInput(
+                    source_id="framework",
+                    role=SourceRole.MAA_FRAMEWORK,
+                    path=original,
+                    revision=original_revision,
+                ),
+                SourceInput(
+                    source_id="maa-llm-wiki",
+                    role=SourceRole.WIKI,
+                    path=snapshot,
+                    revision=_REVISION,
+                ),
+            ],
+        )
+    )
+    plan = KnowledgeResearchPlan(
+        status=SourceResearchStatus.RUN,
+        rationale="Resolve a Wiki navigation result to original documentation.",
+        queries=[
+            SourceSearchQuery(
+                query_id="timeout-doc",
+                source_id="maa-llm-wiki",
+                terms=["next list"],
+                paths=["generated"],
+                reason="Locate timeout documentation.",
+                context_lines=0,
+                max_results=5,
+            )
+        ],
+    )
+
+    result = execute_knowledge_research(DeterministicInspection(prepared=prepared), plan)
+    evidence = synthesize_knowledge_search_evidence(result.knowledge_search_matches)
+
+    assert {match.source_role for match in result.knowledge_search_matches} == {
+        SourceRole.WIKI,
+        SourceRole.MAA_FRAMEWORK,
+    }
+    original_match = next(
+        match for match in result.knowledge_search_matches if match.source_id == "framework"
+    )
+    assert original_match.source_locator == (f"git:framework@{original_revision}:docs/pipeline.md")
+    assert {item.kind for item in evidence} == {
+        "wiki_navigation_match",
+        "knowledge_document_match",
+    }
 
 
 @pytest.mark.parametrize("tamper", ["listed_file", "extra_file"])

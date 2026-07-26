@@ -70,7 +70,11 @@ may request up to five literal, path-scoped searches of the version-matched proj
 Python executes them with Git and returns only bounded line windows as secondary evidence.
 Explicit `documentation`, `wiki`, and MaaFramework source inputs can also enter a separate bounded
 knowledge-search stage. Original documentation passages are context evidence; Wiki passages are
-navigation-only and validation rejects conclusions that cite them directly.
+navigation-only and validation rejects conclusions that cite them directly. When a matched Wiki
+line contains a GitHub `blob/<40-character-commit>/<path>` link, Python follows it only into one
+explicitly supplied `maa_framework` or `documentation` Git source at that exact commit. The
+follow-up remains bounded and returns original, citable evidence; an absent or mismatched checkout
+is reported as missing evidence instead of falling back to current source.
 After a complete diagnosis, a separate model stage may return up to three repair candidates.
 Python rejects unknown evidence IDs, navigation-only citations, and candidates that do not cite
 at least one diagnosis-conclusion evidence record. These are proposals only: they do not write
@@ -167,8 +171,8 @@ keeps incident candidates ambiguous and reports that free-form correlation was u
 MaaFramework logs have a built-in classifier; files under a `custom/` directory receive a
 conservative custom-log classification. Known GUI and project formats plug in through
 `LogSourceProfile`, while unmatched logs remain `unknown` instead of being guessed or sent to MLA.
-Dump inspection, unrestricted general source investigation, the model command-tool loop, and
-Wiki-to-original-document follow-up search remain deferred. See
+Dump inspection, unrestricted general source investigation, and the model command-tool loop remain
+deferred. See
 [the workflow architecture](docs/workflow-architecture.md) for the target flow and implementation
 status.
 
@@ -236,8 +240,10 @@ and optional hash can also be configured through `MDE_WIKI_CATALOG_URL` and
 versioned asset from `Windsland52/MaaLLMWiki`, verifies GitHub's asset digest, and stores discovery
 metadata for offline reuse. Set `MDE_WIKI_GITHUB_REPOSITORY` for another repository and
 `GH_TOKEN` or `GITHUB_TOKEN` for authenticated API access. Wiki arguments are accepted by
-`prepare`, `inspect`, and `diagnose`. Snapshot navigation remains context evidence only;
-conclusions must return to the original version-pinned documentation or source.
+`prepare`, `inspect`, and `diagnose`. Snapshot navigation remains context evidence only. Supported
+fixed-commit GitHub links are automatically resolved against explicitly supplied,
+revision-matched Git sources; this lookup does not clone, fetch, or use a newer checkout.
+Conclusions may cite the resulting original passage, not the Wiki navigation record.
 
 ## Host-agent integration
 

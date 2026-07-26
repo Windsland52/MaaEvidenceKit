@@ -103,14 +103,17 @@ lookup then searches the project repository itself, including its own documentat
 
 MaaFramework documentation and future pipeline-writing guidance are searched at a fixed revision.
 MDE does not require a maintainer to hand-author chunks: the model issues bounded searches and the
-deterministic layer returns focused passages. A future Wiki may live in a separate Git repository,
-published online and cached locally at a pinned revision. It is navigation knowledge, not runtime
-evidence; conclusions must return to the original document or source before citing a fact.
+deterministic layer returns focused passages. A Wiki may live in a separate Git repository, be
+published online, and be cached locally at a pinned revision. It is navigation knowledge, not
+runtime evidence; conclusions must return to the original document or source before citing a fact.
 
-The first implemented knowledge surface accepts explicit local Git inputs. `documentation` marks
-original passages that may be cited as context; `wiki` marks navigation passages that cannot be
-cited by a conclusion. MDE never updates or downloads these repositories during diagnosis. Online
-synchronization and an automatic Wiki-to-original-document follow-up loop remain separate work.
+The knowledge surface accepts explicit local Git inputs. `documentation` marks original passages
+that may be cited as context; `wiki` marks navigation passages that cannot be cited by a conclusion.
+A Wiki match containing a fixed GitHub blob commit and path is followed only into an explicit
+MaaFramework/documentation checkout at that exact commit, under the normal bounded source-window
+limits. Missing or ambiguous original checkouts are recorded as missing evidence. MDE never updates,
+clones, or downloads these repositories during diagnosis; online synchronization remains separate
+work.
 
 ## Repair and verification
 
@@ -151,6 +154,8 @@ Implemented now:
   deterministic line-window evidence;
 - model-planned, bounded literal Git search over explicit MaaFramework/documentation/Wiki inputs,
   with navigation-only Wiki citation enforcement;
+- deterministic Wiki-to-original follow-up for fixed-commit links and explicitly supplied,
+  revision-matched original Git sources;
 - empty deterministic inspection when neither MLA nor MSE has an eligible input;
 - evidence synthesis, pluggable model reasoning, citation validation, and diagnostic events.
 
@@ -159,7 +164,7 @@ Represented by contracts but deferred:
 - additional real-world GUI/custom source profiles;
 - dump analysis;
 - project/GUI version extraction and revision-matched source investigation;
-- online knowledge synchronization and Wiki-to-original-document follow-up search;
+- online knowledge synchronization;
 - bounded evidence-query loops, fix execution, and verification nodes.
 
 `deferred` is an implementation status, not evidence that a branch is irrelevant. Benchmarks and

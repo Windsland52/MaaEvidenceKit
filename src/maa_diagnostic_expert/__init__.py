@@ -172,6 +172,7 @@ from .inspection.source_guidance import (
 from .inspection.source_search import (
     execute_knowledge_research,
     execute_source_research,
+    resolve_wiki_original_sources,
     synthesize_knowledge_search_evidence,
     synthesize_source_search_evidence,
 )
@@ -415,6 +416,7 @@ __all__ = [
     "resolve_github_wiki_catalog",
     "resolve_remote_wiki_catalog",
     "resolve_wiki_catalog",
+    "resolve_wiki_original_sources",
     "resolve_focused_source_guidance",
     "synthesize_evidence",
     "synthesize_fix_execution_evidence",

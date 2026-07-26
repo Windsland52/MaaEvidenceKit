@@ -54,6 +54,74 @@ def _repository(tmp_path: Path) -> tuple[Path, str]:
     return repository, _git(repository, "rev-parse", "HEAD")
 
 
+def _wiki_repository(
+    tmp_path: Path,
+    *,
+    original_revision: str,
+    original_path: str = "src/login.py",
+) -> tuple[Path, str]:
+    repository = tmp_path / "wiki"
+    repository.mkdir()
+    _git(repository, "init")
+    _git(repository, "config", "user.name", "MDE Test")
+    _git(repository, "config", "user.email", "mde-test@example.invalid")
+    (repository / "guide.md").write_text(
+        "- LoginButton: inspect the original implementation. "
+        f"[`{original_path}`](https://github.com/example/project/blob/"
+        f"{original_revision}/{original_path})\n",
+        encoding="utf-8",
+    )
+    _git(repository, "add", ".")
+    _git(repository, "commit", "-m", "wiki navigation")
+    return repository, _git(repository, "rev-parse", "HEAD")
+
+
+def _wiki_knowledge_inspection(
+    original: Path,
+    original_revision: str,
+    wiki: Path,
+    wiki_revision: str,
+) -> DeterministicInspection:
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="Inspect login behavior.",
+            sources=[
+                SourceInput(
+                    source_id="framework",
+                    role=SourceRole.MAA_FRAMEWORK,
+                    path=original,
+                    revision=original_revision,
+                ),
+                SourceInput(
+                    source_id="wiki",
+                    role=SourceRole.WIKI,
+                    path=wiki,
+                    revision=wiki_revision,
+                ),
+            ],
+        )
+    )
+    return DeterministicInspection(prepared=prepared)
+
+
+def _wiki_plan() -> KnowledgeResearchPlan:
+    return KnowledgeResearchPlan(
+        status=SourceResearchStatus.RUN,
+        rationale="Use the Wiki to locate the original implementation.",
+        queries=[
+            SourceSearchQuery(
+                query_id="wiki-login",
+                source_id="wiki",
+                terms=["LoginButton"],
+                paths=["guide.md"],
+                reason="Locate the version-pinned original source.",
+                context_lines=0,
+                max_results=5,
+            )
+        ],
+    )
+
+
 def _inspection(
     repository: Path,
     revision: str,
@@ -290,6 +358,108 @@ def test_knowledge_search_classifies_document_and_wiki_evidence(
     assert inspection.source_search_matches == []
     assert evidence[0].kind == expected_kind
     assert evidence[0].reliability is EvidenceReliability.CONTEXT
+
+
+def test_wiki_navigation_resolves_revision_matched_original_source(tmp_path: Path) -> None:
+    original, original_revision = _repository(tmp_path)
+    wiki, wiki_revision = _wiki_repository(
+        tmp_path,
+        original_revision=original_revision,
+    )
+
+    inspection = execute_knowledge_research(
+        _wiki_knowledge_inspection(
+            original,
+            original_revision,
+            wiki,
+            wiki_revision,
+        ),
+        _wiki_plan(),
+    )
+    evidence = synthesize_knowledge_search_evidence(inspection.knowledge_search_matches)
+
+    assert {match.source_role for match in inspection.knowledge_search_matches} == {
+        SourceRole.WIKI,
+        SourceRole.MAA_FRAMEWORK,
+    }
+    original_match = next(
+        match
+        for match in inspection.knowledge_search_matches
+        if match.source_role is SourceRole.MAA_FRAMEWORK
+    )
+    assert original_match.relative_path == "src/login.py"
+    assert original_match.source_locator == (f"git:framework@{original_revision}:src/login.py")
+    assert "committed" in original_match.content
+    assert {item.kind for item in evidence} == {
+        "wiki_navigation_match",
+        "knowledge_document_match",
+    }
+
+
+def test_wiki_navigation_does_not_fall_back_to_newer_source_revision(
+    tmp_path: Path,
+) -> None:
+    original, linked_revision = _repository(tmp_path)
+    wiki, wiki_revision = _wiki_repository(
+        tmp_path,
+        original_revision=linked_revision,
+    )
+    (original / "src" / "login.py").write_text(
+        "def NewLoginButton():\n    return 'new'\n",
+        encoding="utf-8",
+    )
+    _git(original, "add", ".")
+    _git(original, "commit", "-m", "new source")
+    current_revision = _git(original, "rev-parse", "HEAD")
+
+    inspection = execute_knowledge_research(
+        _wiki_knowledge_inspection(
+            original,
+            current_revision,
+            wiki,
+            wiki_revision,
+        ),
+        _wiki_plan(),
+    )
+
+    assert [match.source_role for match in inspection.knowledge_search_matches] == [SourceRole.WIKI]
+    assert "wiki_original_source_unavailable" in {
+        item.code for item in inspection.prepared.missing_evidence
+    }
+
+
+@pytest.mark.parametrize(
+    "original_path",
+    [
+        "src/login.py?ref=main",
+        "src/%2E%2E/secrets.txt",
+    ],
+)
+def test_wiki_navigation_rejects_unpinned_or_traversing_original_locator(
+    tmp_path: Path,
+    original_path: str,
+) -> None:
+    original, original_revision = _repository(tmp_path)
+    wiki, wiki_revision = _wiki_repository(
+        tmp_path,
+        original_revision=("main" if "ref=main" in original_path else original_revision),
+        original_path=original_path,
+    )
+
+    inspection = execute_knowledge_research(
+        _wiki_knowledge_inspection(
+            original,
+            original_revision,
+            wiki,
+            wiki_revision,
+        ),
+        _wiki_plan(),
+    )
+
+    assert [match.source_role for match in inspection.knowledge_search_matches] == [SourceRole.WIKI]
+    assert "wiki_original_locator_unavailable" in {
+        item.code for item in inspection.prepared.missing_evidence
+    }
 
 
 def test_knowledge_search_rejects_project_source(tmp_path: Path) -> None:

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import re
 import subprocess
-from pathlib import Path
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+from urllib.parse import unquote
 
 from maa_diagnostic_expert.contracts.domain import (
     Evidence,
@@ -16,6 +20,7 @@ from maa_diagnostic_expert.contracts.domain import (
 from maa_diagnostic_expert.contracts.workflow import (
     KnowledgeResearchPlan,
     SourceResearchPlan,
+    SourceResearchStatus,
     SourceSearchQuery,
 )
 from maa_diagnostic_expert.discovery.source_preparation import (
@@ -34,6 +39,15 @@ _DEFAULT_FRAMEWORK_DOCUMENTATION_PATHS = [
     "documentation",
     "README.md",
 ]
+_MAX_WIKI_ORIGINAL_QUERIES = 5
+_MARKDOWN_GITHUB_LINK = re.compile(r"\]\((https://github\.com/[^\s)]+)\)")
+_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+
+
+@dataclass(frozen=True, slots=True)
+class _WikiOriginalLocator:
+    revision: str
+    path: str
 
 
 def _is_framework_documentation_path(path: str) -> bool:
@@ -376,12 +390,208 @@ def execute_knowledge_research(
         rationale=plan.rationale,
     )
     searched = execute_source_research(inspection_with_missing, source_plan)
-    return searched.model_copy(
+    knowledge = searched.model_copy(
         update={
             "source_search_matches": inspection.source_search_matches,
             "knowledge_search_matches": searched.source_search_matches,
         }
     )
+    return resolve_wiki_original_sources(knowledge)
+
+
+def resolve_wiki_original_sources(
+    inspection: DeterministicInspection,
+) -> DeterministicInspection:
+    """Follow pinned Wiki navigation links into explicit revision-matched Git sources."""
+    wiki_matches = [
+        match
+        for match in inspection.knowledge_search_matches
+        if match.source_role is SourceRole.WIKI
+    ]
+    if not wiki_matches:
+        return inspection
+
+    require_revision = inspection.prepared.request.issue is not None
+    originals_by_revision: dict[str, list[SourceSnapshot]] = {}
+    for snapshot in inspection.prepared.source_snapshots:
+        if snapshot.role not in {SourceRole.MAA_FRAMEWORK, SourceRole.DOCUMENTATION}:
+            continue
+        revision = source_snapshot_object_revision(
+            snapshot,
+            require_requested_revision=require_revision,
+        )
+        if revision is not None:
+            originals_by_revision.setdefault(revision, []).append(snapshot)
+
+    missing = list(inspection.prepared.missing_evidence)
+    queries: list[SourceSearchQuery] = []
+    query_keys: set[tuple[str, str, tuple[str, ...]]] = set()
+    truncated = False
+    for match in wiki_matches:
+        locators = _wiki_original_locators(match)
+        if not locators:
+            missing.append(
+                MissingEvidence(
+                    code="wiki_original_locator_unavailable",
+                    message=(
+                        f"Wiki navigation match '{match.evidence_id}' has no supported "
+                        "revision-pinned original-source link on its matched line."
+                    ),
+                    source_id=match.source_id,
+                    required=False,
+                )
+            )
+            continue
+        for locator in locators:
+            candidates = originals_by_revision.get(locator.revision, [])
+            if not candidates:
+                missing.append(
+                    MissingEvidence(
+                        code="wiki_original_source_unavailable",
+                        message=(
+                            f"Wiki original '{locator.path}' at {locator.revision} has "
+                            "no explicit revision-matched source checkout."
+                        ),
+                        source_id=match.source_id,
+                        required=True,
+                    )
+                )
+                continue
+            compatible = [
+                (snapshot, relative_path)
+                for snapshot in candidates
+                if (relative_path := _path_within_snapshot(snapshot, locator.path)) is not None
+            ]
+            if not compatible:
+                missing.append(
+                    MissingEvidence(
+                        code="wiki_original_path_unavailable",
+                        message=(
+                            f"Wiki original '{locator.path}' is outside every explicit "
+                            "revision-matched source root."
+                        ),
+                        source_id=match.source_id,
+                    )
+                )
+                continue
+            preferred = [item for item in compatible if item[0].role is SourceRole.DOCUMENTATION]
+            selected = preferred or compatible
+            if len(selected) != 1:
+                missing.append(
+                    MissingEvidence(
+                        code="wiki_original_source_unavailable",
+                        message=(
+                            f"Wiki original '{locator.path}' at {locator.revision} matches "
+                            "multiple eligible explicit source checkouts."
+                        ),
+                        source_id=match.source_id,
+                        required=True,
+                    )
+                )
+                continue
+            snapshot, relative_path = selected[0]
+            terms = tuple(match.matched_terms)
+            key = (snapshot.source_id, relative_path, terms)
+            if key in query_keys:
+                continue
+            if len(queries) >= _MAX_WIKI_ORIGINAL_QUERIES:
+                truncated = True
+                continue
+            query_keys.add(key)
+            digest = hashlib.sha256("|".join((key[0], key[1], *key[2])).encode()).hexdigest()[:16]
+            queries.append(
+                SourceSearchQuery(
+                    query_id=f"wiki-original-{digest}",
+                    source_id=snapshot.source_id,
+                    terms=list(terms),
+                    paths=[relative_path],
+                    reason=(
+                        f"Resolve Wiki navigation evidence {match.evidence_id} to its "
+                        "revision-matched original source."
+                    ),
+                    context_lines=6,
+                    max_results=5,
+                )
+            )
+    if truncated:
+        missing.append(
+            MissingEvidence(
+                code="wiki_original_resolution_truncated",
+                message=(
+                    "Wiki original-source follow-up was truncated at "
+                    f"{_MAX_WIKI_ORIGINAL_QUERIES} queries."
+                ),
+                required=False,
+            )
+        )
+
+    prepared = inspection.prepared.model_copy(update={"missing_evidence": missing})
+    inspection_with_missing = inspection.model_copy(update={"prepared": prepared})
+    if not queries:
+        return inspection_with_missing
+    searched = execute_source_research(
+        inspection_with_missing,
+        SourceResearchPlan(
+            status=SourceResearchStatus.RUN,
+            queries=queries,
+            rationale="Resolve pinned Wiki navigation matches to original sources.",
+        ),
+    )
+    combined: dict[str, SourceSearchMatch] = {
+        match.evidence_id: match for match in inspection.knowledge_search_matches
+    }
+    for match in searched.source_search_matches:
+        combined.setdefault(match.evidence_id, match)
+    return searched.model_copy(
+        update={
+            "source_search_matches": inspection.source_search_matches,
+            "knowledge_search_matches": list(combined.values()),
+        }
+    )
+
+
+def _wiki_original_locators(match: SourceSearchMatch) -> list[_WikiOriginalLocator]:
+    lines = match.content.splitlines()
+    index = match.line - match.line_start
+    if index < 0 or index >= len(lines):
+        return []
+    locators: list[_WikiOriginalLocator] = []
+    for raw_url in _MARKDOWN_GITHUB_LINK.findall(lines[index]):
+        path_url = raw_url.split("#", maxsplit=1)[0].split("?", maxsplit=1)[0]
+        parts = path_url.removeprefix("https://github.com/").split("/")
+        if len(parts) < 5 or parts[2] != "blob" or not _COMMIT_PATTERN.fullmatch(parts[3]):
+            continue
+        raw_path = unquote("/".join(parts[4:])).replace("\\", "/")
+        path = PurePosixPath(raw_path)
+        if (
+            not raw_path
+            or len(raw_path) > 300
+            or any(ord(character) < 32 for character in raw_path)
+            or path.is_absolute()
+            or ".." in path.parts
+            or any(part.casefold() == ".git" for part in path.parts)
+        ):
+            continue
+        locator = _WikiOriginalLocator(revision=parts[3], path=raw_path)
+        if locator not in locators:
+            locators.append(locator)
+    return locators
+
+
+def _path_within_snapshot(snapshot: SourceSnapshot, original_path: str) -> str | None:
+    try:
+        repository = _repository_root(snapshot)
+        prefix = snapshot.path.resolve().relative_to(repository).as_posix()
+    except (OSError, ValueError):
+        return None
+    path = PurePosixPath(original_path)
+    if not prefix:
+        return path.as_posix()
+    prefix_parts = PurePosixPath(prefix).parts
+    if path.parts[: len(prefix_parts)] != prefix_parts:
+        return None
+    relative = PurePosixPath(*path.parts[len(prefix_parts) :])
+    return relative.as_posix() if relative.parts else None
 
 
 def synthesize_source_search_evidence(
