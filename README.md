@@ -134,6 +134,7 @@ uv run maa-diagnostic-expert diagnose --request request.json --fix-plan fix-plan
 uv run maa-diagnostic-expert diagnose --request request.json --verification-plan verification.json --output diagnosis.json
 uv run maa-diagnostic-expert query-evidence --prepared inspection.json --request evidence-query.json --output evidence-window.json
 uv run maa-diagnostic-expert validate-result --input diagnosis.json --inspection inspection.json --evidence-window evidence-window.json
+uv run maa-diagnostic-benchmark --case case.json --annotation annotation.json --diagnosis diagnosis.json --judge-model-config judge-model.json --output benchmark-result.json
 ~~~
 
 `prepare` only inventories explicitly supplied artifacts and source metadata. It does not extract
@@ -252,6 +253,12 @@ backend. The [`skills/maa-diagnostic/SKILL.md`](skills/maa-diagnostic/SKILL.md) 
 the full workflow: prepare a request, run `inspect` for structured evidence, query raw log windows
 when needed, and form a diagnosis citing evidence IDs. Copy or symlink this skill into the agent's
 workspace to enable MaaFramework log diagnosis.
+
+Model-dependent diagnosis evaluation lives in the external benchmark harness documented under
+[`benchmarks/`](benchmarks/README.md). Gold annotations and real case payloads are never passed to
+the system under test or added to the unit-test gate. The harness validates judge references and
+computes a deterministic evidence/conclusion/forbidden-claim score without serializing model
+configuration or credentials.
 
 ## Development
 

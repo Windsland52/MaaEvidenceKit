@@ -26,5 +26,7 @@ Generated contracts cover:
   candidate and evidence references are validated by Python
 - `InvestigationPlan`, with run, skip, and deferred decisions for each diagnostic branch
 - `FixCandidate` and `VerificationPlan`, separating a proposed change from proof of its outcome
+- external benchmark case, annotation, judge draft, and scored-result contracts, keeping
+  observation-cutoff inputs separate from gold adjudication
 - `SourceGuidance`, representing revision- and path-scoped `AGENTS.md` instructions
 - the JSONL tool-adapter request and response envelopes

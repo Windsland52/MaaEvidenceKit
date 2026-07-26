@@ -7,6 +7,12 @@ from maa_diagnostic_expert.inspection.log_overview import LogOverviewCollection
 from maa_diagnostic_expert.inspection.models import DeterministicInspection
 from maa_diagnostic_expert.reasoning.model_config import ModelConfig
 
+from .benchmark import (
+    BenchmarkAnnotation,
+    BenchmarkCase,
+    BenchmarkJudgmentDraft,
+    BenchmarkResult,
+)
 from .command import (
     CommandApprovalOutcome,
     CommandApprovalPrompt,
@@ -52,6 +58,10 @@ from .workflow import (
 )
 
 CONTRACT_MODELS: dict[str, type[BaseModel]] = {
+    "benchmark-annotation.schema.json": BenchmarkAnnotation,
+    "benchmark-case.schema.json": BenchmarkCase,
+    "benchmark-judgment-draft.schema.json": BenchmarkJudgmentDraft,
+    "benchmark-result.schema.json": BenchmarkResult,
     "analysis-request.schema.json": AnalysisRequest,
     "command-approval-outcome.schema.json": CommandApprovalOutcome,
     "command-approval-prompt.schema.json": CommandApprovalPrompt,
