@@ -7,6 +7,7 @@ from maa_diagnostic_expert.contracts.mse import (
     MseCompatibility,
     MseCompatibilityStatus,
     MseProjectPreflightResult,
+    MseSyntaxMode,
     MseTaskResolutionResult,
 )
 
@@ -15,14 +16,15 @@ def test_mse_project_preflight_contract_accepts_project_summary() -> None:
     result = MseProjectPreflightResult(
         project_root=Path("C:/project"),
         interface_path="assets/interface.json",
-        syntax_mode="maafw",
+        syntax_mode=MseSyntaxMode.MAAFW,
         compatibility=MseCompatibility(
             status=MseCompatibilityStatus.SUPPORTED,
             reason="The interface and resource loaded.",
         ),
     )
 
-    assert result.schema_version == "mde-mse-project-preflight/v1"
+    assert result.schema_version == "mde-mse-project-preflight/v2"
+    assert result.syntax_mode is MseSyntaxMode.MAAFW
 
 
 def test_mse_project_preflight_contract_rejects_adapter_camel_case() -> None:
@@ -44,6 +46,7 @@ def test_mse_task_resolution_contract_accepts_source_locations() -> None:
         {
             "project_root": "C:/project",
             "interface_path": "assets/interface.json",
+            "syntax_mode": "maafw",
             "compatibility": {
                 "status": "supported",
                 "reason": "Loaded.",
@@ -74,3 +77,4 @@ def test_mse_task_resolution_contract_accepts_source_locations() -> None:
     )
 
     assert result.resolutions[0].definitions[0].line == 12
+    assert result.schema_version == "mde-mse-task-resolution/v2"

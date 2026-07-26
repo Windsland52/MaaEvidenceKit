@@ -33,6 +33,8 @@ export type MseCompatibility = {
   reason: string;
 };
 
+export type MseSyntaxMode = "maafw" | "maa";
+
 export type MseTaskBinding = {
   name: string;
   entry: string | null;
@@ -62,10 +64,10 @@ export type MseDiagnostic = {
 };
 
 export type MseProjectPreflightResult = {
-  schema_version: "mde-mse-project-preflight/v1";
+  schema_version: "mde-mse-project-preflight/v2";
   project_root: string;
   interface_path: string | null;
-  syntax_mode: "maafw" | "maa_unsupported";
+  syntax_mode: MseSyntaxMode;
   compatibility: MseCompatibility;
   controllers: string[];
   resources: string[];
@@ -103,9 +105,10 @@ export type MseResolvedTask = {
 };
 
 export type MseTaskResolutionResult = {
-  schema_version: "mde-mse-task-resolution/v1";
+  schema_version: "mde-mse-task-resolution/v2";
   project_root: string;
   interface_path: string | null;
+  syntax_mode: MseSyntaxMode;
   compatibility: MseCompatibility;
   requested_tasks: string[];
   resolutions: MseResolvedTask[];
@@ -484,7 +487,8 @@ const taskBindings = (bundle: InterfaceBundle): MseTaskBinding[] => {
 };
 
 export async function runMseProjectPreflight(
-  targetPath: string
+  targetPath: string,
+  syntaxMode: MseSyntaxMode
 ): Promise<MseProjectPreflightResult> {
   const projectRoot = path.resolve(targetPath);
   if (!(await isDirectory(projectRoot))) {
@@ -495,33 +499,12 @@ export async function runMseProjectPreflight(
     throw new Error(CONFINEMENT_ERROR);
   }
   const interfacePath = await findInterface(projectRoot, confinement);
-  const maaMode = await isDirectory(path.join(projectRoot, "src", "MaaCore"), confinement);
   confinement.assertNoViolations();
   const base = {
-    schema_version: "mde-mse-project-preflight/v1" as const,
+    schema_version: "mde-mse-project-preflight/v2" as const,
     project_root: projectRoot,
-    syntax_mode: maaMode ? "maa_unsupported" as const : "maafw" as const
+    syntax_mode: syntaxMode
   };
-  if (maaMode) {
-    return {
-      ...base,
-      interface_path: interfacePath === null
-        ? null
-        : relativeSourcePath(projectRoot, interfacePath),
-      compatibility: {
-        status: "unsupported",
-        reason: "MaaAssistantArknights pipeline semantics are outside MDE scope."
-      },
-      controllers: [],
-      resources: [],
-      task_bindings: [],
-      configurations: [],
-      configurations_truncated: false,
-      diagnostics: [],
-      diagnostics_truncated: false,
-      warnings: []
-    };
-  }
   if (interfacePath === null) {
     return {
       ...base,
@@ -547,7 +530,7 @@ export async function runMseProjectPreflight(
   const bundle = new InterfaceBundle(
     loader,
     watcher,
-    false,
+    syntaxMode === "maa",
     path.dirname(interfacePath),
     path.basename(interfacePath)
   );
@@ -734,6 +717,7 @@ async function resolveTask(
 export async function runMseTaskResolution(
   targetPath: string,
   requestedTasks: string[],
+  syntaxMode: MseSyntaxMode,
   requestedController?: string,
   requestedResource?: string
 ): Promise<MseTaskResolutionResult> {
@@ -751,13 +735,13 @@ export async function runMseTaskResolution(
     throw new Error(CONFINEMENT_ERROR);
   }
   const interfacePath = await findInterface(projectRoot, confinement);
-  const maaMode = await isDirectory(path.join(projectRoot, "src", "MaaCore"), confinement);
   confinement.assertNoViolations();
   if (interfacePath === null) {
     return {
-      schema_version: "mde-mse-task-resolution/v1",
+      schema_version: "mde-mse-task-resolution/v2",
       project_root: projectRoot,
       interface_path: null,
+      syntax_mode: syntaxMode,
       compatibility: {
         status: "unsupported",
         reason: "No conventional interface.json or interface.jsonc was found."
@@ -768,29 +752,13 @@ export async function runMseTaskResolution(
       warnings: []
     };
   }
-  if (maaMode) {
-    return {
-      schema_version: "mde-mse-task-resolution/v1",
-      project_root: projectRoot,
-      interface_path: relativeSourcePath(projectRoot, interfacePath),
-      compatibility: {
-        status: "unsupported",
-        reason: "MaaAssistantArknights pipeline semantics are outside MDE scope."
-      },
-      requested_tasks: tasks,
-      resolutions: [],
-      configurations_truncated: false,
-      warnings: []
-    };
-  }
-
   const accessRecorder = new MseResourceAccessRecorder(projectRoot);
   const loader = new ConfinedContentLoader(confinement, accessRecorder);
   const watcher = new ReadOnlySnapshotWatcher(confinement, accessRecorder);
   const bundle = new InterfaceBundle(
     loader,
     watcher,
-    false,
+    syntaxMode === "maa",
     path.dirname(interfacePath),
     path.basename(interfacePath)
   );
@@ -861,15 +829,16 @@ export async function runMseTaskResolution(
     const fullyLoadedConfigurations =
       hasActivatedResourcePaths && !accessRecorder.hasIssues;
     return {
-      schema_version: "mde-mse-task-resolution/v1",
+      schema_version: "mde-mse-task-resolution/v2",
       project_root: projectRoot,
       interface_path: relativeSourcePath(projectRoot, interfacePath),
+      syntax_mode: syntaxMode,
       compatibility: {
         status: fullyLoadedConfigurations ? "supported" : "partial",
         reason: fullyLoadedConfigurations
-          ? "Requested MaaFramework tasks were resolved across active configurations."
+          ? "Requested tasks were resolved across active configurations."
           : hasActivatedResourcePaths
-            ? "Requested MaaFramework tasks were resolved, but one or more activated resource paths could not be fully scanned."
+            ? "Requested tasks were resolved, but one or more activated resource paths could not be fully scanned."
             : "The interface loaded, but no resource paths were activated."
       },
       requested_tasks: tasks,

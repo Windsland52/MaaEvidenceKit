@@ -186,7 +186,7 @@ class _SourceResearchToolCaller:
             return cast(
                 dict[str, JsonValue],
                 {
-                    "schema_version": "mde-mse-project-preflight/v1",
+                    "schema_version": "mde-mse-project-preflight/v2",
                     "project_root": str(self.project),
                     "interface_path": "assets/interface.json",
                     "syntax_mode": "maafw",
@@ -237,9 +237,10 @@ class _SourceResearchToolCaller:
                     }
                 )
             return {
-                "schema_version": "mde-mse-task-resolution/v1",
+                "schema_version": "mde-mse-task-resolution/v2",
                 "project_root": str(self.project),
                 "interface_path": "assets/interface.json",
+                "syntax_mode": "maafw",
                 "compatibility": {
                     "status": "supported",
                     "reason": "Resolved.",

@@ -10,6 +10,7 @@ from maa_diagnostic_expert.contracts.mse import (
 from maa_diagnostic_expert.contracts.workflow import IncidentCorrelationDraft
 
 from .models import DeterministicInspection, MseTaskResolutionInspection
+from .mse_policy import validate_mse_task_resolution
 from .tooling import ToolCaller, ToolInvocationError
 
 _MAX_FOCUSED_TASKS = 20
@@ -71,12 +72,14 @@ def resolve_incident_pipeline_tasks(
             arguments: dict[str, JsonValue] = {
                 "path": str(project.path),
                 "tasks": list[JsonValue](task_names),
+                "syntax_mode": project.preflight.syntax_mode.value,
             }
             raw_result = tool_caller.call(
                 "mse.resolve-tasks",
                 arguments,
             )
             result = MseTaskResolutionResult.model_validate(raw_result)
+            validate_mse_task_resolution(result, project.preflight.syntax_mode)
         except (ToolInvocationError, ValidationError, ValueError) as error:
             missing.append(
                 MissingEvidence(

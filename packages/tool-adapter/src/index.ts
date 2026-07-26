@@ -1,5 +1,9 @@
 import { runMlaPreflight, runMlaRuntimeInspection } from "./mla.js";
-import { runMseProjectPreflight, runMseTaskResolution } from "./mse.js";
+import {
+  runMseProjectPreflight,
+  runMseTaskResolution,
+  type MseSyntaxMode
+} from "./mse.js";
 import type { ToolDescriptor, ToolRequest, ToolResponse } from "./protocol.js";
 
 const tools: ToolDescriptor[] = [
@@ -16,12 +20,12 @@ const tools: ToolDescriptor[] = [
   {
     name: "mse.project-preflight",
     description:
-      "Load a Maa project through public MSE packages and return interface, resource, task, pipeline, and static diagnostic facts."
+      "Load a Maa project through public MSE packages using the caller-selected syntax_mode and return interface, resource, task, pipeline, and static diagnostic facts."
   },
   {
     name: "mse.resolve-tasks",
     description:
-      "Resolve MaaFramework task definitions, effective configuration, and references across controller/resource combinations."
+      "Resolve task definitions, effective configuration, and references using the caller-selected MSE syntax_mode."
   }
 ];
 
@@ -56,6 +60,10 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 };
 
+const isMseSyntaxMode = (value: unknown): value is MseSyntaxMode => {
+  return value === "maafw" || value === "maa";
+};
+
 async function callTool(request: ToolRequest): Promise<ToolResponse> {
   const toolName = request.params?.["name"];
   const toolArguments = request.params?.["arguments"];
@@ -83,10 +91,22 @@ async function callTool(request: ToolRequest): Promise<ToolResponse> {
       return success(request.id, await runMlaRuntimeInspection(targetPath));
     }
     if (toolName === "mse.project-preflight") {
-      return success(request.id, await runMseProjectPreflight(targetPath));
+      const syntaxMode = toolArguments["syntax_mode"];
+      if (!isMseSyntaxMode(syntaxMode)) {
+        return failure(
+          request.id,
+          "INVALID_TOOL_ARGUMENTS",
+          "mse.project-preflight requires arguments.syntax_mode to be 'maafw' or 'maa'."
+        );
+      }
+      return success(
+        request.id,
+        await runMseProjectPreflight(targetPath, syntaxMode)
+      );
     }
     if (toolName === "mse.resolve-tasks") {
       const tasks = toolArguments["tasks"];
+      const syntaxMode = toolArguments["syntax_mode"];
       const controller = toolArguments["controller"];
       const resource = toolArguments["resource"];
       if (
@@ -96,13 +116,14 @@ async function callTool(request: ToolRequest): Promise<ToolResponse> {
         || !tasks.every(
           (item) => typeof item === "string" && item.trim().length > 0
         )
+        || !isMseSyntaxMode(syntaxMode)
         || (controller !== undefined && typeof controller !== "string")
         || (resource !== undefined && typeof resource !== "string")
       ) {
         return failure(
           request.id,
           "INVALID_TOOL_ARGUMENTS",
-          "mse.resolve-tasks requires 1-50 non-empty tasks and optional string controller/resource."
+          "mse.resolve-tasks requires syntax_mode ('maafw' or 'maa'), 1-50 non-empty tasks, and optional string controller/resource."
         );
       }
       return success(
@@ -110,6 +131,7 @@ async function callTool(request: ToolRequest): Promise<ToolResponse> {
         await runMseTaskResolution(
           targetPath,
           tasks,
+          syntaxMode,
           controller as string | undefined,
           resource as string | undefined
         )
@@ -154,6 +176,7 @@ export type {
   MseDiagnostic,
   MseProjectPreflightResult,
   MseResolvedTask,
+  MseSyntaxMode,
   MseTaskBinding,
   MseTaskDefinition,
   MseTaskReference,

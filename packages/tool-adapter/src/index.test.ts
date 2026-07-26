@@ -65,13 +65,14 @@ test("mse.project-preflight loads interface resource combinations read-only", as
     method: "tools/call",
     params: {
       name: "mse.project-preflight",
-      arguments: { path: root }
+      arguments: { path: root, syntax_mode: "maafw" }
     }
   });
 
   assert.equal(response.ok, true);
   const result = response.result as MseProjectPreflightResult;
-  assert.equal(result.schema_version, "mde-mse-project-preflight/v1");
+  assert.equal(result.schema_version, "mde-mse-project-preflight/v2");
+  assert.equal(result.syntax_mode, "maafw");
   assert.equal(result.compatibility.status, "supported");
   assert.deepEqual(result.controllers, ["Adb"]);
   assert.deepEqual(result.resources, ["Official"]);
@@ -116,19 +117,14 @@ test("mse.resolve-tasks returns MaaFramework definitions and effective config", 
     method: "tools/call",
     params: {
       name: "mse.resolve-tasks",
-      arguments: { path: root, tasks: ["Start"] }
+      arguments: { path: root, syntax_mode: "maafw", tasks: ["Start"] }
     }
   });
 
   assert.equal(response.ok, true);
-  const result = response.result as {
-    resolutions: Array<{
-      found: boolean;
-      effective_config: Record<string, unknown>;
-      definitions: Array<{ line: number }>;
-      references: Array<{ kind: string; target: string }>;
-    }>;
-  };
+  const result = response.result as MseTaskResolutionResult;
+  assert.equal(result.schema_version, "mde-mse-task-resolution/v2");
+  assert.equal(result.syntax_mode, "maafw");
   assert.equal(result.resolutions.length, 1);
   assert.equal(result.resolutions[0]?.found, true);
   assert.equal(result.resolutions[0]?.effective_config["recognition"], "OCR");
@@ -171,7 +167,7 @@ test("mse.project-preflight rejects parent traversal resource paths", async () =
     method: "tools/call",
     params: {
       name: "mse.project-preflight",
-      arguments: { path: root }
+      arguments: { path: root, syntax_mode: "maafw" }
     }
   });
 
@@ -209,7 +205,11 @@ test("mse.resolve-tasks rejects absolute resource paths outside the project", as
     method: "tools/call",
     params: {
       name: "mse.resolve-tasks",
-      arguments: { path: root, tasks: ["SECRET_MARKER_SHOULD_NOT_LEAK"] }
+      arguments: {
+        path: root,
+        syntax_mode: "maafw",
+        tasks: ["SECRET_MARKER_SHOULD_NOT_LEAK"]
+      }
     }
   });
 
@@ -247,7 +247,7 @@ test("mse.project-preflight does not treat missing in-root resources as escapes"
     method: "tools/call",
     params: {
       name: "mse.project-preflight",
-      arguments: { path: root }
+      arguments: { path: root, syntax_mode: "maafw" }
     }
   });
 
@@ -286,7 +286,11 @@ test("mse.resolve-tasks returns partial for missing in-root resources", async ()
     method: "tools/call",
     params: {
       name: "mse.resolve-tasks",
-      arguments: { path: root, tasks: ["SECRET_MARKER_SHOULD_NOT_LEAK"] }
+      arguments: {
+        path: root,
+        syntax_mode: "maafw",
+        tasks: ["SECRET_MARKER_SHOULD_NOT_LEAK"]
+      }
     }
   });
 
@@ -328,7 +332,7 @@ test("mse.project-preflight returns partial when a configured resource root is a
     method: "tools/call",
     params: {
       name: "mse.project-preflight",
-      arguments: { path: root }
+      arguments: { path: root, syntax_mode: "maafw" }
     }
   });
 
@@ -364,7 +368,7 @@ test("mse.project-preflight records explicit file watch failures", async () => {
     method: "tools/call",
     params: {
       name: "mse.project-preflight",
-      arguments: { path: root }
+      arguments: { path: root, syntax_mode: "maafw" }
     }
   });
 
@@ -412,7 +416,7 @@ test("mse.project-preflight records unavailable discovered files", async (t) => 
     method: "tools/call",
     params: {
       name: "mse.project-preflight",
-      arguments: { path: root }
+      arguments: { path: root, syntax_mode: "maafw" }
     }
   });
 
@@ -458,7 +462,7 @@ test("mse.project-preflight rejects symlinked resource directory escapes", async
     method: "tools/call",
     params: {
       name: "mse.project-preflight",
-      arguments: { path: root }
+      arguments: { path: root, syntax_mode: "maafw" }
     }
   });
 
@@ -495,12 +499,16 @@ test("mse tools reject symlinked interface discovery outside the project", async
     {
       id: "mse-interface-link-preflight",
       name: "mse.project-preflight",
-      arguments: { path: root }
+      arguments: { path: root, syntax_mode: "maafw" }
     },
     {
       id: "mse-interface-link-resolve",
       name: "mse.resolve-tasks",
-      arguments: { path: root, tasks: ["SECRET_MARKER_SHOULD_NOT_LEAK"] }
+      arguments: {
+        path: root,
+        syntax_mode: "maafw",
+        tasks: ["SECRET_MARKER_SHOULD_NOT_LEAK"]
+      }
     }
   ];
   for (const call of calls) {
@@ -524,7 +532,7 @@ test("mse tools reject symlinked interface discovery outside the project", async
   }
 });
 
-test("mse.project-preflight rejects MaaAssistantArknights mode", async () => {
+test("mse.project-preflight loads caller-selected Maa syntax mechanically", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mde-mse-maa-"));
   temporaryRoots.push(root);
   await mkdir(path.join(root, "src", "MaaCore"), { recursive: true });
@@ -536,14 +544,31 @@ test("mse.project-preflight rejects MaaAssistantArknights mode", async () => {
     method: "tools/call",
     params: {
       name: "mse.project-preflight",
-      arguments: { path: root }
+      arguments: { path: root, syntax_mode: "maa" }
     }
   });
 
   assert.equal(response.ok, true);
   const result = response.result as MseProjectPreflightResult;
-  assert.equal(result.syntax_mode, "maa_unsupported");
-  assert.equal(result.compatibility.status, "unsupported");
+  assert.equal(result.schema_version, "mde-mse-project-preflight/v2");
+  assert.equal(result.syntax_mode, "maa");
+  assert.doesNotMatch(result.compatibility.reason, /outside MDE scope/u);
+});
+
+test("mse tools require an explicit supported syntax mode", async () => {
+  const response = await handleRequest({
+    id: "mse-mode-1",
+    apiVersion: "tool-adapter/v1",
+    method: "tools/call",
+    params: {
+      name: "mse.project-preflight",
+      arguments: { path: "." }
+    }
+  });
+
+  assert.equal(response.ok, false);
+  assert.equal(response.error?.code, "INVALID_TOOL_ARGUMENTS");
+  assert.match(response.error?.message ?? "", /syntax_mode/u);
 });
 
 test("mla.preflight returns version sessions from a core log", async () => {

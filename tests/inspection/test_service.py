@@ -128,14 +128,15 @@ def _empty_runtime_inspection() -> dict[str, JsonValue]:
 def _mse_preflight(
     project_root: Path,
     *,
+    syntax_mode: str = "maafw",
     status: str = "supported",
     reason: str = "The interface and resource loaded.",
 ) -> dict[str, JsonValue]:
     return {
-        "schema_version": "mde-mse-project-preflight/v1",
+        "schema_version": "mde-mse-project-preflight/v2",
         "project_root": str(project_root),
         "interface_path": "assets/interface.json",
-        "syntax_mode": "maafw",
+        "syntax_mode": syntax_mode,
         "compatibility": {
             "status": status,
             "reason": reason,
@@ -456,7 +457,10 @@ def test_inspect_runs_mse_for_revision_matched_project_source(tmp_path: Path) ->
     inspection = synthesize_inspection_evidence(inspection)
 
     assert caller.calls == [
-        ("mse.project-preflight", {"path": str(tmp_path)}),
+        (
+            "mse.project-preflight",
+            {"path": str(tmp_path), "syntax_mode": "maafw"},
+        ),
     ]
     assert len(inspection.mse_project_inspections) == 1
     assert [item.kind for item in inspection.synthesized_evidence] == [
@@ -465,6 +469,40 @@ def test_inspect_runs_mse_for_revision_matched_project_source(tmp_path: Path) ->
     ]
     assert inspection.synthesized_evidence[1].role is EvidenceRole.SIGNAL
     assert inspection.synthesized_evidence[1].line_start == 3
+
+
+def test_inspect_applies_maa_support_policy_in_python(tmp_path: Path) -> None:
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "interface.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "src" / "MaaCore").mkdir(parents=True)
+    caller = RecordingToolCaller(mse=_mse_preflight(tmp_path, syntax_mode="maa"))
+    prepared = PreparedAnalysis(
+        request=AnalysisRequest(question="Inspect the current project."),
+        source_snapshots=[
+            SourceSnapshot(
+                source_id="project",
+                role=SourceRole.PROJECT,
+                path=tmp_path,
+                revision_backend=SourceRevisionBackend.GIT,
+                current_revision="abc123",
+                resolution_status=RevisionResolutionStatus.NOT_REQUESTED,
+            )
+        ],
+    )
+
+    inspection = inspect_prepared_analysis(prepared, caller)
+
+    assert caller.calls == [
+        (
+            "mse.project-preflight",
+            {"path": str(tmp_path), "syntax_mode": "maa"},
+        ),
+    ]
+    [project] = inspection.mse_project_inspections
+    assert project.preflight.compatibility.status.value == "unsupported"
+    assert "diagnostic reasoning does not yet support" in (project.preflight.compatibility.reason)
+    assert "mse_project_unsupported" in {item.code for item in inspection.prepared.missing_evidence}
 
 
 def test_inspect_records_partial_mse_project_as_required_missing_evidence(

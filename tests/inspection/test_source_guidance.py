@@ -12,6 +12,7 @@ from maa_diagnostic_expert.contracts.mse import (
     MseCompatibility,
     MseCompatibilityStatus,
     MseResolvedTask,
+    MseSyntaxMode,
     MseTaskDefinition,
     MseTaskResolutionResult,
 )
@@ -47,6 +48,7 @@ def _inspection(root: Path, source_paths: list[str]) -> DeterministicInspection:
                 resolution=MseTaskResolutionResult(
                     project_root=root,
                     interface_path="assets/interface.json",
+                    syntax_mode=MseSyntaxMode.MAAFW,
                     compatibility=MseCompatibility(
                         status=MseCompatibilityStatus.SUPPORTED,
                         reason="Resolved.",

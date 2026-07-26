@@ -6,6 +6,7 @@ from maa_diagnostic_expert.contracts.mse import (
     MseCompatibility,
     MseCompatibilityStatus,
     MseResolvedTask,
+    MseSyntaxMode,
     MseTaskDefinition,
     MseTaskResolutionResult,
 )
@@ -89,6 +90,7 @@ def _mse_resolution(
         resolution=MseTaskResolutionResult(
             project_root=Path("C:/project"),
             interface_path="assets/interface.json",
+            syntax_mode=MseSyntaxMode.MAAFW,
             compatibility=MseCompatibility(
                 status=status,
                 reason="Resolved.",

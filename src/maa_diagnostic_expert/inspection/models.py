@@ -113,7 +113,7 @@ def _new_incident_comparison() -> IncidentComparison:
 
 
 class DeterministicInspection(ContractModel):
-    api_version: str = "deterministic-inspection/v12"
+    api_version: str = "deterministic-inspection/v13"
     prepared: PreparedAnalysis
     log_overviews: LogOverviewCollection = Field(default_factory=LogOverviewCollection)
     runtime_identity: RuntimeIdentity = Field(default_factory=RuntimeIdentity)

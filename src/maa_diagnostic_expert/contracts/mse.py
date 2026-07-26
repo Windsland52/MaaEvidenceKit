@@ -16,6 +16,11 @@ class MseCompatibilityStatus(StrEnum):
     UNSUPPORTED = "unsupported"
 
 
+class MseSyntaxMode(StrEnum):
+    MAAFW = "maafw"
+    MAA = "maa"
+
+
 class MseCompatibility(ContractModel):
     status: MseCompatibilityStatus
     reason: str = Field(min_length=1)
@@ -50,10 +55,10 @@ class MseDiagnostic(ContractModel):
 
 
 class MseProjectPreflightResult(ContractModel):
-    schema_version: str = "mde-mse-project-preflight/v1"
+    schema_version: str = "mde-mse-project-preflight/v2"
     project_root: Path
     interface_path: str | None = None
-    syntax_mode: str = Field(pattern="^(maafw|maa_unsupported)$")
+    syntax_mode: MseSyntaxMode
     compatibility: MseCompatibility
     controllers: list[str] = Field(default_factory=_new_strings)
     resources: list[str] = Field(default_factory=_new_strings)
@@ -93,9 +98,10 @@ class MseResolvedTask(ContractModel):
 
 
 class MseTaskResolutionResult(ContractModel):
-    schema_version: str = "mde-mse-task-resolution/v1"
+    schema_version: str = "mde-mse-task-resolution/v2"
     project_root: Path
     interface_path: str | None = None
+    syntax_mode: MseSyntaxMode
     compatibility: MseCompatibility
     requested_tasks: list[str] = Field(min_length=1)
     resolutions: list[MseResolvedTask] = Field(default_factory=list[MseResolvedTask])

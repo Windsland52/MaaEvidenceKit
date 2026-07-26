@@ -22,6 +22,7 @@ from maa_diagnostic_expert.contracts.workflow import (
 )
 from maa_diagnostic_expert.discovery.artifact_classification import classify_artifact_sources
 from maa_diagnostic_expert.discovery.inputs import find_maa_interface
+from maa_diagnostic_expert.discovery.mse_syntax import detect_mse_syntax_mode
 from maa_diagnostic_expert.discovery.preparation import prepare_analysis
 from maa_diagnostic_expert.discovery.source_preparation import (
     source_snapshot_matches_checkout,
@@ -45,6 +46,7 @@ from .models import (
     MlaRuntimeInspectionArtifact,
     MseProjectInspection,
 )
+from .mse_policy import apply_mse_project_policy
 from .mse_preflight import synthesize_mse_evidence, synthesize_mse_task_evidence
 from .runtime_identity import extract_runtime_identity, synthesize_runtime_identity_evidence
 from .source_guidance import synthesize_source_guidance_evidence
@@ -163,9 +165,17 @@ def inspect_prepared_analysis(
             continue
         if find_maa_interface(snapshot.path) is None:
             continue
+        syntax_mode = detect_mse_syntax_mode(snapshot.path)
         try:
-            raw_mse = tool_caller.call("mse.project-preflight", {"path": str(snapshot.path)})
+            raw_mse = tool_caller.call(
+                "mse.project-preflight",
+                {
+                    "path": str(snapshot.path),
+                    "syntax_mode": syntax_mode.value,
+                },
+            )
             mse_preflight = MseProjectPreflightResult.model_validate(raw_mse)
+            mse_preflight = apply_mse_project_policy(mse_preflight, syntax_mode)
         except (ToolInvocationError, ValidationError, ValueError) as error:
             missing.append(
                 MissingEvidence(

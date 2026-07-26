@@ -11,6 +11,7 @@ from maa_diagnostic_expert.contracts.mse import (
     MseCompatibility,
     MseCompatibilityStatus,
     MseProjectPreflightResult,
+    MseSyntaxMode,
 )
 from maa_diagnostic_expert.contracts.workflow import (
     IncidentCandidate,
@@ -34,17 +35,20 @@ class _ResolutionCaller:
         *,
         status: str = "supported",
         reason: str = "Tasks resolved.",
+        syntax_mode: str = "maafw",
     ) -> None:
         self.calls: list[tuple[str, dict[str, JsonValue]]] = []
         self._status = status
         self._reason = reason
+        self._syntax_mode = syntax_mode
 
     def call(self, name: str, arguments: dict[str, JsonValue]) -> dict[str, JsonValue]:
         self.calls.append((name, arguments))
         return {
-            "schema_version": "mde-mse-task-resolution/v1",
+            "schema_version": "mde-mse-task-resolution/v2",
             "project_root": "C:/project",
             "interface_path": "assets/interface.json",
+            "syntax_mode": self._syntax_mode,
             "compatibility": {
                 "status": self._status,
                 "reason": self._reason,
@@ -120,7 +124,7 @@ def _inspection(
                 preflight=MseProjectPreflightResult(
                     project_root=project,
                     interface_path="assets/interface.json",
-                    syntax_mode="maafw",
+                    syntax_mode=MseSyntaxMode.MAAFW,
                     compatibility=MseCompatibility(
                         status=project_status,
                         reason="Loaded."
@@ -159,6 +163,7 @@ def test_resolve_incident_pipeline_tasks_prefers_node_then_task(tmp_path: Path) 
             {
                 "path": str(tmp_path),
                 "tasks": ["LoginButton", "LoginTask"],
+                "syntax_mode": "maafw",
             },
         )
     ]
@@ -213,6 +218,26 @@ def test_resolve_incident_pipeline_tasks_records_partial_without_not_found_evide
     assert "mse_tasks_not_found" not in missing_by_code
     assert any(item.kind == "mse_task_resolution" for item in inspection.synthesized_evidence)
     assert not any(item.kind == "mse_task_not_found" for item in inspection.synthesized_evidence)
+
+
+def test_resolve_incident_pipeline_tasks_rejects_adapter_syntax_mismatch(
+    tmp_path: Path,
+) -> None:
+    caller = _ResolutionCaller(syntax_mode="maa")
+
+    inspection = resolve_incident_pipeline_tasks(
+        _inspection(tmp_path),
+        _correlation(),
+        caller,
+    )
+
+    assert inspection.mse_task_resolutions == []
+    [failure] = [
+        item
+        for item in inspection.prepared.missing_evidence
+        if item.code == "mse_task_resolution_failed"
+    ]
+    assert "syntax mode mismatch" in failure.message
 
 
 def test_resolve_incident_pipeline_tasks_requires_supported_project_for_not_found(

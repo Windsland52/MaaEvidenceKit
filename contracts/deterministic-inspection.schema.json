@@ -2966,7 +2966,7 @@
       "additionalProperties": false,
       "properties": {
         "schema_version": {
-          "default": "mde-mse-project-preflight/v1",
+          "default": "mde-mse-project-preflight/v2",
           "title": "Schema Version",
           "type": "string"
         },
@@ -2988,9 +2988,7 @@
           "title": "Interface Path"
         },
         "syntax_mode": {
-          "pattern": "^(maafw|maa_unsupported)$",
-          "title": "Syntax Mode",
-          "type": "string"
+          "$ref": "#/$defs/MseSyntaxMode"
         },
         "compatibility": {
           "$ref": "#/$defs/MseCompatibility"
@@ -3121,6 +3119,14 @@
       "title": "MseResolvedTask",
       "type": "object"
     },
+    "MseSyntaxMode": {
+      "enum": [
+        "maafw",
+        "maa"
+      ],
+      "title": "MseSyntaxMode",
+      "type": "string"
+    },
     "MseTaskBinding": {
       "additionalProperties": false,
       "properties": {
@@ -3250,7 +3256,7 @@
       "additionalProperties": false,
       "properties": {
         "schema_version": {
-          "default": "mde-mse-task-resolution/v1",
+          "default": "mde-mse-task-resolution/v2",
           "title": "Schema Version",
           "type": "string"
         },
@@ -3270,6 +3276,9 @@
           ],
           "default": null,
           "title": "Interface Path"
+        },
+        "syntax_mode": {
+          "$ref": "#/$defs/MseSyntaxMode"
         },
         "compatibility": {
           "$ref": "#/$defs/MseCompatibility"
@@ -3304,6 +3313,7 @@
       },
       "required": [
         "project_root",
+        "syntax_mode",
         "compatibility",
         "requested_tasks"
       ],
@@ -3837,7 +3847,7 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
-      "default": "deterministic-inspection/v12",
+      "default": "deterministic-inspection/v13",
       "title": "Api Version",
       "type": "string"
     },
