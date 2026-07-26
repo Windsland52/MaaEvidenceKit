@@ -398,7 +398,7 @@
       "additionalProperties": false,
       "properties": {
         "api_version": {
-          "default": "incident-comparison/v1",
+          "default": "incident-comparison/v2",
           "title": "Api Version",
           "type": "string"
         },
@@ -435,7 +435,7 @@
         },
         "missing_evidence": {
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/MissingEvidence"
           },
           "title": "Missing Evidence",
           "type": "array"
@@ -666,7 +666,7 @@
       "additionalProperties": false,
       "properties": {
         "api_version": {
-          "default": "incident-selection/v1",
+          "default": "incident-selection/v2",
           "title": "Api Version",
           "type": "string"
         },
@@ -694,7 +694,7 @@
         },
         "missing_evidence": {
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/MissingEvidence"
           },
           "title": "Missing Evidence",
           "type": "array"
@@ -3801,7 +3801,7 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
-      "default": "deterministic-inspection/v10",
+      "default": "deterministic-inspection/v11",
       "title": "Api Version",
       "type": "string"
     },

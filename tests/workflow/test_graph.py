@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import cast
 
+import pytest
 from pydantic import JsonValue
 
 from maa_diagnostic_expert.contracts.domain import (
@@ -29,6 +30,7 @@ from maa_diagnostic_expert.contracts.workflow import (
     SourceResearchStatus,
     SourceSearchQuery,
 )
+from maa_diagnostic_expert.inspection import log_overview
 from maa_diagnostic_expert.reasoning.prompts import StubReasoningBackend
 from maa_diagnostic_expert.reasoning.protocol import ReasoningContext
 from maa_diagnostic_expert.workflow.graph import DiagnosticWorkflow
@@ -161,6 +163,12 @@ class _FailingReasoningBackend:
     async def start(self, *, run_id: str) -> _InventingReasoningSession:
         del run_id
         raise RuntimeError("model unavailable")
+
+
+class _CrashingToolCaller:
+    def call(self, name: str, arguments: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        del name, arguments
+        raise RuntimeError("adapter crashed")
 
 
 class _SourceResearchToolCaller:
@@ -413,6 +421,7 @@ def test_diagnose_produces_complete_result_with_failure(tmp_path: Path) -> None:
     evidence_ids = {e.id for e in result.evidence}
     assert set(conclusion.evidence_ids).issubset(evidence_ids)
     assert "model_incident_correlation_unavailable" in result.missing_evidence
+    assert "expected_configuration_unavailable" in result.missing_evidence
 
 
 def test_issue_only_context_reaches_correlation_and_final_reasoning(tmp_path: Path) -> None:
@@ -456,6 +465,7 @@ def test_diagnose_returns_insufficient_without_failures(tmp_path: Path) -> None:
 
     assert result.status is DiagnosisStatus.INSUFFICIENT_EVIDENCE
     assert result.conclusions == []
+    assert "incident_candidates_not_found" in result.missing_evidence
 
 
 def test_workflow_rejects_model_invented_evidence_ids(tmp_path: Path) -> None:
@@ -470,6 +480,7 @@ def test_workflow_rejects_model_invented_evidence_ids(tmp_path: Path) -> None:
     assert workflow.result is not None
     assert workflow.result.status is DiagnosisStatus.FAILED
     assert "unknown evidence IDs" in workflow.result.summary
+    assert "expected_configuration_unavailable" in workflow.result.missing_evidence
 
 
 def test_workflow_routes_correlation_errors_to_failed_result(tmp_path: Path) -> None:
@@ -499,6 +510,7 @@ def test_workflow_routes_final_reasoning_errors_without_candidates(
     assert events[-1].stage == "reason"
     assert workflow.result is not None
     assert "model unavailable" in workflow.result.summary
+    assert "incident_candidates_not_found" in workflow.result.missing_evidence
 
 
 def test_stream_emits_events_in_order(tmp_path: Path) -> None:
@@ -559,6 +571,27 @@ def test_workflow_records_missing_evidence_when_adapter_fails(tmp_path: Path) ->
     assert workflow.result is not None
     assert workflow.result.status is DiagnosisStatus.INSUFFICIENT_EVIDENCE
     assert "mla_preflight_failed" in workflow.result.missing_evidence
+
+
+def test_workflow_failure_preserves_overview_missing_before_inspection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    debug_path = tmp_path / "debug"
+    debug_path.mkdir()
+    (debug_path / "maafw.log").write_text("framework log\n", encoding="utf-8")
+    custom_path = debug_path / "custom"
+    custom_path.mkdir()
+    (custom_path / "agent.log").write_text("INFO line\n" * 100, encoding="utf-8")
+    monkeypatch.setattr(log_overview, "MAX_SCAN_BYTES", 64)
+    workflow = DiagnosticWorkflow(_CrashingToolCaller(), StubReasoningBackend())
+
+    events = _collect_events(workflow, _request(debug_path))
+
+    assert events[-1].kind is DiagnosticEventKind.RUN_FAILED
+    assert events[-1].stage == "inspect"
+    assert workflow.result is not None
+    assert "log_overview_truncated" in workflow.result.missing_evidence
 
 
 def test_cancel_before_inspection_produces_failed(tmp_path: Path) -> None:

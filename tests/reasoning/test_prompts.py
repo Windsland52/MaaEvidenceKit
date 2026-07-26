@@ -11,6 +11,7 @@ from maa_diagnostic_expert.contracts.domain import (
     Evidence,
     EvidenceReliability,
     EvidenceRole,
+    MissingEvidence,
     SourceRole,
 )
 from maa_diagnostic_expert.contracts.workflow import (
@@ -232,6 +233,90 @@ def test_diagnosis_context_includes_validated_incident_correlation() -> None:
 
     assert "Model incident correlation: selected" in context.instruction
     assert "interpretation" in context.instruction
+
+
+def test_missing_evidence_prompt_sections_use_codes_and_messages() -> None:
+    selection = IncidentSelection(
+        status=IncidentSelectionStatus.NOT_FOUND,
+        missing_evidence=[
+            MissingEvidence(
+                code="incident_candidates_not_found",
+                message="No failed runtime incident candidate was found.",
+            )
+        ],
+    )
+    comparison = IncidentComparison(
+        status=IncidentComparisonStatus.UNAVAILABLE,
+        missing_evidence=[
+            MissingEvidence(
+                code="expected_configuration_unavailable",
+                message="No focused expected configuration is available.",
+            ),
+            MissingEvidence(
+                code="incident_candidates_not_found",
+                message="A second stage recorded more detail for the same code.",
+            ),
+        ],
+    )
+
+    context = build_reasoning_context(
+        "Diagnose",
+        [],
+        selection,
+        None,
+        comparison,
+        prepared_missing_evidence=[
+            MissingEvidence(
+                code="artifact_missing",
+                message="The requested artifact was not found.",
+            )
+        ],
+    )
+
+    assert "Prepared missing evidence: artifact_missing: The requested artifact was not found." in (
+        context.instruction
+    )
+    assert (
+        "Selection missing evidence: incident_candidates_not_found: "
+        "No failed runtime incident candidate was found."
+    ) in context.instruction
+    assert (
+        "Comparison missing evidence: expected_configuration_unavailable: "
+        "No focused expected configuration is available.; "
+        "incident_candidates_not_found: A second stage recorded more detail for the same code."
+    ) in context.instruction
+    assert context.instruction.count("incident_candidates_not_found") == 2
+
+
+def test_reasoning_context_defaults_missing_evidence_to_empty() -> None:
+    context = build_reasoning_context("Diagnose", [])
+
+    assert "missing evidence:" not in context.instruction
+
+
+def test_diagnosis_context_renders_comparison_missing_evidence_messages() -> None:
+    comparison = IncidentComparison(
+        status=IncidentComparisonStatus.PARTIAL,
+        missing_evidence=[
+            MissingEvidence(
+                code="expected_configuration_unavailable",
+                message="No focused expected configuration is available.",
+            )
+        ],
+    )
+
+    context = build_reasoning_context(
+        "Diagnose",
+        [],
+        _incident_selection(),
+        None,
+        comparison,
+    )
+
+    assert (
+        "Comparison missing evidence: expected_configuration_unavailable: "
+        "No focused expected configuration is available."
+    ) in (context.instruction)
 
 
 def test_diagnosis_context_includes_deterministic_actual_expected_comparison() -> None:

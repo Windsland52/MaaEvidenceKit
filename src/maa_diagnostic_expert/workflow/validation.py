@@ -2,11 +2,21 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from maa_diagnostic_expert.contracts.domain import DiagnosisDraft, DiagnosisResult, Evidence
+from maa_diagnostic_expert.contracts.domain import (
+    DiagnosisDraft,
+    DiagnosisResult,
+    Evidence,
+    MissingEvidence,
+    PreparedAnalysis,
+)
 from maa_diagnostic_expert.contracts.workflow import (
     IncidentCorrelationDraft,
     IncidentSelection,
     IncidentSelectionStatus,
+)
+from maa_diagnostic_expert.inspection.log_overview import (
+    LogOverviewCollection,
+    collect_log_overview_missing_evidence,
 )
 from maa_diagnostic_expert.inspection.models import DeterministicInspection
 
@@ -90,6 +100,42 @@ def collect_inspection_evidence(
     return ordered
 
 
+def collect_deterministic_missing_evidence(
+    inspection: DeterministicInspection | None = None,
+    prepared: PreparedAnalysis | None = None,
+    log_overviews: LogOverviewCollection | None = None,
+) -> list[MissingEvidence]:
+    """Collect deterministic missing-evidence facts from every inspection ledger."""
+    if inspection is None:
+        return [
+            *(prepared.missing_evidence if prepared else ()),
+            *collect_log_overview_missing_evidence(log_overviews or LogOverviewCollection()),
+        ]
+    return [
+        *inspection.prepared.missing_evidence,
+        *inspection.incident_selection.missing_evidence,
+        *inspection.incident_comparison.missing_evidence,
+    ]
+
+
+def collect_missing_evidence_codes(
+    inspection: DeterministicInspection | None = None,
+    prepared: PreparedAnalysis | None = None,
+    model_missing: Iterable[str] = (),
+    incident_correlation: IncidentCorrelationDraft | None = None,
+    log_overviews: LogOverviewCollection | None = None,
+) -> list[str]:
+    """Return result-level missing-evidence codes without dropping deterministic facts."""
+    deterministic_codes = [
+        item.code
+        for item in collect_deterministic_missing_evidence(inspection, prepared, log_overviews)
+    ]
+    correlation_missing = (
+        incident_correlation.missing_evidence if incident_correlation is not None else []
+    )
+    return list(dict.fromkeys([*deterministic_codes, *model_missing, *correlation_missing]))
+
+
 def finalize_diagnosis_draft(
     draft: DiagnosisDraft,
     inspection: DeterministicInspection,
@@ -107,12 +153,10 @@ def finalize_diagnosis_draft(
         raise ValueError(f"Diagnosis draft references unknown evidence IDs: {unknown}")
     _reject_non_citable_evidence(referenced_ids, ledger)
     cited_evidence = [item for item in authoritative if item.id in referenced_ids]
-    deterministic_missing = [item.code for item in inspection.prepared.missing_evidence]
-    correlation_missing = (
-        incident_correlation.missing_evidence if incident_correlation is not None else []
-    )
-    combined_missing = list(
-        dict.fromkeys([*draft.missing_evidence, *correlation_missing, *deterministic_missing])
+    combined_missing = collect_missing_evidence_codes(
+        inspection,
+        model_missing=draft.missing_evidence,
+        incident_correlation=incident_correlation,
     )
     return DiagnosisResult(
         status=draft.status,
@@ -143,7 +187,9 @@ def validate_result_against_inspection(
     }
     _reject_non_citable_evidence(referenced_ids, ledger)
 
-    required_missing = {item.code for item in inspection.prepared.missing_evidence if item.required}
+    required_missing = {
+        item.code for item in collect_deterministic_missing_evidence(inspection) if item.required
+    }
     omitted_missing = required_missing - set(result.missing_evidence)
     if omitted_missing:
         omitted = ", ".join(sorted(omitted_missing))

@@ -4,6 +4,7 @@ from collections import defaultdict
 
 from pydantic import JsonValue
 
+from maa_diagnostic_expert.contracts.domain import MissingEvidence
 from maa_diagnostic_expert.contracts.mla import (
     MlaRecognitionActivitySignal,
     MlaRuntimeFailure,
@@ -278,7 +279,12 @@ def compare_incident_execution(
         comparison = IncidentComparison(
             status=IncidentComparisonStatus.UNAVAILABLE,
             missing_evidence=[
-                "No relevant deterministic incident candidate was available for comparison."
+                MissingEvidence(
+                    code="incident_comparison_candidate_unavailable",
+                    message=(
+                        "No relevant deterministic incident candidate was available for comparison."
+                    ),
+                )
             ],
         )
         return inspection.model_copy(update={"incident_comparison": comparison})
@@ -294,7 +300,7 @@ def compare_incident_execution(
     )
     expected = _expected_tasks(inspection, target_names, known_evidence_ids)
     findings: list[IncidentComparisonFinding] = []
-    missing: list[str] = []
+    missing: list[MissingEvidence] = []
 
     for candidate, actual in zip(relevant, observed, strict=True):
         names = set(_candidate_target_names(candidate))
@@ -373,8 +379,13 @@ def compare_incident_execution(
                 )
             )
             missing.append(
-                f"Expected pipeline definition was not found for candidate "
-                f"'{candidate.candidate_id}'."
+                MissingEvidence(
+                    code="expected_pipeline_definition_not_found",
+                    message=(
+                        "Expected pipeline definition was not found for candidate "
+                        f"'{candidate.candidate_id}'."
+                    ),
+                )
             )
         else:
             findings.append(
@@ -389,8 +400,13 @@ def compare_incident_execution(
                 )
             )
             missing.append(
-                f"No focused expected configuration is available for candidate "
-                f"'{candidate.candidate_id}'."
+                MissingEvidence(
+                    code="expected_configuration_unavailable",
+                    message=(
+                        "No focused expected configuration is available for candidate "
+                        f"'{candidate.candidate_id}'."
+                    ),
+                )
             )
 
     has_observed = any(item.evidence_ids for item in observed)

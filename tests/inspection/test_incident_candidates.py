@@ -266,6 +266,8 @@ def test_incident_candidates_are_bounded() -> None:
     selection = generate_incident_selection(inspection)
 
     assert len(selection.candidates) == MAX_INCIDENT_CANDIDATES
-    assert selection.missing_evidence == [
+    assert [item.code for item in selection.missing_evidence] == ["incident_candidates_truncated"]
+    assert selection.missing_evidence[0].message == (
         "1 lower-priority incident candidate(s) were omitted by the bounded limit."
-    ]
+    )
+    assert selection.missing_evidence[0].required is False

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -15,13 +17,22 @@ from maa_diagnostic_expert.contracts.domain import (
     PreparedAnalysis,
 )
 from maa_diagnostic_expert.contracts.workflow import (
+    ArtifactSourceKind,
     IncidentCandidate,
+    IncidentComparison,
+    IncidentComparisonStatus,
     IncidentCorrelationDraft,
     IncidentSelection,
     IncidentSelectionStatus,
 )
+from maa_diagnostic_expert.inspection.log_overview import (
+    LogArtifactOverview,
+    LogOverviewCollection,
+    LogOverviewStatus,
+)
 from maa_diagnostic_expert.inspection.models import DeterministicInspection
 from maa_diagnostic_expert.workflow.validation import (
+    collect_deterministic_missing_evidence,
     finalize_diagnosis_draft,
     validate_incident_correlation,
     validate_result_against_inspection,
@@ -171,6 +182,157 @@ def test_validation_requires_deterministic_missing_evidence_codes() -> None:
 
     with pytest.raises(ValueError, match="omits required missing evidence"):
         validate_result_against_inspection(result, _inspection(missing=True))
+
+
+def test_finalize_draft_preserves_selection_and_comparison_missing_codes() -> None:
+    inspection = _inspection().model_copy(
+        update={
+            "incident_selection": IncidentSelection(
+                status=IncidentSelectionStatus.NOT_FOUND,
+                missing_evidence=[
+                    MissingEvidence(
+                        code="incident_candidates_not_found",
+                        message="No runtime incident candidate was found.",
+                    )
+                ],
+            ),
+            "incident_comparison": IncidentComparison(
+                status=IncidentComparisonStatus.UNAVAILABLE,
+                missing_evidence=[
+                    MissingEvidence(
+                        code="incident_comparison_candidate_unavailable",
+                        message="No candidate was available for comparison.",
+                    )
+                ],
+            ),
+        }
+    )
+    draft = _draft().model_copy(
+        update={"missing_evidence": ["incident_candidates_not_found", "model_requested_dump"]}
+    )
+
+    result = finalize_diagnosis_draft(draft, inspection)
+
+    assert result.missing_evidence == [
+        "incident_candidates_not_found",
+        "incident_comparison_candidate_unavailable",
+        "model_requested_dump",
+    ]
+
+
+def test_validation_requires_selection_and_comparison_missing_codes() -> None:
+    inspection = _inspection().model_copy(
+        update={
+            "incident_selection": IncidentSelection(
+                status=IncidentSelectionStatus.NOT_FOUND,
+                missing_evidence=[
+                    MissingEvidence(
+                        code="incident_candidates_not_found",
+                        message="No runtime incident candidate was found.",
+                    )
+                ],
+            ),
+            "incident_comparison": IncidentComparison(
+                status=IncidentComparisonStatus.UNAVAILABLE,
+                missing_evidence=[
+                    MissingEvidence(
+                        code="incident_comparison_candidate_unavailable",
+                        message="No candidate was available for comparison.",
+                    )
+                ],
+            ),
+        }
+    )
+    result = finalize_diagnosis_draft(_draft(), inspection).model_copy(
+        update={"missing_evidence": ["incident_candidates_not_found"]}
+    )
+
+    with pytest.raises(ValueError, match="incident_comparison_candidate_unavailable"):
+        validate_result_against_inspection(result, inspection)
+
+
+def test_validation_allows_optional_deterministic_missing_code_to_be_omitted() -> None:
+    inspection = _inspection().model_copy(
+        update={
+            "incident_selection": IncidentSelection(
+                status=IncidentSelectionStatus.AMBIGUOUS,
+                candidates=_incident_selection().candidates,
+                missing_evidence=[
+                    MissingEvidence(
+                        code="incident_candidates_truncated",
+                        message="Lower-priority candidates were omitted.",
+                        required=False,
+                    )
+                ],
+            )
+        }
+    )
+    result = finalize_diagnosis_draft(_draft(), inspection).model_copy(
+        update={"missing_evidence": []}
+    )
+
+    assert validate_result_against_inspection(result, inspection) is result
+
+
+def test_default_unexecuted_incident_ledgers_do_not_emit_missing_codes() -> None:
+    assert collect_deterministic_missing_evidence(_inspection()) == []
+
+
+def test_collect_deterministic_missing_evidence_includes_log_overview_fallback() -> None:
+    missing = collect_deterministic_missing_evidence(
+        prepared=PreparedAnalysis(request=AnalysisRequest(question="Diagnose")),
+        log_overviews=LogOverviewCollection(
+            overviews=[
+                LogArtifactOverview(
+                    artifact_id="custom-log",
+                    path=Path("C:/logs/agent.log"),
+                    source_kind=ArtifactSourceKind.CUSTOM,
+                    status=LogOverviewStatus.TRUNCATED,
+                    scanned_bytes=64,
+                    scanned_lines=1,
+                ),
+                LogArtifactOverview(
+                    artifact_id="gui-log",
+                    path=Path("C:/logs/gui.log"),
+                    source_kind=ArtifactSourceKind.GUI,
+                    status=LogOverviewStatus.UNREADABLE,
+                    scanned_bytes=0,
+                    scanned_lines=0,
+                    error_message="PermissionError: denied",
+                ),
+            ]
+        ),
+    )
+
+    assert [item.code for item in missing] == [
+        "log_overview_truncated",
+        "log_overview_unreadable",
+    ]
+    assert missing[0].required is False
+    assert missing[1].required is True
+
+
+def test_collect_deterministic_missing_evidence_preserves_structured_entries() -> None:
+    inspection = _inspection(missing=True).model_copy(
+        update={
+            "incident_selection": IncidentSelection(
+                status=IncidentSelectionStatus.NOT_FOUND,
+                missing_evidence=[
+                    MissingEvidence(
+                        code="required_log",
+                        message="Duplicate code from incident selection.",
+                        required=False,
+                    )
+                ],
+            )
+        }
+    )
+
+    missing = collect_deterministic_missing_evidence(inspection)
+
+    assert [item.code for item in missing] == ["required_log", "required_log"]
+    assert missing[0].required is True
+    assert missing[1].required is False
 
 
 def test_incident_correlation_accepts_known_candidate_and_evidence() -> None:

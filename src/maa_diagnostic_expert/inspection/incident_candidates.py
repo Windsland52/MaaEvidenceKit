@@ -4,6 +4,7 @@ import hashlib
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from maa_diagnostic_expert.contracts.domain import MissingEvidence
 from maa_diagnostic_expert.contracts.mla import (
     MlaRuntimeTaskCompleteness,
     MlaRuntimeTaskExecution,
@@ -273,15 +274,27 @@ def generate_incident_selection(inspection: DeterministicInspection) -> Incident
     candidates.sort(key=lambda item: (-item.confidence, item.candidate_id))
     omitted = max(0, len(candidates) - MAX_INCIDENT_CANDIDATES)
     retained = candidates[:MAX_INCIDENT_CANDIDATES]
-    missing: list[str] = []
+    missing: list[MissingEvidence] = []
     if omitted:
         missing.append(
-            f"{omitted} lower-priority incident candidate(s) were omitted by the bounded limit."
+            MissingEvidence(
+                code="incident_candidates_truncated",
+                message=(
+                    f"{omitted} lower-priority incident candidate(s) were omitted by "
+                    "the bounded limit."
+                ),
+                required=False,
+            )
         )
     if not retained:
         missing.append(
-            "No failed, incomplete, or signal-bearing MaaFramework task and no notable "
-            "GUI/custom log occurrence was found."
+            MissingEvidence(
+                code="incident_candidates_not_found",
+                message=(
+                    "No failed, incomplete, or signal-bearing MaaFramework task and no notable "
+                    "GUI/custom log occurrence was found."
+                ),
+            )
         )
         return IncidentSelection(
             status=IncidentSelectionStatus.NOT_FOUND,

@@ -80,6 +80,7 @@ from maa_diagnostic_expert.reasoning.protocol import ReasoningBackend, Reasoning
 from .planning import plan_initial_investigation
 from .validation import (
     collect_inspection_evidence,
+    collect_missing_evidence_codes,
     finalize_diagnosis_draft,
     validate_incident_correlation,
 )
@@ -1003,6 +1004,7 @@ class DiagnosticWorkflow:
                 inspection.incident_selection,
                 state.get("incident_correlation"),
                 inspection.incident_comparison,
+                prepared_missing_evidence=inspection.prepared.missing_evidence,
             )
 
             _emit(
@@ -1087,13 +1089,13 @@ class DiagnosticWorkflow:
         message = state.get("error_message", "Workflow failed")
         inspection = state.get("inspection")
         prepared = state.get("prepared")
+        overviews = state.get("log_overviews")
         evidence = state.get("evidence", [])
-        if inspection is not None:
-            missing_codes = [item.code for item in inspection.prepared.missing_evidence]
-        elif prepared is not None:
-            missing_codes = [item.code for item in prepared.missing_evidence]
-        else:
-            missing_codes = []
+        missing_codes = collect_missing_evidence_codes(
+            inspection,
+            prepared,
+            log_overviews=overviews,
+        )
         result = DiagnosisResult(
             status=DiagnosisStatus.FAILED,
             summary=message,

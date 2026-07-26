@@ -187,6 +187,7 @@ from .reasoning.protocol import (
 from .reasoning.tools.command import CommandExecutor, CommandExecutorConfig, CommandPolicy
 from .workflow.graph import DiagnosticWorkflow
 from .workflow.validation import (
+    collect_deterministic_missing_evidence,
     collect_inspection_evidence,
     finalize_diagnosis_draft,
     validate_incident_correlation,
@@ -323,6 +324,7 @@ __all__ = [
     "build_knowledge_research_context",
     "catalog_source_input",
     "build_log_overviews",
+    "collect_deterministic_missing_evidence",
     "collect_inspection_evidence",
     "collect_log_overview_missing_evidence",
     "default_knowledge_cache",

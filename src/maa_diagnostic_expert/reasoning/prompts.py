@@ -10,6 +10,7 @@ from maa_diagnostic_expert.contracts.domain import (
     Evidence,
     EvidenceReliability,
     EvidenceRole,
+    MissingEvidence,
     SourceRole,
 )
 from maa_diagnostic_expert.contracts.workflow import (
@@ -97,12 +98,28 @@ def _render_incident_candidates(selection: IncidentSelection, limit: int = 20) -
     return lines
 
 
+def _render_missing_evidence(
+    label: str,
+    missing_evidence: list[MissingEvidence],
+) -> list[str]:
+    items: list[MissingEvidence] = []
+    for item in missing_evidence:
+        if item not in items:
+            items.append(item)
+    if not items:
+        return []
+    return [
+        f"{label} missing evidence: " + "; ".join(f"{item.code}: {item.message}" for item in items)
+    ]
+
+
 def render_instruction(
     reported_context: str,
     evidence: list[Evidence],
     incident_selection: IncidentSelection | None = None,
     incident_correlation: IncidentCorrelationDraft | None = None,
     incident_comparison: IncidentComparison | None = None,
+    prepared_missing_evidence: list[MissingEvidence] | None = None,
 ) -> str:
     """Render the reasoning instruction for the diagnostic stage."""
     counts = _evidence_counts(evidence)
@@ -149,8 +166,20 @@ def render_instruction(
         "9. Wiki navigation matches may guide investigation but MUST NOT be cited by a",
         "   conclusion; cite the original documentation or source passage instead.",
     ]
+    lines.extend(
+        _render_missing_evidence(
+            "Prepared",
+            prepared_missing_evidence or [],
+        )
+    )
     if incident_selection is not None:
         lines.extend(_render_incident_candidates(incident_selection))
+        lines.extend(
+            _render_missing_evidence(
+                "Selection",
+                incident_selection.missing_evidence,
+            )
+        )
     if incident_correlation is not None:
         lines.extend(
             [
@@ -188,10 +217,12 @@ def render_instruction(
                 f"action={', '.join(expected.action_types) or 'unspecified'}; "
                 f"next={', '.join(expected.next_targets) or 'none'}"
             )
-        if incident_comparison.missing_evidence:
-            lines.append(
-                "Comparison missing evidence: " + "; ".join(incident_comparison.missing_evidence)
+        lines.extend(
+            _render_missing_evidence(
+                "Comparison",
+                incident_comparison.missing_evidence,
             )
+        )
     return "\n".join(lines)
 
 
@@ -219,6 +250,7 @@ def build_reasoning_context(
     incident_selection: IncidentSelection | None = None,
     incident_correlation: IncidentCorrelationDraft | None = None,
     incident_comparison: IncidentComparison | None = None,
+    prepared_missing_evidence: list[MissingEvidence] | None = None,
 ) -> ReasoningContext:
     """Build a reasoning context with evidence ordered for model consumption."""
     ordered = order_evidence_for_reasoning(evidence)
@@ -230,6 +262,7 @@ def build_reasoning_context(
             incident_selection,
             incident_correlation,
             incident_comparison,
+            prepared_missing_evidence=prepared_missing_evidence,
         ),
         evidence=ordered,
         incident_selection=incident_selection,

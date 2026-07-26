@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import Field, field_validator, model_validator
 
-from .domain import ContractModel, SourceRole
+from .domain import ContractModel, MissingEvidence, SourceRole
 
 
 class RuntimeComponent(StrEnum):
@@ -118,12 +118,16 @@ def _new_incident_candidates() -> list[IncidentCandidate]:
     return []
 
 
+def _new_missing_evidence() -> list[MissingEvidence]:
+    return []
+
+
 class IncidentSelection(ContractModel):
-    api_version: str = "incident-selection/v1"
+    api_version: str = "incident-selection/v2"
     status: IncidentSelectionStatus
     candidates: list[IncidentCandidate] = Field(default_factory=_new_incident_candidates)
     selected_candidate_id: str | None = None
-    missing_evidence: list[str] = Field(default_factory=_new_strings)
+    missing_evidence: list[MissingEvidence] = Field(default_factory=_new_missing_evidence)
 
     @model_validator(mode="after")
     def validate_selection(self) -> IncidentSelection:
@@ -234,7 +238,7 @@ def _new_comparison_findings() -> list[IncidentComparisonFinding]:
 
 
 class IncidentComparison(ContractModel):
-    api_version: str = "incident-comparison/v1"
+    api_version: str = "incident-comparison/v2"
     status: IncidentComparisonStatus
     candidate_ids: list[str] = Field(default_factory=_new_strings)
     observed_executions: list[IncidentObservedExecution] = Field(
@@ -242,7 +246,7 @@ class IncidentComparison(ContractModel):
     )
     expected_tasks: list[IncidentExpectedTask] = Field(default_factory=_new_expected_tasks)
     findings: list[IncidentComparisonFinding] = Field(default_factory=_new_comparison_findings)
-    missing_evidence: list[str] = Field(default_factory=_new_strings)
+    missing_evidence: list[MissingEvidence] = Field(default_factory=_new_missing_evidence)
 
 
 class InvestigationBranch(StrEnum):

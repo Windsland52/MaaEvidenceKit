@@ -206,7 +206,9 @@ def test_compare_incident_execution_remains_partial_without_mse() -> None:
     assert comparison.status is IncidentComparisonStatus.PARTIAL
     assert comparison.expected_tasks == []
     assert comparison.findings[0].kind is (IncidentComparisonFindingKind.ACTUAL_EXECUTION_ONLY)
-    assert comparison.missing_evidence
+    assert [item.code for item in comparison.missing_evidence] == [
+        "expected_configuration_unavailable"
+    ]
 
 
 def test_compare_incident_execution_does_not_report_not_found_from_partial_mse() -> None:
@@ -226,6 +228,28 @@ def test_compare_incident_execution_does_not_report_not_found_from_partial_mse()
         finding.kind for finding in comparison.findings
     }
     assert comparison.findings[0].kind is IncidentComparisonFindingKind.ACTUAL_EXECUTION_ONLY
+    assert [item.code for item in comparison.missing_evidence] == [
+        "expected_configuration_unavailable"
+    ]
+
+
+def test_compare_incident_execution_reports_not_found_from_supported_mse() -> None:
+    inspection = compare_incident_execution(
+        _inspection(
+            include_mse=True,
+            login_button_found=False,
+        ),
+        _correlation(),
+    )
+
+    comparison = inspection.incident_comparison
+    assert comparison.status is IncidentComparisonStatus.PARTIAL
+    assert IncidentComparisonFindingKind.EXPECTED_TASK_NOT_FOUND in {
+        finding.kind for finding in comparison.findings
+    }
+    assert [item.code for item in comparison.missing_evidence] == [
+        "expected_pipeline_definition_not_found"
+    ]
 
 
 def test_compare_incident_execution_keeps_found_variant_from_partial_mse() -> None:
