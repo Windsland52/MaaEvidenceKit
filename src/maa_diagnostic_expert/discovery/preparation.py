@@ -18,6 +18,10 @@ from maa_diagnostic_expert.contracts.domain import (
     PreparedAnalysis,
 )
 
+from .archive_parts import (
+    collect_multipart_archive_missing_evidence,
+    is_multipart_archive_path,
+)
 from .source_preparation import prepare_sources
 
 MAX_DISCOVERED_FILES = 10_000
@@ -48,7 +52,7 @@ def _media_kind(path: Path) -> ArtifactMediaKind:
         return ArtifactMediaKind.LOG
     if name.endswith(_CONFIGURATION_SUFFIXES):
         return ArtifactMediaKind.CONFIGURATION
-    if name.endswith(_ARCHIVE_SUFFIXES):
+    if name.endswith(_ARCHIVE_SUFFIXES) or is_multipart_archive_path(path):
         return ArtifactMediaKind.ARCHIVE
     if name.endswith(_IMAGE_SUFFIXES):
         return ArtifactMediaKind.IMAGE
@@ -295,9 +299,13 @@ def prepare_analysis(request: AnalysisRequest) -> PreparedAnalysis:
             )
         )
 
+    unique_records = _deduplicate_records(records)
     return PreparedAnalysis(
         request=normalized_request,
-        artifacts=_deduplicate_records(records),
+        artifacts=unique_records,
         source_snapshots=snapshots,
-        missing_evidence=missing,
+        missing_evidence=[
+            *missing,
+            *collect_multipart_archive_missing_evidence(unique_records),
+        ],
     )
