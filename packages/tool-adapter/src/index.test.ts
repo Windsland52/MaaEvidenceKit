@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
@@ -135,6 +135,224 @@ test("mse.resolve-tasks returns MaaFramework definitions and effective config", 
       (item) => item.kind === "task.next" && item.target === "Done"
     )
   );
+});
+
+test("mse.project-preflight rejects parent traversal resource paths", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mde-mse-traversal-"));
+  const outside = await mkdtemp(path.join(os.tmpdir(), "mde-mse-secret-"));
+  temporaryRoots.push(root, outside);
+  const assets = path.join(root, "assets");
+  await mkdir(path.join(outside, "pipeline"), { recursive: true });
+  await mkdir(assets, { recursive: true });
+  await writeFile(
+    path.join(assets, "interface.json"),
+    JSON.stringify({
+      controller: [{ name: "Adb" }],
+      resource: [{
+        name: "Escaped",
+        path: [path.relative(assets, outside).replaceAll(path.sep, "/")],
+        controller: ["Adb"]
+      }]
+    }),
+    "utf8"
+  );
+  await writeFile(
+    path.join(outside, "pipeline", "secret.json"),
+    JSON.stringify({ SECRET_MARKER_SHOULD_NOT_LEAK: {} }),
+    "utf8"
+  );
+
+  const response = await handleRequest({
+    id: "mse-traversal-1",
+    apiVersion: "tool-adapter/v1",
+    method: "tools/call",
+    params: {
+      name: "mse.project-preflight",
+      arguments: { path: root }
+    }
+  });
+
+  assert.equal(response.ok, false);
+  assert.equal(response.error?.code, "TOOL_EXECUTION_FAILED");
+  assert.match(response.error?.message ?? "", /escaped the configured project root/u);
+  assert.doesNotMatch(
+    JSON.stringify(response),
+    /SECRET_MARKER_SHOULD_NOT_LEAK/u
+  );
+});
+
+test("mse.resolve-tasks rejects absolute resource paths outside the project", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mde-mse-absolute-"));
+  const outside = await mkdtemp(path.join(os.tmpdir(), "mde-mse-secret-"));
+  temporaryRoots.push(root, outside);
+  await mkdir(path.join(outside, "pipeline"), { recursive: true });
+  await writeFile(
+    path.join(root, "interface.json"),
+    JSON.stringify({
+      controller: [{ name: "Adb" }],
+      resource: [{ name: "Escaped", path: [outside], controller: ["Adb"] }]
+    }),
+    "utf8"
+  );
+  await writeFile(
+    path.join(outside, "pipeline", "secret.json"),
+    JSON.stringify({ SECRET_MARKER_SHOULD_NOT_LEAK: {} }),
+    "utf8"
+  );
+
+  const response = await handleRequest({
+    id: "mse-absolute-1",
+    apiVersion: "tool-adapter/v1",
+    method: "tools/call",
+    params: {
+      name: "mse.resolve-tasks",
+      arguments: { path: root, tasks: ["SECRET_MARKER_SHOULD_NOT_LEAK"] }
+    }
+  });
+
+  assert.equal(response.ok, false);
+  assert.equal(response.error?.code, "TOOL_EXECUTION_FAILED");
+  assert.match(response.error?.message ?? "", /escaped the configured project root/u);
+  assert.doesNotMatch(
+    JSON.stringify(response),
+    /SECRET_MARKER_SHOULD_NOT_LEAK/u
+  );
+});
+
+test("mse.project-preflight does not treat missing in-root resources as escapes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mde-mse-missing-resource-"));
+  temporaryRoots.push(root);
+  const assets = path.join(root, "assets");
+  await mkdir(assets, { recursive: true });
+  await writeFile(path.join(assets, "not-a-directory"), "not a directory", "utf8");
+  await writeFile(
+    path.join(assets, "interface.json"),
+    JSON.stringify({
+      controller: [{ name: "Adb" }],
+      resource: [{
+        name: "Incomplete",
+        path: ["missing/resource", "not-a-directory/child"],
+        controller: ["Adb"]
+      }]
+    }),
+    "utf8"
+  );
+
+  const response = await handleRequest({
+    id: "mse-missing-resource-1",
+    apiVersion: "tool-adapter/v1",
+    method: "tools/call",
+    params: {
+      name: "mse.project-preflight",
+      arguments: { path: root }
+    }
+  });
+
+  assert.equal(response.ok, true);
+  assert.doesNotMatch(
+    JSON.stringify(response),
+    /escaped the configured project root/u
+  );
+});
+
+test("mse.project-preflight rejects symlinked resource directory escapes", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mde-mse-symlink-"));
+  const outside = await mkdtemp(path.join(os.tmpdir(), "mde-mse-secret-"));
+  temporaryRoots.push(root, outside);
+  const resourceParent = path.join(root, "resource");
+  const linkedResource = path.join(resourceParent, "linked");
+  await mkdir(resourceParent, { recursive: true });
+  await mkdir(path.join(outside, "pipeline"), { recursive: true });
+  try {
+    await symlink(outside, linkedResource, "junction");
+  } catch {
+    t.skip("platform does not permit creating a test directory symlink");
+    return;
+  }
+  await writeFile(
+    path.join(root, "interface.json"),
+    JSON.stringify({
+      controller: [{ name: "Adb" }],
+      resource: [{ name: "Linked", path: ["resource/linked"], controller: ["Adb"] }]
+    }),
+    "utf8"
+  );
+  await writeFile(
+    path.join(outside, "pipeline", "secret.json"),
+    JSON.stringify({ SECRET_MARKER_SHOULD_NOT_LEAK: {} }),
+    "utf8"
+  );
+
+  const response = await handleRequest({
+    id: "mse-symlink-1",
+    apiVersion: "tool-adapter/v1",
+    method: "tools/call",
+    params: {
+      name: "mse.project-preflight",
+      arguments: { path: root }
+    }
+  });
+
+  assert.equal(response.ok, false);
+  assert.equal(response.error?.code, "TOOL_EXECUTION_FAILED");
+  assert.match(response.error?.message ?? "", /escaped the configured project root/u);
+  assert.doesNotMatch(
+    JSON.stringify(response),
+    /SECRET_MARKER_SHOULD_NOT_LEAK/u
+  );
+});
+
+test("mse tools reject symlinked interface discovery outside the project", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mde-mse-interface-link-"));
+  const outside = await mkdtemp(path.join(os.tmpdir(), "mde-mse-secret-"));
+  temporaryRoots.push(root, outside);
+  const linkedAssets = path.join(root, "assets");
+  await writeFile(
+    path.join(outside, "interface.json"),
+    JSON.stringify({
+      controller: [{ name: "Adb" }],
+      task: [{ name: "SECRET_MARKER_SHOULD_NOT_LEAK", entry: "Start" }]
+    }),
+    "utf8"
+  );
+  try {
+    await symlink(outside, linkedAssets, "junction");
+  } catch {
+    t.skip("platform does not permit creating a test directory symlink");
+    return;
+  }
+
+  const calls = [
+    {
+      id: "mse-interface-link-preflight",
+      name: "mse.project-preflight",
+      arguments: { path: root }
+    },
+    {
+      id: "mse-interface-link-resolve",
+      name: "mse.resolve-tasks",
+      arguments: { path: root, tasks: ["SECRET_MARKER_SHOULD_NOT_LEAK"] }
+    }
+  ];
+  for (const call of calls) {
+    const response = await handleRequest({
+      id: call.id,
+      apiVersion: "tool-adapter/v1",
+      method: "tools/call",
+      params: {
+        name: call.name,
+        arguments: call.arguments
+      }
+    });
+
+    assert.equal(response.ok, false);
+    assert.equal(response.error?.code, "TOOL_EXECUTION_FAILED");
+    assert.match(response.error?.message ?? "", /escaped the configured project root/u);
+    assert.doesNotMatch(
+      JSON.stringify(response),
+      /SECRET_MARKER_SHOULD_NOT_LEAK/u
+    );
+  }
 });
 
 test("mse.project-preflight rejects MaaAssistantArknights mode", async () => {

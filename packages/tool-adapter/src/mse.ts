@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -6,6 +6,7 @@ import {
   InterfaceBundle,
   buildDiagnosticMessage,
   performDiagnostic,
+  type IContentLoader,
   type IContentWatcher,
   type IContentWatcherController,
   type IContentWatcherDelegate,
@@ -22,6 +23,8 @@ const MAX_SCANNED_FILES = 10_000;
 const MAX_CONFIGURATIONS = 256;
 const MAX_DIAGNOSTICS = 500;
 const MAX_TASK_RESOLUTION_CONFIGURATIONS = 64;
+const CONFINEMENT_ERROR =
+  "MSE project access escaped the configured project root.";
 
 export type MseCompatibility = {
   status: "supported" | "partial" | "unsupported";
@@ -108,14 +111,99 @@ export type MseTaskResolutionResult = {
   warnings: string[];
 };
 
+class ProjectRootConfinement {
+  private readonly root: string;
+  private readonly rootReal: Promise<string>;
+  private violations = 0;
+
+  constructor(projectRoot: string) {
+    this.root = path.resolve(projectRoot);
+    this.rootReal = realpath(this.root);
+  }
+
+  recordViolation(): void {
+    this.violations += 1;
+  }
+
+  assertNoViolations(): void {
+    if (this.violations > 0) {
+      throw new Error(CONFINEMENT_ERROR);
+    }
+  }
+
+  async isAllowed(target: string): Promise<boolean> {
+    const resolved = path.resolve(target);
+    if (!this.isContained(this.root, resolved)) {
+      this.recordViolation();
+      return false;
+    }
+    const targetReal = await this.realpathExistingTargetOrAncestor(resolved);
+    if (targetReal === null) {
+      this.recordViolation();
+      return false;
+    }
+    let rootReal;
+    try {
+      rootReal = await this.rootReal;
+    } catch {
+      this.recordViolation();
+      return false;
+    }
+    if (!this.isContained(rootReal, targetReal)) {
+      this.recordViolation();
+      return false;
+    }
+    return true;
+  }
+
+  private async realpathExistingTargetOrAncestor(target: string): Promise<string | null> {
+    let current = target;
+    while (this.isContained(this.root, current)) {
+      try {
+        return await realpath(current);
+      } catch (error: unknown) {
+        if (!["ENOENT", "ENOTDIR"].includes(errorCode(error) ?? "")) return null;
+        const parent = path.dirname(current);
+        if (parent === current) return null;
+        current = parent;
+      }
+    }
+    return null;
+  }
+
+  private isContained(root: string, target: string): boolean {
+    const relative = path.relative(root, target);
+    return (
+      relative.length === 0
+      || (!relative.startsWith("..") && !path.isAbsolute(relative))
+    );
+  }
+}
+
+class ConfinedContentLoader implements IContentLoader {
+  private readonly inner = new FsContentLoader();
+
+  constructor(private readonly confinement: ProjectRootConfinement) {}
+
+  async get(file: string): Promise<string | null> {
+    if (!(await this.confinement.isAllowed(file))) return null;
+    return this.inner.get(file);
+  }
+}
+
 class ReadOnlySnapshotWatcher implements IContentWatcher {
   private scannedFiles = 0;
+
+  constructor(private readonly confinement: ProjectRootConfinement) {}
 
   async watch(
     root: string,
     isFile: boolean,
     delegate: IContentWatcherDelegate
   ): Promise<IContentWatcherController> {
+    if (!(await this.confinement.isAllowed(root))) {
+      return { stop() {} };
+    }
     if (!isFile) {
       this.scannedFiles = 0;
       await this.scanDirectory(path.resolve(root), delegate);
@@ -127,6 +215,7 @@ class ReadOnlySnapshotWatcher implements IContentWatcher {
     directory: string,
     delegate: IContentWatcherDelegate
   ): Promise<void> {
+    if (!(await this.confinement.isAllowed(directory))) return;
     if (!delegate.filter(directory, true)) return;
     let entries;
     try {
@@ -136,6 +225,7 @@ class ReadOnlySnapshotWatcher implements IContentWatcher {
     }
     for (const entry of entries) {
       const target = path.join(directory, entry.name);
+      if (!(await this.confinement.isAllowed(target))) continue;
       if (entry.isDirectory()) {
         await this.scanDirectory(target, delegate);
       } else if (entry.isFile() && delegate.filter(target, false)) {
@@ -149,26 +239,45 @@ class ReadOnlySnapshotWatcher implements IContentWatcher {
   }
 }
 
-const isFile = async (target: string): Promise<boolean> => {
+const isFile = async (
+  target: string,
+  confinement?: ProjectRootConfinement
+): Promise<boolean> => {
   try {
-    return (await stat(target)).isFile();
+    if (confinement !== undefined && !(await confinement.isAllowed(target))) return false;
+    const targetStat = await stat(target);
+    return targetStat.isFile();
   } catch {
     return false;
   }
 };
 
-const isDirectory = async (target: string): Promise<boolean> => {
+const isDirectory = async (
+  target: string,
+  confinement?: ProjectRootConfinement
+): Promise<boolean> => {
   try {
-    return (await stat(target)).isDirectory();
+    if (confinement !== undefined && !(await confinement.isAllowed(target))) return false;
+    const targetStat = await stat(target);
+    return targetStat.isDirectory();
   } catch {
     return false;
   }
 };
 
-const findInterface = async (projectRoot: string): Promise<string | null> => {
+const errorCode = (error: unknown): string | undefined => {
+  return isRecord(error) && typeof error["code"] === "string"
+    ? error["code"]
+    : undefined;
+};
+
+const findInterface = async (
+  projectRoot: string,
+  confinement: ProjectRootConfinement
+): Promise<string | null> => {
   for (const relative of INTERFACE_CANDIDATES) {
     const candidate = path.join(projectRoot, relative);
-    if (await isFile(candidate)) return candidate;
+    if (await isFile(candidate, confinement)) return candidate;
   }
   return null;
 };
@@ -215,8 +324,13 @@ export async function runMseProjectPreflight(
   if (!(await isDirectory(projectRoot))) {
     throw new Error("MSE project path is not a directory: " + projectRoot);
   }
-  const interfacePath = await findInterface(projectRoot);
-  const maaMode = await isDirectory(path.join(projectRoot, "src", "MaaCore"));
+  const confinement = new ProjectRootConfinement(projectRoot);
+  if (!(await confinement.isAllowed(projectRoot))) {
+    throw new Error(CONFINEMENT_ERROR);
+  }
+  const interfacePath = await findInterface(projectRoot, confinement);
+  const maaMode = await isDirectory(path.join(projectRoot, "src", "MaaCore"), confinement);
+  confinement.assertNoViolations();
   const base = {
     schema_version: "mde-mse-project-preflight/v1" as const,
     project_root: projectRoot,
@@ -261,8 +375,8 @@ export async function runMseProjectPreflight(
     };
   }
 
-  const loader = new FsContentLoader();
-  const watcher = new ReadOnlySnapshotWatcher();
+  const loader = new ConfinedContentLoader(confinement);
+  const watcher = new ReadOnlySnapshotWatcher(confinement);
   const bundle = new InterfaceBundle(
     loader,
     watcher,
@@ -276,7 +390,12 @@ export async function runMseProjectPreflight(
   const locate = async (file: string, offset: number): Promise<[number, number]> => {
     let content = fileContents.get(file);
     if (content === undefined) {
-      content = await readFile(file, "utf8");
+      const loadedContent = await loader.get(file);
+      confinement.assertNoViolations();
+      if (loadedContent === null) {
+        throw new Error("MSE project file content is unavailable.");
+      }
+      content = loadedContent;
       fileContents.set(file, content);
     }
     return lineColumn(content, offset);
@@ -284,7 +403,9 @@ export async function runMseProjectPreflight(
 
   try {
     await bundle.load();
+    confinement.assertNoViolations();
     await bundle.flush(false);
+    confinement.assertNoViolations();
     const controllers = [...new Set(bundle.allControllerNames())];
     const resources = [...new Set(bundle.allResourceNames())];
     const controllerChoices: Array<string | null> =
@@ -303,7 +424,9 @@ export async function runMseProjectPreflight(
           break configurationLoop;
         }
         await bundle.switchActive(controller ?? "", resource ?? "");
+        confinement.assertNoViolations();
         await bundle.flush(true);
+        confinement.assertNoViolations();
         const rawDiagnostics = performDiagnostic(bundle, {});
         const counts = { error: 0, warning: 0 };
         for (const diagnostic of rawDiagnostics) {
@@ -449,7 +572,13 @@ export async function runMseTaskResolution(
   if (!(await isDirectory(projectRoot))) {
     throw new Error("MSE project path is not a directory: " + projectRoot);
   }
-  const interfacePath = await findInterface(projectRoot);
+  const confinement = new ProjectRootConfinement(projectRoot);
+  if (!(await confinement.isAllowed(projectRoot))) {
+    throw new Error(CONFINEMENT_ERROR);
+  }
+  const interfacePath = await findInterface(projectRoot, confinement);
+  const maaMode = await isDirectory(path.join(projectRoot, "src", "MaaCore"), confinement);
+  confinement.assertNoViolations();
   if (interfacePath === null) {
     return {
       schema_version: "mde-mse-task-resolution/v1",
@@ -465,7 +594,7 @@ export async function runMseTaskResolution(
       warnings: []
     };
   }
-  if (await isDirectory(path.join(projectRoot, "src", "MaaCore"))) {
+  if (maaMode) {
     return {
       schema_version: "mde-mse-task-resolution/v1",
       project_root: projectRoot,
@@ -481,9 +610,11 @@ export async function runMseTaskResolution(
     };
   }
 
+  const loader = new ConfinedContentLoader(confinement);
+  const watcher = new ReadOnlySnapshotWatcher(confinement);
   const bundle = new InterfaceBundle(
-    new FsContentLoader(),
-    new ReadOnlySnapshotWatcher(),
+    loader,
+    watcher,
     false,
     path.dirname(interfacePath),
     path.basename(interfacePath)
@@ -492,7 +623,12 @@ export async function runMseTaskResolution(
   const locate = async (file: string, offset: number): Promise<[number, number]> => {
     let content = fileContents.get(file);
     if (content === undefined) {
-      content = await readFile(file, "utf8");
+      const loadedContent = await loader.get(file);
+      confinement.assertNoViolations();
+      if (loadedContent === null) {
+        throw new Error("MSE project file content is unavailable.");
+      }
+      content = loadedContent;
       fileContents.set(file, content);
     }
     return lineColumn(content, offset);
@@ -502,7 +638,9 @@ export async function runMseTaskResolution(
   let configurationCount = 0;
   try {
     await bundle.load();
+    confinement.assertNoViolations();
     await bundle.flush(false);
+    confinement.assertNoViolations();
     const controllers = requestedController === undefined
       ? [...new Set(bundle.allControllerNames())]
       : [requestedController];
@@ -521,7 +659,9 @@ export async function runMseTaskResolution(
         }
         configurationCount += 1;
         await bundle.switchActive(controller ?? "", resource ?? "");
+        confinement.assertNoViolations();
         await bundle.flush(true);
+        confinement.assertNoViolations();
         for (const task of tasks) {
           resolutions.push(
             await resolveTask(bundle, projectRoot, task, controller, resource, locate)
