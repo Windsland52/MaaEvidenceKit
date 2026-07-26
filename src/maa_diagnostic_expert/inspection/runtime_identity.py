@@ -166,22 +166,23 @@ def extract_runtime_identity(
                 )
             )
 
+    source_components = {
+        SourceRole.PROJECT: RuntimeComponent.PROJECT,
+        SourceRole.GUI: RuntimeComponent.GUI,
+    }
     for snapshot in source_snapshots:
         version = snapshot.requested_revision
-        if (
-            snapshot.role is not SourceRole.PROJECT
-            or version is None
-            or _RELEASE_VERSION.fullmatch(version) is None
-        ):
+        component = source_components.get(snapshot.role)
+        if component is None or version is None or _RELEASE_VERSION.fullmatch(version) is None:
             continue
         source_ref = str(snapshot.path)
-        key = (RuntimeComponent.PROJECT, source_ref, None, version)
+        key = (component, source_ref, None, version)
         if key in known:
             continue
         known.add(key)
         observations.append(
             _observation(
-                component=RuntimeComponent.PROJECT,
+                component=component,
                 version=version,
                 kind=VersionObservationKind.USER_DECLARED,
                 source_ref=source_ref,

@@ -234,6 +234,47 @@ def test_extract_runtime_identity_does_not_treat_git_refs_as_project_versions(
     assert extract_runtime_identity([], [snapshot]).versions == []
 
 
+def test_extract_runtime_identity_records_gui_version_separately_from_project(
+    tmp_path: Path,
+) -> None:
+    snapshots = [
+        SourceSnapshot(
+            source_id="project",
+            role=SourceRole.PROJECT,
+            path=tmp_path / "project",
+            revision_backend=SourceRevisionBackend.GIT,
+            requested_revision="v2.4.1",
+            resolved_revision="a" * 40,
+            current_revision="a" * 40,
+            resolution_status=RevisionResolutionStatus.RESOLVED,
+        ),
+        SourceSnapshot(
+            source_id="gui",
+            role=SourceRole.GUI,
+            path=tmp_path / "gui",
+            revision_backend=SourceRevisionBackend.GIT,
+            requested_revision="1.8.0-beta.2",
+            resolved_revision="b" * 40,
+            current_revision="b" * 40,
+            resolution_status=RevisionResolutionStatus.RESOLVED,
+        ),
+    ]
+
+    identity = extract_runtime_identity([], snapshots)
+
+    assert [(item.component, item.version) for item in identity.versions] == [
+        (RuntimeComponent.PROJECT, "v2.4.1"),
+        (RuntimeComponent.GUI, "1.8.0-beta.2"),
+    ]
+    evidence = synthesize_runtime_identity_evidence(identity)
+    assert [item.kind for item in evidence] == ["project_version", "gui_version"]
+    assert [item.source_component for item in evidence] == [
+        "source-revision:project",
+        "source-revision:gui",
+    ]
+    assert len({item.id for item in evidence}) == 2
+
+
 def test_runtime_identity_evidence_preserves_source_line_and_reliability(
     tmp_path: Path,
 ) -> None:
