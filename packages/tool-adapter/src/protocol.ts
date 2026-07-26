@@ -12,13 +12,24 @@ export type ToolError = {
   details?: Record<string, unknown>;
 };
 
-export type ToolResponse = {
+type ToolResponseBase = {
   id: string;
   apiVersion: "tool-adapter/v1";
-  ok: boolean;
-  result: unknown | null;
-  error: ToolError | null;
 };
+
+export type ToolSuccessResponse = ToolResponseBase & {
+  ok: true;
+  result: object | string | number | boolean;
+  error: null;
+};
+
+export type ToolFailureResponse = ToolResponseBase & {
+  ok: false;
+  result: null;
+  error: ToolError;
+};
+
+export type ToolResponse = ToolSuccessResponse | ToolFailureResponse;
 
 export type ToolDescriptor = {
   name: string;

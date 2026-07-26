@@ -5,8 +5,9 @@ import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
-from pydantic import Field, JsonValue
+from pydantic import Field, JsonValue, ValidationError, model_validator
 
 from maa_diagnostic_expert.contracts.domain import ContractModel
 from maa_diagnostic_expert.inspection.tooling import ToolInvocationError
@@ -21,10 +22,19 @@ class ToolAdapterError(ContractModel):
 
 class ToolAdapterResponse(ContractModel):
     id: str = Field(min_length=1)
-    apiVersion: str
+    apiVersion: Literal["tool-adapter/v1"]
     ok: bool
     result: dict[str, JsonValue] | None = None
     error: ToolAdapterError | None = None
+
+    @model_validator(mode="after")
+    def validate_envelope(self) -> ToolAdapterResponse:
+        if self.ok:
+            if self.result is None or self.error is not None:
+                raise ValueError("Successful tool adapter responses require a result and no error")
+        elif self.result is not None or self.error is None:
+            raise ValueError("Failed tool adapter responses require an error and no result")
+        return self
 
 
 class ToolAdapterInvocationError(ToolInvocationError):
@@ -77,7 +87,15 @@ class JsonlToolAdapterClient:
             raise ToolAdapterInvocationError(
                 f"Expected one adapter response, received {len(response_lines)}."
             )
-        response = ToolAdapterResponse.model_validate_json(response_lines[0])
+        try:
+            response = ToolAdapterResponse.model_validate_json(response_lines[0])
+        except ValidationError as error:
+            raise ToolAdapterInvocationError(f"Invalid tool adapter response: {error}") from error
+        if response.id != request["id"]:
+            raise ToolAdapterInvocationError(
+                "Tool adapter response ID does not match the request: "
+                f"expected {request['id']!r}, received {response.id!r}."
+            )
         if not response.ok:
             message = response.error.message if response.error else "Unknown tool adapter error."
             raise ToolAdapterInvocationError(message)

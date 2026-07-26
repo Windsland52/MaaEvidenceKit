@@ -29,7 +29,10 @@ const tools: ToolDescriptor[] = [
   }
 ];
 
-const success = (id: string, result: unknown): ToolResponse => ({
+const success = (
+  id: string,
+  result: object | string | number | boolean
+): ToolResponse => ({
   id,
   apiVersion: "tool-adapter/v1",
   ok: true,
