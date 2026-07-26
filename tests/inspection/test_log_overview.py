@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from maa_diagnostic_expert.contracts.domain import AnalysisRequest, ArtifactInput, ArtifactKind
+from maa_diagnostic_expert.contracts.domain import (
+    AnalysisRequest,
+    ArtifactInput,
+    ArtifactKind,
+    EvidenceRole,
+)
 from maa_diagnostic_expert.discovery.artifact_classification import classify_artifact_sources
 from maa_diagnostic_expert.discovery.preparation import prepare_analysis
 from maa_diagnostic_expert.inspection import log_overview
@@ -113,6 +118,8 @@ def test_overview_evidence_preserves_source_lines(tmp_path: Path) -> None:
         "log_overview_summary",
         "log_occurrence:error",
     ]
+    assert evidence[0].role is EvidenceRole.CONTEXT
+    assert evidence[1].role is EvidenceRole.SIGNAL
     assert evidence[1].source_path == str(path)
     assert evidence[1].line_start == 2
     assert evidence[1].line_end == 2

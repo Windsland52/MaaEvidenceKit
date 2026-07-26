@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from maa_diagnostic_expert.contracts.domain import EvidenceReliability
+from maa_diagnostic_expert.contracts.domain import EvidenceReliability, EvidenceRole
 from maa_diagnostic_expert.contracts.mla import MlaRuntimeInspectionResult
 from maa_diagnostic_expert.inspection.evidence_synthesis import synthesize_evidence
 from maa_diagnostic_expert.inspection.models import MlaRuntimeInspectionArtifact
@@ -291,6 +291,7 @@ def test_failures_produce_primary_evidence() -> None:
     assert len(evidence) == 1
     ev = evidence[0]
     assert ev.kind == "runtime_failure"
+    assert ev.role is EvidenceRole.FAILURE
     assert ev.reliability is EvidenceReliability.PRIMARY
     assert ev.task_id == 0
     assert ev.line_start == 100
@@ -335,6 +336,7 @@ def test_failed_outcomes_produce_primary_evidence() -> None:
     assert len(evidence) == 1
     ev = evidence[0]
     assert ev.kind == "runtime_outcome"
+    assert ev.role is EvidenceRole.FAILURE
     assert ev.reliability is EvidenceReliability.PRIMARY
     assert "FAILED" in ev.content
     assert "fail-1" in ev.content
@@ -352,6 +354,7 @@ def test_high_priority_recognition_signal_produces_secondary_evidence() -> None:
     assert len(evidence) == 1
     ev = evidence[0]
     assert ev.kind == "recognition_activity_signal"
+    assert ev.role is EvidenceRole.SIGNAL
     assert ev.reliability is EvidenceReliability.SECONDARY
     assert "NodeA" in ev.content
     assert "50.0%" in ev.content
@@ -373,6 +376,7 @@ def test_high_priority_repeated_node_signal_produces_secondary_evidence() -> Non
     assert len(evidence) == 1
     ev = evidence[0]
     assert ev.kind == "repeated_node_signal"
+    assert ev.role is EvidenceRole.SIGNAL
     assert ev.reliability is EvidenceReliability.SECONDARY
     assert "NodeA -> NodeB" in ev.content
 

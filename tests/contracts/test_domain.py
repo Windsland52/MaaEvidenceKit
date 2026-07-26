@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,8 @@ from maa_diagnostic_expert.contracts.domain import (
     DiagnosisResult,
     DiagnosisStatus,
     Evidence,
+    EvidenceReliability,
+    EvidenceRole,
     SourceInput,
     SourceRole,
 )
@@ -60,6 +63,7 @@ def test_conclusions_must_reference_known_evidence() -> None:
         line_start=10,
         line_end=12,
         content="Tasker.Task.Failed",
+        role=EvidenceRole.CONTEXT,
     )
     result = DiagnosisResult(
         status=DiagnosisStatus.COMPLETE,
@@ -70,6 +74,7 @@ def test_conclusions_must_reference_known_evidence() -> None:
         ],
     )
     assert result.api_version == "diagnosis/v2"
+    assert evidence.role is EvidenceRole.CONTEXT
 
     with pytest.raises(ValidationError):
         DiagnosisResult(
@@ -81,6 +86,61 @@ def test_conclusions_must_reference_known_evidence() -> None:
         )
 
 
+def test_failure_evidence_requires_primary_reliability() -> None:
+    with pytest.raises(ValidationError, match="primary reliability"):
+        Evidence(
+            id="ev:failure",
+            kind="runtime_failure",
+            source_component="mla:runtime-inspection",
+            source_path="maafw.log",
+            content="Task failed.",
+            role=EvidenceRole.FAILURE,
+            reliability=EvidenceReliability.SECONDARY,
+        )
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected_role"),
+    [
+        ("runtime_failure", EvidenceRole.FAILURE),
+        ("runtime_outcome", EvidenceRole.FAILURE),
+        ("mse_static_diagnostic", EvidenceRole.SIGNAL),
+        ("log_occurrence:warning", EvidenceRole.SIGNAL),
+        ("runtime_version", EvidenceRole.CONTEXT),
+        ("knowledge_document_match", EvidenceRole.CONTEXT),
+    ],
+)
+def test_known_legacy_evidence_json_infers_role(kind: str, expected_role: EvidenceRole) -> None:
+    serialized = json.dumps(
+        {
+            "id": "ev:legacy",
+            "kind": kind,
+            "source_component": "legacy",
+            "source_path": "maafw.log",
+            "content": "Legacy evidence without an explicit diagnostic role.",
+            "reliability": "primary",
+        }
+    )
+
+    evidence = Evidence.model_validate_json(serialized)
+
+    assert evidence.role is expected_role
+    assert evidence.model_dump(mode="json")["role"] == expected_role.value
+
+
+def test_unknown_legacy_evidence_requires_explicit_role() -> None:
+    with pytest.raises(ValidationError, match="role"):
+        Evidence.model_validate(
+            {
+                "id": "ev:custom",
+                "kind": "custom_observation",
+                "source_component": "external",
+                "source_path": "observation.json",
+                "content": "An extension-defined observation.",
+            }
+        )
+
+
 def test_diagnosis_result_rejects_duplicate_evidence_ids() -> None:
     evidence = Evidence(
         id="ev:duplicate",
@@ -88,6 +148,7 @@ def test_diagnosis_result_rejects_duplicate_evidence_ids() -> None:
         source_component="maa-framework",
         source_path="maafw.log",
         content="first",
+        role=EvidenceRole.CONTEXT,
     )
 
     with pytest.raises(ValidationError, match="Evidence IDs must be unique"):

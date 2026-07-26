@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from maa_diagnostic_expert.contracts.domain import Evidence, EvidenceReliability
+from maa_diagnostic_expert.contracts.domain import Evidence, EvidenceReliability, EvidenceRole
 from maa_diagnostic_expert.contracts.mla import (
     MlaRecognitionActivitySignal,
     MlaRecognitionNextListEntry,
@@ -130,6 +130,7 @@ def _format_failure(artifact_id: str, artifact_path: str, failure: MlaRuntimeFai
         line_start=line,
         line_end=line,
         task_id=failure.task_id,
+        role=EvidenceRole.FAILURE,
         reliability=EvidenceReliability.PRIMARY,
     )
 
@@ -164,6 +165,7 @@ def _format_outcome(
         line_start=line,
         line_end=line,
         task_id=outcome.task_id,
+        role=EvidenceRole.FAILURE,
         reliability=EvidenceReliability.PRIMARY,
     )
 
@@ -208,6 +210,7 @@ def _format_recognition_signal(
         line_start=start_line,
         line_end=end_line,
         task_id=signal.task_id,
+        role=EvidenceRole.SIGNAL,
         reliability=EvidenceReliability.SECONDARY,
     )
 
@@ -245,6 +248,7 @@ def _format_repeated_node_signal(
         line_start=line,
         line_end=line,
         task_id=signal.task_id,
+        role=EvidenceRole.SIGNAL,
         reliability=EvidenceReliability.SECONDARY,
     )
 
@@ -295,6 +299,7 @@ def _format_task_summary(
         line_start=start_line,
         line_end=end_line,
         task_id=task.task_id,
+        role=EvidenceRole.CONTEXT,
         reliability=EvidenceReliability.CONTEXT,
     )
 
@@ -345,6 +350,7 @@ def _format_session_summary(
         content="\n".join(lines),
         line_start=session.start.line,
         line_end=session.end.line,
+        role=EvidenceRole.CONTEXT,
         reliability=EvidenceReliability.CONTEXT,
     )
 
@@ -354,8 +360,8 @@ def synthesize_evidence(
 ) -> list[Evidence]:
     """Convert MLA runtime inspection results into Evidence records.
 
-    Produces PRIMARY evidence for failures and failed outcomes,
-    SECONDARY evidence for HIGH-priority signals, and CONTEXT evidence
+    Produces FAILURE/PRIMARY evidence for failures and failed outcomes,
+    SIGNAL/SECONDARY evidence for HIGH-priority signals, and CONTEXT evidence
     for notable task summaries and all session summaries.
     """
     evidence: list[Evidence] = []

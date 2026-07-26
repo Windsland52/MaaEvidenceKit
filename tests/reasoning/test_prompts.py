@@ -10,6 +10,7 @@ from maa_diagnostic_expert.contracts.domain import (
     DiagnosisStatus,
     Evidence,
     EvidenceReliability,
+    EvidenceRole,
     SourceRole,
 )
 from maa_diagnostic_expert.contracts.workflow import (
@@ -43,7 +44,8 @@ def _evidence(
     evidence_id: str,
     reliability: EvidenceReliability,
     *,
-    kind: str = "runtime_failure",
+    kind: str = "test_observation",
+    role: EvidenceRole = EvidenceRole.CONTEXT,
     content: str = "failure detail",
     line_start: int | None = 42,
 ) -> Evidence:
@@ -56,6 +58,7 @@ def _evidence(
         line_start=line_start,
         line_end=line_start,
         task_id=1,
+        role=role,
         reliability=reliability,
     )
 
@@ -75,9 +78,9 @@ def _incident_selection() -> IncidentSelection:
     )
 
 
-def test_order_evidence_puts_primary_before_context() -> None:
+def test_order_evidence_puts_failures_before_signals_and_context() -> None:
     context_ev = _evidence("ctx-1", EvidenceReliability.CONTEXT, kind="session_summary")
-    primary_ev = _evidence("pri-1", EvidenceReliability.PRIMARY)
+    primary_ev = _evidence("pri-1", EvidenceReliability.PRIMARY, role=EvidenceRole.FAILURE)
     secondary_ev = _evidence(
         "sec-1", EvidenceReliability.SECONDARY, kind="recognition_activity_signal"
     )
@@ -101,11 +104,19 @@ def test_render_instruction_includes_question_rules_and_counts() -> None:
 
 
 def test_render_evidence_block_includes_ids_and_content() -> None:
-    evidence = [_evidence("ev-1", EvidenceReliability.PRIMARY, content="boom")]
+    evidence = [
+        _evidence(
+            "ev-1",
+            EvidenceReliability.PRIMARY,
+            kind="runtime_failure",
+            role=EvidenceRole.FAILURE,
+            content="boom",
+        )
+    ]
     block = render_evidence_block(evidence)
 
     assert "[ev-1]" in block
-    assert "primary/runtime_failure" in block
+    assert "primary/failure/runtime_failure" in block
     assert "boom" in block
     assert "line 42" in block
 
@@ -297,13 +308,17 @@ def test_stub_backend_skips_semantic_knowledge_research() -> None:
     assert result.queries == []
 
 
-def test_stub_backend_produces_complete_draft_with_primary_evidence() -> None:
+def test_stub_backend_produces_complete_draft_with_direct_failure() -> None:
     backend = StubReasoningBackend()
     session = asyncio.run(backend.start(run_id="run-1"))
     context = build_reasoning_context(
         "diagnose",
         [
-            _evidence("p1", EvidenceReliability.PRIMARY),
+            _evidence(
+                "p1",
+                EvidenceReliability.PRIMARY,
+                role=EvidenceRole.FAILURE,
+            ),
             _evidence("c1", EvidenceReliability.CONTEXT),
         ],
     )
@@ -315,6 +330,50 @@ def test_stub_backend_produces_complete_draft_with_primary_evidence() -> None:
     assert result.conclusions[0].evidence_ids == ["p1"]
     asyncio.run(session.close())
     assert session.closed
+
+
+def test_stub_backend_preserves_known_legacy_runtime_failure() -> None:
+    legacy = Evidence.model_validate(
+        {
+            "id": "legacy-failure",
+            "kind": "runtime_failure",
+            "source_component": "mla:runtime-inspection",
+            "source_path": "maafw.log",
+            "content": "Tasker.Task.Failed",
+            "reliability": "primary",
+        }
+    )
+    context = build_reasoning_context("diagnose", [legacy])
+
+    result = asyncio.run(StubReasoningSession(run_id="run-legacy").reason(context, DiagnosisDraft))
+
+    assert legacy.role is EvidenceRole.FAILURE
+    assert result.status is DiagnosisStatus.COMPLETE
+    assert result.conclusions[0].evidence_ids == [legacy.id]
+
+
+@pytest.mark.parametrize(
+    ("kind", "role"),
+    [
+        ("runtime_version", EvidenceRole.CONTEXT),
+        ("mse_static_diagnostic", EvidenceRole.SIGNAL),
+        ("log_occurrence:warning", EvidenceRole.SIGNAL),
+    ],
+)
+def test_stub_backend_does_not_treat_primary_non_failures_as_runtime_failures(
+    kind: str,
+    role: EvidenceRole,
+) -> None:
+    session = StubReasoningSession(run_id="run-non-failure")
+    context = build_reasoning_context(
+        "diagnose",
+        [_evidence("observed", EvidenceReliability.PRIMARY, kind=kind, role=role)],
+    )
+
+    result = asyncio.run(session.reason(context, DiagnosisDraft))
+
+    assert result.status is DiagnosisStatus.INSUFFICIENT_EVIDENCE
+    assert result.conclusions == []
 
 
 def test_stub_backend_returns_insufficient_without_primary() -> None:

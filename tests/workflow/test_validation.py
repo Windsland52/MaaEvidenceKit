@@ -10,6 +10,7 @@ from maa_diagnostic_expert.contracts.domain import (
     DiagnosisResult,
     DiagnosisStatus,
     Evidence,
+    EvidenceRole,
     MissingEvidence,
     PreparedAnalysis,
 )
@@ -36,6 +37,7 @@ def _evidence(content: str = "observed failure") -> Evidence:
         content=content,
         line_start=10,
         line_end=10,
+        role=EvidenceRole.FAILURE,
     )
 
 
@@ -100,6 +102,7 @@ def test_finalize_draft_rejects_wiki_navigation_citation() -> None:
         source_component="source:wiki",
         source_path="git:wiki@abc:topics/ocr.md",
         content="See the original MaaFramework OCR documentation.",
+        role=EvidenceRole.CONTEXT,
     )
     inspection = _inspection().model_copy(update={"synthesized_evidence": [_evidence(), wiki]})
 
@@ -147,6 +150,7 @@ def test_validation_accepts_explicit_additional_evidence() -> None:
         content="raw line",
         line_start=20,
         line_end=20,
+        role=EvidenceRole.CONTEXT,
     )
     result = DiagnosisResult(
         status=DiagnosisStatus.COMPLETE,

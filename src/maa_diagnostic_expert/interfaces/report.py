@@ -6,6 +6,7 @@ from maa_diagnostic_expert.contracts.domain import (
     DiagnosisStatus,
     Evidence,
     EvidenceReliability,
+    EvidenceRole,
 )
 
 _RELIABILITY_ORDER = {
@@ -15,9 +16,21 @@ _RELIABILITY_ORDER = {
 }
 
 _RELIABILITY_LABEL = {
-    EvidenceReliability.PRIMARY: "Primary (directly observed)",
-    EvidenceReliability.SECONDARY: "Secondary (derived signals)",
-    EvidenceReliability.CONTEXT: "Context (summaries)",
+    EvidenceReliability.PRIMARY: "Primary (authoritative observation)",
+    EvidenceReliability.SECONDARY: "Secondary (deterministically derived)",
+    EvidenceReliability.CONTEXT: "Context (contextual source)",
+}
+
+_ROLE_ORDER = {
+    EvidenceRole.FAILURE: 0,
+    EvidenceRole.SIGNAL: 1,
+    EvidenceRole.CONTEXT: 2,
+}
+
+_ROLE_LABEL = {
+    EvidenceRole.FAILURE: "Failure (direct runtime failures)",
+    EvidenceRole.SIGNAL: "Signal (warnings and anomalies)",
+    EvidenceRole.CONTEXT: "Context (versions, configuration, and summaries)",
 }
 
 _STATUS_LABEL = {
@@ -54,14 +67,15 @@ def _format_conclusion(conclusion: Conclusion, index: int) -> str:
     return "\n".join(lines)
 
 
-def _format_evidence_group(reliability: EvidenceReliability, items: list[Evidence]) -> str:
-    label = _RELIABILITY_LABEL[reliability]
+def _format_evidence_group(role: EvidenceRole, items: list[Evidence]) -> str:
+    label = _ROLE_LABEL[role]
     lines = [f"### {label} ({len(items)})", ""]
     for item in items:
         location = _evidence_location(item)
         lines.append(f"#### `{item.id}`")
         lines.append("")
         lines.append(f"- **Kind:** {item.kind}")
+        lines.append(f"- **Reliability:** {_RELIABILITY_LABEL[item.reliability]}")
         lines.append(f"- **Location:** {location}")
         if item.task_id is not None:
             lines.append(f"- **Task ID:** {item.task_id}")
@@ -101,16 +115,17 @@ def render_markdown_report(result: DiagnosisResult) -> str:
     if result.evidence:
         lines.append("## Evidence")
         lines.append("")
-        grouped: dict[EvidenceReliability, list[Evidence]] = {
-            level: [] for level in EvidenceReliability
-        }
+        grouped: dict[EvidenceRole, list[Evidence]] = {role: [] for role in EvidenceRole}
         for item in result.evidence:
-            grouped[item.reliability].append(item)
-        for reliability in sorted(grouped, key=lambda r: _RELIABILITY_ORDER[r]):
-            items = grouped[reliability]
+            grouped[item.role].append(item)
+        for role in sorted(grouped, key=lambda item: _ROLE_ORDER[item]):
+            items = grouped[role]
             if items:
-                ordered = sorted(items, key=lambda e: e.id)
-                lines.append(_format_evidence_group(reliability, ordered))
+                ordered = sorted(
+                    items,
+                    key=lambda item: (_RELIABILITY_ORDER[item.reliability], item.id),
+                )
+                lines.append(_format_evidence_group(role, ordered))
     else:
         lines.append("## Evidence")
         lines.append("")

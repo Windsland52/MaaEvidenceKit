@@ -12,6 +12,7 @@ from maa_diagnostic_expert.contracts.domain import (
     ContractModel,
     Evidence,
     EvidenceReliability,
+    EvidenceRole,
     MissingEvidence,
     PreparedAnalysis,
 )
@@ -325,6 +326,7 @@ def synthesize_log_overview_evidence(collection: LogOverviewCollection) -> list[
                     f"oversized_lines={overview.oversized_line_count}; "
                     f"omitted_occurrences={overview.omitted_occurrence_count}"
                 ),
+                role=EvidenceRole.CONTEXT,
                 reliability=EvidenceReliability.CONTEXT,
             )
         )
@@ -342,6 +344,7 @@ def synthesize_log_overview_evidence(collection: LogOverviewCollection) -> list[
                     ),
                     line_start=occurrence.line_number,
                     line_end=occurrence.line_number,
+                    role=EvidenceRole.SIGNAL,
                     reliability=EvidenceReliability.PRIMARY,
                 )
             )

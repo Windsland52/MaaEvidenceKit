@@ -232,6 +232,9 @@
           "default": null,
           "title": "Task Id"
         },
+        "role": {
+          "$ref": "#/$defs/EvidenceRole"
+        },
         "reliability": {
           "$ref": "#/$defs/EvidenceReliability",
           "default": "primary"
@@ -242,7 +245,8 @@
         "kind",
         "source_component",
         "source_path",
-        "content"
+        "content",
+        "role"
       ],
       "title": "Evidence",
       "type": "object"
@@ -254,6 +258,16 @@
         "context"
       ],
       "title": "EvidenceReliability",
+      "type": "string"
+    },
+    "EvidenceRole": {
+      "description": "The diagnostic meaning of evidence, independent of its provenance quality.",
+      "enum": [
+        "failure",
+        "signal",
+        "context"
+      ],
+      "title": "EvidenceRole",
       "type": "string"
     },
     "MissingEvidence": {

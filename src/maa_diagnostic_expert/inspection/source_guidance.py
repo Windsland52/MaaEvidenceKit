@@ -6,6 +6,7 @@ from pathlib import Path
 from maa_diagnostic_expert.contracts.domain import (
     Evidence,
     EvidenceReliability,
+    EvidenceRole,
     MissingEvidence,
 )
 from maa_diagnostic_expert.contracts.workflow import SourceGuidance
@@ -240,6 +241,7 @@ def synthesize_source_guidance_evidence(
                     content=document.content,
                     line_start=1,
                     line_end=document.line_count,
+                    role=EvidenceRole.CONTEXT,
                     reliability=EvidenceReliability.CONTEXT,
                 ),
             )

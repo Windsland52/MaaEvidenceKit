@@ -9,6 +9,7 @@ from maa_diagnostic_expert.contracts.domain import (
     DiagnosisStatus,
     Evidence,
     EvidenceReliability,
+    EvidenceRole,
     SourceRole,
 )
 from maa_diagnostic_expert.contracts.workflow import (
@@ -29,12 +30,22 @@ _REASONING_RELIABILITY_ORDER: dict[EvidenceReliability, int] = {
     EvidenceReliability.CONTEXT: 2,
 }
 
+_REASONING_ROLE_ORDER: dict[EvidenceRole, int] = {
+    EvidenceRole.FAILURE: 0,
+    EvidenceRole.SIGNAL: 1,
+    EvidenceRole.CONTEXT: 2,
+}
+
 
 def order_evidence_for_reasoning(evidence: list[Evidence]) -> list[Evidence]:
-    """Order evidence so primary findings appear before context."""
+    """Order direct failures before signals and context, then by provenance quality."""
     return sorted(
         evidence,
-        key=lambda item: (_REASONING_RELIABILITY_ORDER[item.reliability], item.id),
+        key=lambda item: (
+            _REASONING_ROLE_ORDER[item.role],
+            _REASONING_RELIABILITY_ORDER[item.reliability],
+            item.id,
+        ),
     )
 
 
@@ -42,6 +53,13 @@ def _evidence_counts(evidence: list[Evidence]) -> dict[str, int]:
     counts = {level.value: 0 for level in EvidenceReliability}
     for item in evidence:
         counts[item.reliability.value] += 1
+    return counts
+
+
+def _role_counts(evidence: list[Evidence]) -> dict[str, int]:
+    counts = {role.value: 0 for role in EvidenceRole}
+    for item in evidence:
+        counts[item.role.value] += 1
     return counts
 
 
@@ -76,6 +94,7 @@ def render_instruction(
 ) -> str:
     """Render the reasoning instruction for the diagnostic stage."""
     counts = _evidence_counts(evidence)
+    role_counts = _role_counts(evidence)
     lines = [
         "You are a MaaFramework diagnostic expert. Analyze the provided runtime",
         "evidence and produce a structured diagnosis.",
@@ -83,14 +102,22 @@ def render_instruction(
         f"Diagnostic question: {question}",
         "",
         "Evidence reliability levels:",
-        "- primary: directly observed failures and failed outcomes",
-        "- secondary: derived signals (recognition activity, repeated nodes)",
-        "- context: task and session execution summaries",
+        "- primary: a directly observed fact from an authoritative source",
+        "- secondary: a deterministic derived or aggregated fact",
+        "- context: contextual guidance, configuration, or summaries",
+        "",
+        "Evidence diagnostic roles:",
+        "- failure: a directly observed runtime failure or failed runtime outcome",
+        "- signal: a warning, anomaly, or static diagnostic that still needs correlation",
+        "- context: versions, configuration, source guidance, and other background facts",
         "",
         f"Evidence available: {len(evidence)} items "
         f"(primary={counts[EvidenceReliability.PRIMARY.value]}, "
         f"secondary={counts[EvidenceReliability.SECONDARY.value]}, "
-        f"context={counts[EvidenceReliability.CONTEXT.value]}).",
+        f"context={counts[EvidenceReliability.CONTEXT.value]}; "
+        f"failure={role_counts[EvidenceRole.FAILURE.value]}, "
+        f"signal={role_counts[EvidenceRole.SIGNAL.value]}, "
+        f"diagnostic_context={role_counts[EvidenceRole.CONTEXT.value]}).",
         "",
         "Rules:",
         "1. Every conclusion MUST cite at least one evidence ID from the evidence list.",
@@ -161,7 +188,7 @@ def render_evidence_block(evidence: list[Evidence]) -> str:
         return "(no evidence available)"
     blocks: list[str] = []
     for item in evidence:
-        header = f"[{item.id}] ({item.reliability.value}/{item.kind})"
+        header = f"[{item.id}] ({item.reliability.value}/{item.role.value}/{item.kind})"
         body = item.content
         if item.line_start is not None:
             if item.line_end is not None and item.line_end != item.line_start:
@@ -347,19 +374,19 @@ def build_knowledge_research_context(
 def _stub_diagnose(context: ReasoningContext) -> DiagnosisDraft:
     """Produce a deterministic diagnosis from the evidence without a model.
 
-    Groups primary evidence (failures and failed outcomes) into conclusions.
-    Returns an insufficient-evidence result when no primary evidence exists.
+    Groups direct failure evidence into conclusions. Returns an insufficient-evidence
+    result when no directly observed runtime failure exists.
     """
-    primary = [item for item in context.evidence if item.reliability is EvidenceReliability.PRIMARY]
-    if not primary:
+    failures = [item for item in context.evidence if item.role is EvidenceRole.FAILURE]
+    if not failures:
         return DiagnosisDraft(
             status=DiagnosisStatus.INSUFFICIENT_EVIDENCE,
-            summary="No primary runtime failures were found in the inspected logs.",
+            summary="No directly observed runtime failures were found in the inspected evidence.",
             conclusions=[],
             missing_evidence=[],
         )
     conclusions: list[Conclusion] = []
-    for item in primary:
+    for item in failures:
         first_line = item.content.splitlines()[0] if item.content else item.kind
         conclusions.append(
             Conclusion(
@@ -371,7 +398,7 @@ def _stub_diagnose(context: ReasoningContext) -> DiagnosisDraft:
     return DiagnosisDraft(
         status=DiagnosisStatus.COMPLETE,
         summary=(
-            f"Identified {len(primary)} primary runtime failure(s) "
+            f"Identified {len(failures)} directly observed runtime failure(s) "
             f"across {len(context.evidence)} evidence items."
         ),
         conclusions=conclusions,

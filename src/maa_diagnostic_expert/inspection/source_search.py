@@ -7,6 +7,7 @@ from maa_diagnostic_expert.contracts.domain import (
     Evidence,
     EvidenceQuery,
     EvidenceReliability,
+    EvidenceRole,
     MissingEvidence,
     RevisionResolutionStatus,
     SourceRole,
@@ -393,6 +394,7 @@ def synthesize_source_search_evidence(
                 content=match.content,
                 line_start=match.line_start,
                 line_end=match.line_end,
+                role=EvidenceRole.CONTEXT,
                 reliability=EvidenceReliability.SECONDARY,
             ),
         )
@@ -415,6 +417,7 @@ def synthesize_knowledge_search_evidence(
                 content=match.content,
                 line_start=match.line_start,
                 line_end=match.line_end,
+                role=EvidenceRole.CONTEXT,
                 reliability=EvidenceReliability.CONTEXT,
             ),
         )

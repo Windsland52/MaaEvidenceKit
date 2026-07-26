@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
-from maa_diagnostic_expert.contracts.domain import Evidence, EvidenceReliability
+from maa_diagnostic_expert.contracts.domain import Evidence, EvidenceReliability, EvidenceRole
 from maa_diagnostic_expert.contracts.mla import MlaPreflightResult
 from maa_diagnostic_expert.contracts.workflow import (
     RuntimeComponent,
@@ -169,6 +169,7 @@ def synthesize_runtime_identity_evidence(identity: RuntimeIdentity) -> list[Evid
                 ),
                 line_start=observation.line_number,
                 line_end=observation.line_number,
+                role=EvidenceRole.CONTEXT,
                 reliability=(
                     EvidenceReliability.PRIMARY
                     if observation.kind is VersionObservationKind.OBSERVED

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
@@ -126,6 +128,50 @@ class EvidenceReliability(StrEnum):
     CONTEXT = "context"
 
 
+class EvidenceRole(StrEnum):
+    """The diagnostic meaning of evidence, independent of its provenance quality."""
+
+    FAILURE = "failure"
+    SIGNAL = "signal"
+    CONTEXT = "context"
+
+
+_LEGACY_FAILURE_EVIDENCE_KINDS = frozenset({"runtime_failure", "runtime_outcome"})
+_LEGACY_SIGNAL_EVIDENCE_KINDS = frozenset(
+    {
+        "mse_static_diagnostic",
+        "recognition_activity_signal",
+        "repeated_node_signal",
+    }
+)
+_LEGACY_CONTEXT_EVIDENCE_KINDS = frozenset(
+    {
+        "knowledge_document_match",
+        "log_overview_summary",
+        "mse_project_summary",
+        "mse_task_not_found",
+        "mse_task_resolution",
+        "runtime_version",
+        "session_summary",
+        "source_guidance",
+        "source_search_match",
+        "task_execution_summary",
+        "text_line_window",
+        "wiki_navigation_match",
+    }
+)
+
+
+def _legacy_evidence_role(kind: str) -> EvidenceRole | None:
+    if kind in _LEGACY_FAILURE_EVIDENCE_KINDS:
+        return EvidenceRole.FAILURE
+    if kind in _LEGACY_SIGNAL_EVIDENCE_KINDS or kind.startswith("log_occurrence:"):
+        return EvidenceRole.SIGNAL
+    if kind in _LEGACY_CONTEXT_EVIDENCE_KINDS:
+        return EvidenceRole.CONTEXT
+    return None
+
+
 class Evidence(ContractModel):
     id: str = Field(min_length=1)
     kind: str = Field(min_length=1)
@@ -135,13 +181,36 @@ class Evidence(ContractModel):
     line_start: int | None = Field(default=None, ge=1)
     line_end: int | None = Field(default=None, ge=1)
     task_id: int | None = None
+    role: EvidenceRole
     reliability: EvidenceReliability = EvidenceReliability.PRIMARY
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_known_legacy_role(cls, value: object) -> object:
+        """Migrate project-owned evidence emitted before diagnostic roles existed."""
+        if not isinstance(value, Mapping):
+            return value
+        data = cast(Mapping[str, object], value)
+        if "role" in data:
+            return data
+        kind = data.get("kind")
+        if not isinstance(kind, str):
+            return data
+        role = _legacy_evidence_role(kind)
+        if role is None:
+            return data
+        return {**data, "role": role}
 
     @model_validator(mode="after")
     def validate_line_range(self) -> Evidence:
         if self.line_start is not None and self.line_end is not None:
             if self.line_end < self.line_start:
                 raise ValueError("line_end must be greater than or equal to line_start")
+        if (
+            self.role is EvidenceRole.FAILURE
+            and self.reliability is not EvidenceReliability.PRIMARY
+        ):
+            raise ValueError("Failure evidence must have primary reliability")
         return self
 
 

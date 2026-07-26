@@ -6,6 +6,7 @@ from maa_diagnostic_expert.contracts.domain import (
     AnalysisRequest,
     ArtifactInput,
     ArtifactKind,
+    EvidenceRole,
     PreparedAnalysis,
     RevisionResolutionStatus,
     SourceRole,
@@ -323,4 +324,5 @@ def test_inspect_runs_mse_for_revision_matched_project_source(tmp_path: Path) ->
         "mse_project_summary",
         "mse_static_diagnostic",
     ]
+    assert inspection.synthesized_evidence[1].role is EvidenceRole.SIGNAL
     assert inspection.synthesized_evidence[1].line_start == 3

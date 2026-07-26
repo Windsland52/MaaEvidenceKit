@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from maa_diagnostic_expert.contracts.domain import EvidenceRole
 from maa_diagnostic_expert.contracts.mla import MlaPreflightResult
 from maa_diagnostic_expert.contracts.workflow import (
     RuntimeComponent,
@@ -203,6 +204,7 @@ def test_runtime_identity_evidence_preserves_source_line_and_reliability(
     assert evidence.source_path == str(tmp_path / "maafw.log")
     assert evidence.line_start == 3
     assert evidence.line_end == 3
+    assert evidence.role is EvidenceRole.CONTEXT
     assert evidence.reliability.value == "primary"
     assert "session=session-1" in evidence.content
 

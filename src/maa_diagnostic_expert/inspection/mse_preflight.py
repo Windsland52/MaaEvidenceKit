@@ -5,7 +5,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from maa_diagnostic_expert.contracts.domain import Evidence, EvidenceReliability
+from maa_diagnostic_expert.contracts.domain import Evidence, EvidenceReliability, EvidenceRole
 from maa_diagnostic_expert.contracts.mse import (
     MseCompatibilityStatus,
     MseDiagnostic,
@@ -70,6 +70,7 @@ def _summary_evidence(inspection: MseProjectInspection) -> Evidence:
         content=chr(10).join(lines),
         line_start=1 if preflight.interface_path else None,
         line_end=1 if preflight.interface_path else None,
+        role=EvidenceRole.CONTEXT,
         reliability=EvidenceReliability.CONTEXT,
     )
 
@@ -110,6 +111,7 @@ def _diagnostic_evidence(inspection: MseProjectInspection) -> list[Evidence]:
                 content=chr(10).join(content),
                 line_start=diagnostic.line,
                 line_end=diagnostic.line,
+                role=EvidenceRole.SIGNAL,
                 reliability=(
                     EvidenceReliability.PRIMARY
                     if diagnostic.level == "error"
@@ -187,6 +189,7 @@ def synthesize_mse_task_evidence(
                         content=chr(10).join(lines),
                         line_start=definition.line,
                         line_end=definition.line,
+                        role=EvidenceRole.CONTEXT,
                         reliability=EvidenceReliability.SECONDARY,
                     )
                 )
@@ -222,6 +225,7 @@ def synthesize_mse_task_evidence(
                             (f"  interface: {inspection.resolution.interface_path or 'unknown'}"),
                         ]
                     ),
+                    role=EvidenceRole.CONTEXT,
                     reliability=EvidenceReliability.CONTEXT,
                 )
             )

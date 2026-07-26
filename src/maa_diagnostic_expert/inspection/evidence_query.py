@@ -11,6 +11,7 @@ from maa_diagnostic_expert.contracts.domain import (
     ArtifactKind,
     Evidence,
     EvidenceQuery,
+    EvidenceRole,
     EvidenceWindow,
     PreparedAnalysis,
     RevisionResolutionStatus,
@@ -180,6 +181,7 @@ def query_evidence(prepared: PreparedAnalysis, query: EvidenceQuery) -> Evidence
         content=content,
         line_start=query.line_start,
         line_end=actual_end,
+        role=EvidenceRole.CONTEXT,
     )
     return EvidenceWindow(
         evidence=evidence,
