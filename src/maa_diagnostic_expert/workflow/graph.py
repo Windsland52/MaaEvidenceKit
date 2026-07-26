@@ -67,6 +67,7 @@ from maa_diagnostic_expert.inspection.source_search import (
     execute_knowledge_research,
     execute_source_research,
 )
+from maa_diagnostic_expert.inspection.time_ranges import collect_time_range_missing_evidence
 from maa_diagnostic_expert.inspection.tooling import ToolCaller
 from maa_diagnostic_expert.reasoning.prompts import (
     build_incident_correlation_context,
@@ -432,7 +433,10 @@ class DiagnosticWorkflow:
                 RuntimeError("inspection initialization requires prepared inputs"),
             )
         overviews = state.get("log_overviews") or LogOverviewCollection()
-        overview_missing = collect_log_overview_missing_evidence(overviews)
+        overview_missing = [
+            *collect_log_overview_missing_evidence(overviews),
+            *collect_time_range_missing_evidence(overviews, []),
+        ]
         prepared_with_overview = prepared.model_copy(
             update={
                 "missing_evidence": [*prepared.missing_evidence, *overview_missing],

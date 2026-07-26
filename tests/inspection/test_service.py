@@ -70,6 +70,49 @@ def _supported_preflight() -> dict[str, JsonValue]:
     }
 
 
+def _preflight_with_session(start: str, end: str) -> dict[str, JsonValue]:
+    return {
+        "schema_version": "mde-mla-preflight/v1",
+        "mla_schema_version": "mla-preflight/v1",
+        "compatibility": {
+            "status": "unsupported",
+            "reason": "no_notify_events",
+            "parser_version": "test-parser",
+            "task_count": 0,
+            "event_count": 0,
+            "node_statistic_count": 0,
+            "recognition_statistic_count": 0,
+        },
+        "framework": {
+            "status": "single",
+            "versions": ["v5.11.1"],
+            "sessions": [
+                {
+                    "session_id": "session-1",
+                    "start_kind": "process_start",
+                    "status": "resolved",
+                    "version": "v5.11.1",
+                    "versions": ["v5.11.1"],
+                    "start": {
+                        "source": "maafw.log",
+                        "path": "maafw.log",
+                        "line": 1,
+                        "timestamp": start,
+                    },
+                    "end": {
+                        "source": "maafw.log",
+                        "path": "maafw.log",
+                        "line": 2,
+                        "timestamp": end,
+                    },
+                    "version_evidence": [],
+                }
+            ],
+        },
+        "warnings": [],
+    }
+
+
 def _empty_runtime_inspection() -> dict[str, JsonValue]:
     return {
         "schema_version": "mla-runtime-inspection/v1",
@@ -247,6 +290,38 @@ def test_inspect_rejects_a_replaced_explicit_zip_alias(tmp_path: Path) -> None:
 
     assert tool_caller.calls == []
     assert "artifact_origin_changed" in {item.code for item in inspection.prepared.missing_evidence}
+
+
+def test_inspect_reports_disjoint_custom_and_maa_time_ranges(tmp_path: Path) -> None:
+    custom = tmp_path / "custom"
+    custom.mkdir()
+    (custom / "agent.log").write_text(
+        "2026-07-21 10:00:00 INFO start\n2026-07-21 10:05:00 ERROR failed\n",
+        encoding="utf-8",
+    )
+    maa = tmp_path / "maafw.log"
+    maa.write_text(
+        "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start\n",
+        encoding="utf-8",
+    )
+    tool_caller = RecordingToolCaller(
+        preflight=_preflight_with_session(
+            "2026-07-19 10:00:00.000",
+            "2026-07-19 10:05:00.000",
+        )
+    )
+
+    inspection = inspect_analysis(
+        AnalysisRequest(
+            question="Do not correlate different runs.",
+            artifacts=[ArtifactInput(path=tmp_path, kind=ArtifactKind.DIRECTORY)],
+        ),
+        tool_caller,
+    )
+
+    assert "artifact_time_ranges_incompatible" in {
+        item.code for item in inspection.prepared.missing_evidence
+    }
 
 
 def test_inspect_records_mla_failures_as_missing_evidence(tmp_path: Path) -> None:

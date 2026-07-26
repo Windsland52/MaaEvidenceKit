@@ -52,6 +52,7 @@ from .source_search import (
     synthesize_knowledge_search_evidence,
     synthesize_source_search_evidence,
 )
+from .time_ranges import collect_time_range_missing_evidence
 from .tooling import ToolCaller, ToolInvocationError
 
 
@@ -201,6 +202,12 @@ def inspect_prepared_analysis(
                 )
             )
 
+    missing.extend(
+        collect_time_range_missing_evidence(
+            log_overviews or LogOverviewCollection(),
+            preflights,
+        )
+    )
     prepared_with_tools = prepared.model_copy(update={"missing_evidence": missing})
     return DeterministicInspection(
         prepared=prepared_with_tools,
