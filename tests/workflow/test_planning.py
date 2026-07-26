@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -80,6 +81,41 @@ def test_plan_skips_mla_for_image_only_directory(tmp_path: Path) -> None:
     assert mla.relevance is AnalysisRelevance.NOT_RELEVANT
 
 
+def test_plan_skips_mla_for_directory_discovered_zip_without_mla_log(
+    tmp_path: Path,
+) -> None:
+    debug = tmp_path / "debug"
+    debug.mkdir()
+    (debug / "debug.zip").write_bytes(b"zip")
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="What happened?",
+            artifacts=[ArtifactInput(path=debug, kind=ArtifactKind.DIRECTORY)],
+        )
+    )
+
+    mla = _decision(prepared, InvestigationBranch.MLA_GLOBAL_OVERVIEW)
+
+    assert mla.disposition is BranchDisposition.SKIP
+    assert mla.relevance is AnalysisRelevance.NOT_RELEVANT
+
+
+def test_plan_runs_mla_for_explicit_zip_without_mla_log(tmp_path: Path) -> None:
+    archive = tmp_path / "debug.zip"
+    archive.write_bytes(b"zip")
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="What happened?",
+            artifacts=[ArtifactInput(path=archive, kind=ArtifactKind.ARCHIVE)],
+        )
+    )
+
+    mla = _decision(prepared, InvestigationBranch.MLA_GLOBAL_OVERVIEW)
+
+    assert mla.disposition is BranchDisposition.RUN
+    assert mla.relevance is AnalysisRelevance.USEFUL
+
+
 def test_plan_exposes_unimplemented_dump_branch(tmp_path: Path) -> None:
     dump = tmp_path / "client.dmp"
     dump.write_bytes(b"dump")
@@ -94,6 +130,46 @@ def test_plan_exposes_unimplemented_dump_branch(tmp_path: Path) -> None:
 
     assert crash.disposition is BranchDisposition.DEFERRED
     assert crash.relevance is AnalysisRelevance.REQUIRED
+
+
+def test_plan_detects_a_dump_alias_when_the_canonical_path_is_text(tmp_path: Path) -> None:
+    canonical = tmp_path / "aaa.txt"
+    dump_alias = tmp_path / "zzz.dmp"
+    canonical.write_bytes(b"dump")
+    try:
+        os.link(canonical, dump_alias)
+    except OSError as error:
+        pytest.skip(f"Hard links are unavailable on this filesystem: {error}")
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="Inspect the crash.",
+            artifacts=[
+                ArtifactInput(path=canonical, kind=ArtifactKind.FILE),
+                ArtifactInput(path=dump_alias, kind=ArtifactKind.FILE),
+            ],
+        )
+    )
+
+    crash = _decision(prepared, InvestigationBranch.CRASH_PREFLIGHT)
+
+    assert crash.disposition is BranchDisposition.DEFERRED
+    assert crash.relevance is AnalysisRelevance.REQUIRED
+
+
+def test_plan_does_not_treat_a_directory_with_dump_suffix_as_a_dump(tmp_path: Path) -> None:
+    directory = tmp_path / "logs.dmp"
+    directory.mkdir()
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="Inspect the directory.",
+            artifacts=[ArtifactInput(path=directory, kind=ArtifactKind.DIRECTORY)],
+        )
+    )
+
+    crash = _decision(prepared, InvestigationBranch.CRASH_PREFLIGHT)
+
+    assert crash.disposition is BranchDisposition.SKIP
+    assert crash.relevance is AnalysisRelevance.NOT_RELEVANT
 
 
 def test_plan_exposes_mse_when_project_revision_is_resolved(tmp_path: Path) -> None:

@@ -1,15 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from pydantic import ValidationError
 
 from maa_diagnostic_expert.contracts.domain import (
     AnalysisRequest,
-    ArtifactAvailability,
-    ArtifactKind,
-    ArtifactMediaKind,
-    ArtifactRecord,
     MissingEvidence,
     PreparedAnalysis,
     SourceRole,
@@ -25,7 +19,6 @@ from maa_diagnostic_expert.contracts.mse import (
 )
 from maa_diagnostic_expert.contracts.workflow import (
     ArtifactSourceInventory,
-    ArtifactSourceKind,
 )
 from maa_diagnostic_expert.discovery.artifact_classification import classify_artifact_sources
 from maa_diagnostic_expert.discovery.inputs import find_maa_interface
@@ -34,6 +27,10 @@ from maa_diagnostic_expert.discovery.source_preparation import (
     source_snapshot_matches_checkout,
 )
 
+from .artifact_targets import (
+    mla_artifact_target_is_current,
+    select_mla_artifact_targets,
+)
 from .evidence_synthesis import synthesize_evidence
 from .incident_candidates import generate_incident_selection
 from .log_overview import (
@@ -56,20 +53,6 @@ from .source_search import (
     synthesize_source_search_evidence,
 )
 from .tooling import ToolCaller, ToolInvocationError
-
-
-def _is_mla_target(artifact: ArtifactRecord, maa_input_paths: set[Path]) -> bool:
-    if artifact.availability is not ArtifactAvailability.AVAILABLE:
-        return False
-    if artifact.path != artifact.input_path:
-        return False
-    if artifact.kind is ArtifactKind.DIRECTORY:
-        return artifact.path in maa_input_paths
-    if artifact.media_kind is ArtifactMediaKind.LOG:
-        return artifact.path in maa_input_paths
-    return (
-        artifact.media_kind is ArtifactMediaKind.ARCHIVE and artifact.path.suffix.lower() == ".zip"
-    )
 
 
 def inspect_analysis(
@@ -101,32 +84,37 @@ def inspect_prepared_analysis(
     ]
     source_inventory = artifact_sources or classify_artifact_sources(prepared)
     artifacts_by_id = {artifact.id: artifact for artifact in prepared.artifacts}
-    maa_input_paths = {
-        artifact.input_path
-        for classification in source_inventory.classifications
-        if classification.source_kind is ArtifactSourceKind.MAA_FRAMEWORK
-        if (artifact := artifacts_by_id.get(classification.artifact_id)) is not None
-    }
 
-    for artifact in prepared.artifacts:
-        if not _is_mla_target(artifact, maa_input_paths):
+    for target in select_mla_artifact_targets(prepared, source_inventory):
+        artifact = artifacts_by_id.get(target.artifact_id)
+        if artifact is None or not mla_artifact_target_is_current(target, artifact):
+            missing.append(
+                MissingEvidence(
+                    code="artifact_origin_changed",
+                    message=(
+                        "The selected MLA path no longer identifies the physical artifact "
+                        "recorded during preparation."
+                    ),
+                    source_path=target.path,
+                )
+            )
             continue
         try:
-            raw_result = tool_caller.call("mla.preflight", {"path": str(artifact.path)})
+            raw_result = tool_caller.call("mla.preflight", {"path": str(target.path)})
             preflight = MlaPreflightResult.model_validate(raw_result)
         except (ToolInvocationError, ValidationError, ValueError) as error:
             missing.append(
                 MissingEvidence(
                     code="mla_preflight_failed",
                     message=str(error),
-                    source_path=artifact.path,
+                    source_path=target.path,
                 )
             )
             continue
         preflights.append(
             MlaArtifactInspection(
-                artifact_id=artifact.id,
-                path=artifact.path,
+                artifact_id=target.artifact_id,
+                path=target.path,
                 preflight=preflight,
             )
         )
@@ -137,14 +125,14 @@ def inspect_prepared_analysis(
                     message=(
                         f"MaaLogAnalyzer cannot inspect this log: {preflight.compatibility.reason}."
                     ),
-                    source_path=artifact.path,
+                    source_path=target.path,
                 )
             )
             continue
         try:
             raw_runtime = tool_caller.call(
                 "mla.runtime-inspection",
-                {"path": str(artifact.path)},
+                {"path": str(target.path)},
             )
             runtime = MlaRuntimeInspectionResult.model_validate(raw_runtime)
         except (ToolInvocationError, ValidationError, ValueError) as error:
@@ -152,14 +140,14 @@ def inspect_prepared_analysis(
                 MissingEvidence(
                     code="mla_runtime_inspection_failed",
                     message=str(error),
-                    source_path=artifact.path,
+                    source_path=target.path,
                 )
             )
             continue
         runtime_inspections.append(
             MlaRuntimeInspectionArtifact(
-                artifact_id=artifact.id,
-                path=artifact.path,
+                artifact_id=target.artifact_id,
+                path=target.path,
                 inspection=runtime,
             )
         )

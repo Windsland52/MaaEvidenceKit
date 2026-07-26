@@ -123,3 +123,28 @@ def test_overview_evidence_preserves_source_lines(tmp_path: Path) -> None:
     assert evidence[1].source_path == str(path)
     assert evidence[1].line_start == 2
     assert evidence[1].line_end == 2
+
+
+def test_overview_scans_a_directory_and_explicit_log_only_once(tmp_path: Path) -> None:
+    custom = tmp_path / "custom"
+    custom.mkdir()
+    path = custom / "agent.log"
+    path.write_text("INFO start\nERROR failed\n", encoding="utf-8")
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="Summarize the custom log once.",
+            artifacts=[
+                ArtifactInput(path=custom, kind=ArtifactKind.DIRECTORY),
+                ArtifactInput(path=path, kind=ArtifactKind.FILE),
+            ],
+        )
+    )
+
+    collection = build_log_overviews(prepared, classify_artifact_sources(prepared))
+    evidence = synthesize_log_overview_evidence(collection)
+
+    assert len(collection.overviews) == 1
+    assert [item.kind for item in evidence] == [
+        "log_overview_summary",
+        "log_occurrence:error",
+    ]

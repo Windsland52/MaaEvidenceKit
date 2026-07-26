@@ -1,5 +1,7 @@
+import os
 from pathlib import Path
 
+import pytest
 from pydantic import JsonValue
 
 from maa_diagnostic_expert.contracts.domain import (
@@ -14,6 +16,7 @@ from maa_diagnostic_expert.contracts.domain import (
     SourceSnapshot,
 )
 from maa_diagnostic_expert.contracts.workflow import IncidentSelectionStatus
+from maa_diagnostic_expert.discovery.preparation import prepare_analysis
 from maa_diagnostic_expert.inspection.service import (
     attach_runtime_identity,
     inspect_analysis,
@@ -190,6 +193,60 @@ def test_inspect_runs_mla_once_for_an_explicit_directory(tmp_path: Path) -> None
     )
     assert len(inspection.mla_preflights) == 1
     assert inspection.mla_preflights[0].preflight.framework.versions == ["v5.11.1"]
+
+
+def test_inspect_runs_mla_for_directory_and_explicit_zip_target(
+    tmp_path: Path,
+) -> None:
+    debug_path = tmp_path / "debug"
+    debug_path.mkdir()
+    archive = debug_path / "debug.zip"
+    (debug_path / "maafw.log").write_text("log", encoding="utf-8")
+    archive.write_bytes(b"zip")
+    tool_caller = RecordingToolCaller()
+
+    inspect_analysis(
+        AnalysisRequest(
+            question="Inspect the logs.",
+            artifacts=[
+                ArtifactInput(path=debug_path, kind=ArtifactKind.DIRECTORY),
+                ArtifactInput(path=archive, kind=ArtifactKind.ARCHIVE),
+            ],
+        ),
+        tool_caller,
+    )
+
+    assert tool_caller.calls == [
+        ("mla.preflight", {"path": str(debug_path.resolve())}),
+        ("mla.preflight", {"path": str(archive.resolve())}),
+    ]
+
+
+def test_inspect_rejects_a_replaced_explicit_zip_alias(tmp_path: Path) -> None:
+    canonical = tmp_path / "aaa.bin"
+    archive_alias = tmp_path / "zzz.zip"
+    canonical.write_bytes(b"original")
+    try:
+        os.link(canonical, archive_alias)
+    except OSError as error:
+        pytest.skip(f"Hard links are unavailable on this filesystem: {error}")
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="Inspect the archive.",
+            artifacts=[
+                ArtifactInput(path=canonical, kind=ArtifactKind.FILE),
+                ArtifactInput(path=archive_alias, kind=ArtifactKind.ARCHIVE),
+            ],
+        )
+    )
+    archive_alias.unlink()
+    archive_alias.write_bytes(b"replacement")
+    tool_caller = RecordingToolCaller()
+
+    inspection = inspect_prepared_analysis(prepared, tool_caller)
+
+    assert tool_caller.calls == []
+    assert "artifact_origin_changed" in {item.code for item in inspection.prepared.missing_evidence}
 
 
 def test_inspect_records_mla_failures_as_missing_evidence(tmp_path: Path) -> None:

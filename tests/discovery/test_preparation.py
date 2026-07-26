@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from maa_diagnostic_expert.contracts.domain import (
     ArtifactInput,
     ArtifactKind,
     ArtifactMediaKind,
+    ArtifactRecord,
     Conclusion,
     DiagnosisResult,
     DiagnosisStatus,
@@ -24,6 +26,26 @@ from maa_diagnostic_expert.discovery.preparation import prepare_analysis
 from maa_diagnostic_expert.inspection.evidence_query import query_evidence
 from maa_diagnostic_expert.inspection.models import DeterministicInspection
 from maa_diagnostic_expert.interfaces.cli import main
+
+
+def _available_file_records(prepared: PreparedAnalysis) -> list[ArtifactRecord]:
+    return [
+        artifact for artifact in prepared.artifacts if artifact.kind is not ArtifactKind.DIRECTORY
+    ]
+
+
+def _link_or_skip(source: Path, target: Path) -> None:
+    try:
+        os.link(source, target)
+    except OSError as error:
+        pytest.skip(f"Hard links are unavailable on this filesystem: {error}")
+
+
+def _symlink_or_skip(source: Path, target: Path) -> None:
+    try:
+        target.symlink_to(source)
+    except OSError as error:
+        pytest.skip(f"Symbolic links are unavailable on this filesystem: {error}")
 
 
 def test_prepare_inventories_only_explicit_artifacts(tmp_path: Path) -> None:
@@ -49,6 +71,131 @@ def test_prepare_inventories_only_explicit_artifacts(tmp_path: Path) -> None:
     assert by_path[log_path].media_kind is ArtifactMediaKind.LOG
     assert by_path[archive_path].kind is ArtifactKind.ARCHIVE
     assert {item.code for item in prepared.missing_evidence} == {"artifact_missing"}
+
+
+def test_prepare_merges_directory_and_explicit_file_independent_of_request_order(
+    tmp_path: Path,
+) -> None:
+    artifacts = tmp_path / "issue"
+    artifacts.mkdir()
+    log_path = artifacts / "maa.log"
+    log_path.write_text("one\n", encoding="utf-8")
+
+    def prepare(inputs: list[ArtifactInput]) -> PreparedAnalysis:
+        return prepare_analysis(AnalysisRequest(question="What failed?", artifacts=inputs))
+
+    directory_input = ArtifactInput(path=artifacts, kind=ArtifactKind.DIRECTORY)
+    file_input = ArtifactInput(path=log_path, kind=ArtifactKind.FILE)
+    first = prepare([directory_input, file_input])
+    second = prepare([file_input, directory_input])
+
+    first_log = [record for record in first.artifacts if record.path == log_path][0]
+    second_log = [record for record in second.artifacts if record.path == log_path][0]
+    assert first_log.id == second_log.id
+    assert [record.id for record in first.artifacts] == [record.id for record in second.artifacts]
+    assert len(first_log.origins) == 2
+    assert {origin.path for origin in first_log.origins} == {artifacts / "maa.log", log_path}
+
+
+def test_prepare_merges_overlapping_directory_inputs(tmp_path: Path) -> None:
+    root = tmp_path / "issue"
+    nested = root / "nested"
+    nested.mkdir(parents=True)
+    log_path = nested / "maa.log"
+    log_path.write_text("one\n", encoding="utf-8")
+
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="What failed?",
+            artifacts=[
+                ArtifactInput(path=root, kind=ArtifactKind.DIRECTORY),
+                ArtifactInput(path=nested, kind=ArtifactKind.DIRECTORY),
+            ],
+        )
+    )
+
+    log_records = [record for record in prepared.artifacts if record.path == log_path]
+    assert len(log_records) == 1
+    assert {origin.input_path for origin in log_records[0].origins} == {root, nested}
+
+
+def test_prepare_merges_hardlinked_artifacts(tmp_path: Path) -> None:
+    original = tmp_path / "original.log"
+    alias = tmp_path / "alias.log"
+    original.write_text("one\n", encoding="utf-8")
+    _link_or_skip(original, alias)
+
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="What failed?",
+            artifacts=[
+                ArtifactInput(path=original, kind=ArtifactKind.FILE),
+                ArtifactInput(path=alias, kind=ArtifactKind.FILE),
+            ],
+        )
+    )
+
+    records = _available_file_records(prepared)
+    assert len(records) == 1
+    assert {origin.path for origin in records[0].origins} == {original, alias}
+
+
+def test_prepare_merges_symlinked_artifacts(tmp_path: Path) -> None:
+    original = tmp_path / "original.log"
+    alias = tmp_path / "alias.log"
+    original.write_text("one\n", encoding="utf-8")
+    _symlink_or_skip(original, alias)
+
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="What failed?",
+            artifacts=[
+                ArtifactInput(path=original, kind=ArtifactKind.FILE),
+                ArtifactInput(path=alias, kind=ArtifactKind.FILE),
+            ],
+        )
+    )
+
+    records = _available_file_records(prepared)
+    assert len(records) == 1
+    assert {origin.path for origin in records[0].origins} == {original, alias}
+
+
+def test_prepare_keeps_same_content_independent_files_distinct(tmp_path: Path) -> None:
+    first = tmp_path / "first.log"
+    second = tmp_path / "second.log"
+    first.write_text("same\n", encoding="utf-8")
+    second.write_text("same\n", encoding="utf-8")
+
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="What failed?",
+            artifacts=[
+                ArtifactInput(path=first, kind=ArtifactKind.FILE),
+                ArtifactInput(path=second, kind=ArtifactKind.FILE),
+            ],
+        )
+    )
+
+    assert {record.path for record in _available_file_records(prepared)} == {first, second}
+
+
+def test_prepare_reports_directory_symlink_that_leaves_artifact_root(tmp_path: Path) -> None:
+    root = tmp_path / "issue"
+    root.mkdir()
+    outside = tmp_path / "outside.log"
+    outside.write_text("outside\n", encoding="utf-8")
+    _symlink_or_skip(outside, root / "outside.log")
+
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="What failed?",
+            artifacts=[ArtifactInput(path=root, kind=ArtifactKind.DIRECTORY)],
+        )
+    )
+
+    assert "artifact_symlink_outside_root" in {item.code for item in prepared.missing_evidence}
+    assert outside not in {record.path for record in prepared.artifacts}
 
 
 def test_prepare_reports_unresolved_issue_source(tmp_path: Path) -> None:

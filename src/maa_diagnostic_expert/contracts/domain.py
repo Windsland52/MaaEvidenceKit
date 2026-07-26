@@ -45,6 +45,17 @@ def _new_artifact_inputs() -> list[ArtifactInput]:
     return []
 
 
+class ArtifactOrigin(ContractModel):
+    input_path: Path
+    path: Path
+    kind: ArtifactKind
+    media_kind: ArtifactMediaKind
+
+
+def _new_artifact_origins() -> list[ArtifactOrigin]:
+    return []
+
+
 class SourceRole(StrEnum):
     PROJECT = "project"
     MAA_FRAMEWORK = "maa_framework"
@@ -92,6 +103,19 @@ class ArtifactRecord(ContractModel):
     availability: ArtifactAvailability
     size_bytes: int | None = Field(default=None, ge=0)
     modified_at: datetime | None = None
+    origins: list[ArtifactOrigin] = Field(default_factory=_new_artifact_origins)
+
+    def all_origins(self) -> list[ArtifactOrigin]:
+        if self.origins:
+            return list(self.origins)
+        return [
+            ArtifactOrigin(
+                input_path=self.input_path,
+                path=self.path,
+                kind=self.kind,
+                media_kind=self.media_kind,
+            )
+        ]
 
 
 class RevisionResolutionStatus(StrEnum):
@@ -267,7 +291,7 @@ def _new_source_snapshots() -> list[SourceSnapshot]:
 
 
 class PreparedAnalysis(ContractModel):
-    api_version: str = "prepared-analysis/v2"
+    api_version: str = "prepared-analysis/v3"
     request: AnalysisRequest
     artifacts: list[ArtifactRecord] = Field(default_factory=_new_artifact_records)
     source_snapshots: list[SourceSnapshot] = Field(default_factory=_new_source_snapshots)

@@ -101,6 +101,35 @@
       "title": "ArtifactMediaKind",
       "type": "string"
     },
+    "ArtifactOrigin": {
+      "additionalProperties": false,
+      "properties": {
+        "input_path": {
+          "format": "path",
+          "title": "Input Path",
+          "type": "string"
+        },
+        "path": {
+          "format": "path",
+          "title": "Path",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ArtifactKind"
+        },
+        "media_kind": {
+          "$ref": "#/$defs/ArtifactMediaKind"
+        }
+      },
+      "required": [
+        "input_path",
+        "path",
+        "kind",
+        "media_kind"
+      ],
+      "title": "ArtifactOrigin",
+      "type": "object"
+    },
     "ArtifactRecord": {
       "additionalProperties": false,
       "properties": {
@@ -153,6 +182,13 @@
           ],
           "default": null,
           "title": "Modified At"
+        },
+        "origins": {
+          "items": {
+            "$ref": "#/$defs/ArtifactOrigin"
+          },
+          "title": "Origins",
+          "type": "array"
         }
       },
       "required": [
@@ -489,7 +525,7 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
-      "default": "prepared-analysis/v2",
+      "default": "prepared-analysis/v3",
       "title": "Api Version",
       "type": "string"
     },

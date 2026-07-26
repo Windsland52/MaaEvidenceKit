@@ -9,6 +9,7 @@ from pathlib import Path
 from maa_diagnostic_expert.contracts.domain import (
     ArtifactAvailability,
     ArtifactKind,
+    ArtifactOrigin,
     Evidence,
     EvidenceQuery,
     EvidenceRole,
@@ -42,11 +43,38 @@ def _matching_source(prepared: PreparedAnalysis, source_path: Path) -> SourceSna
     return max(matches, key=lambda snapshot: len(snapshot.path.parts))
 
 
+def _same_physical_file(left: Path, right: Path) -> bool:
+    try:
+        left_stat = left.stat()
+        right_stat = right.stat()
+    except OSError:
+        return False
+    if left_stat.st_ino and right_stat.st_ino:
+        return left_stat.st_dev == right_stat.st_dev and left_stat.st_ino == right_stat.st_ino
+    return left.resolve() == right.resolve()
+
+
+def _origin_authorizes_path(
+    artifact_path: Path,
+    origin: ArtifactOrigin,
+    source_path: Path,
+) -> bool:
+    origin_path = origin.path.expanduser().resolve()
+    if not _same_physical_file(origin_path, artifact_path):
+        return False
+    if origin.kind is ArtifactKind.DIRECTORY:
+        return source_path.is_relative_to(origin_path)
+    return source_path == origin_path
+
+
 def _authorized_source(prepared: PreparedAnalysis, source_path: Path) -> _AuthorizedEvidenceSource:
     resolved = source_path.expanduser().resolve()
     for artifact in prepared.artifacts:
         if artifact.availability is not ArtifactAvailability.AVAILABLE:
             continue
+        for origin in artifact.all_origins():
+            if _origin_authorizes_path(artifact.path, origin, resolved):
+                return _AuthorizedEvidenceSource(path=resolved)
         if artifact.kind is ArtifactKind.DIRECTORY and resolved.is_relative_to(artifact.path):
             return _AuthorizedEvidenceSource(path=resolved)
         if resolved == artifact.path:

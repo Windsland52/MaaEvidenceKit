@@ -8,7 +8,9 @@ from typing import Protocol
 
 from maa_diagnostic_expert.contracts.domain import (
     ArtifactAvailability,
+    ArtifactKind,
     ArtifactMediaKind,
+    ArtifactOrigin,
     ArtifactRecord,
     PreparedAnalysis,
 )
@@ -112,8 +114,92 @@ def _best_profile_match(
 
 def _classify_log(
     artifact: ArtifactRecord,
+    origin: ArtifactOrigin,
+    sample: str,
     profiles: Sequence[LogSourceProfile],
 ) -> ArtifactSourceClassification:
+    maa = _maa_match(origin.path, sample)
+    if maa is not None:
+        return ArtifactSourceClassification(
+            artifact_id=artifact.id,
+            path=origin.path,
+            source_kind=maa.source_kind,
+            confidence=maa.confidence,
+            classifier_id="core/maa-framework",
+            signals=list(maa.signals),
+        )
+
+    profile = _best_profile_match(origin.path, sample, profiles)
+    if profile is not None:
+        profile_id, match = profile
+        return ArtifactSourceClassification(
+            artifact_id=artifact.id,
+            path=origin.path,
+            source_kind=match.source_kind,
+            confidence=match.confidence,
+            classifier_id=f"profile/{profile_id}",
+            signals=list(match.signals),
+        )
+
+    custom = _custom_directory_match(origin.path)
+    if custom is not None:
+        return ArtifactSourceClassification(
+            artifact_id=artifact.id,
+            path=origin.path,
+            source_kind=custom.source_kind,
+            confidence=custom.confidence,
+            classifier_id="core/custom-directory",
+            signals=list(custom.signals),
+        )
+
+    return ArtifactSourceClassification(
+        artifact_id=artifact.id,
+        path=origin.path,
+        source_kind=ArtifactSourceKind.UNKNOWN,
+        confidence=0,
+        classifier_id="core/unknown",
+        signals=["no_known_log_signature"],
+    )
+
+
+def _classification_sort_key(
+    classification: ArtifactSourceClassification,
+) -> tuple[float, str, str, str]:
+    return (
+        classification.confidence,
+        classification.source_kind.value,
+        classification.classifier_id,
+        str(classification.path),
+    )
+
+
+def _log_origins(artifact: ArtifactRecord) -> list[ArtifactOrigin]:
+    origins = [
+        origin
+        for origin in artifact.all_origins()
+        if origin.kind is not ArtifactKind.DIRECTORY and origin.media_kind is ArtifactMediaKind.LOG
+    ]
+    if origins:
+        return origins
+    if artifact.kind is not ArtifactKind.DIRECTORY and artifact.media_kind is ArtifactMediaKind.LOG:
+        return [
+            ArtifactOrigin(
+                input_path=artifact.input_path,
+                path=artifact.path,
+                kind=artifact.kind,
+                media_kind=artifact.media_kind,
+            )
+        ]
+    return []
+
+
+def _classify_artifact_log(
+    artifact: ArtifactRecord,
+    profiles: Sequence[LogSourceProfile],
+) -> ArtifactSourceClassification | None:
+    origins = _log_origins(artifact)
+    if not origins:
+        return None
     try:
         sample = _bounded_sample(artifact.path)
     except OSError as error:
@@ -125,48 +211,28 @@ def _classify_log(
             classifier_id="core/unreadable",
             signals=[f"sample_read_failed:{type(error).__name__}"],
         )
-
-    maa = _maa_match(artifact.path, sample)
-    if maa is not None:
-        return ArtifactSourceClassification(
-            artifact_id=artifact.id,
-            path=artifact.path,
-            source_kind=maa.source_kind,
-            confidence=maa.confidence,
-            classifier_id="core/maa-framework",
-            signals=list(maa.signals),
-        )
-
-    profile = _best_profile_match(artifact.path, sample, profiles)
-    if profile is not None:
-        profile_id, match = profile
-        return ArtifactSourceClassification(
-            artifact_id=artifact.id,
-            path=artifact.path,
-            source_kind=match.source_kind,
-            confidence=match.confidence,
-            classifier_id=f"profile/{profile_id}",
-            signals=list(match.signals),
-        )
-
-    custom = _custom_directory_match(artifact.path)
-    if custom is not None:
-        return ArtifactSourceClassification(
-            artifact_id=artifact.id,
-            path=artifact.path,
-            source_kind=custom.source_kind,
-            confidence=custom.confidence,
-            classifier_id="core/custom-directory",
-            signals=list(custom.signals),
-        )
-
-    return ArtifactSourceClassification(
-        artifact_id=artifact.id,
-        path=artifact.path,
-        source_kind=ArtifactSourceKind.UNKNOWN,
-        confidence=0,
-        classifier_id="core/unknown",
-        signals=["no_known_log_signature"],
+    classifications = [
+        _classify_log(artifact, origin, sample, profiles)
+        for origin in sorted(origins, key=lambda item: str(item.path).lower())
+    ]
+    selected = max(classifications, key=_classification_sort_key)
+    merged_signals = list(selected.signals)
+    for classification in classifications:
+        if classification.source_kind is not selected.source_kind:
+            continue
+        for signal in classification.signals:
+            if signal not in merged_signals:
+                merged_signals.append(signal)
+    source_kinds = sorted({item.source_kind.value for item in classifications})
+    if len(source_kinds) == 1:
+        return selected.model_copy(update={"signals": merged_signals})
+    return selected.model_copy(
+        update={
+            "signals": [
+                *merged_signals,
+                f"alias_source_kind_conflict:{','.join(source_kinds)}",
+            ]
+        }
     )
 
 
@@ -174,10 +240,11 @@ def classify_artifact_sources(
     prepared: PreparedAnalysis,
     profiles: Sequence[LogSourceProfile] = (),
 ) -> ArtifactSourceInventory:
-    classifications = [
-        _classify_log(artifact, profiles)
-        for artifact in prepared.artifacts
-        if artifact.availability is ArtifactAvailability.AVAILABLE
-        and artifact.media_kind is ArtifactMediaKind.LOG
-    ]
+    classifications: list[ArtifactSourceClassification] = []
+    for artifact in prepared.artifacts:
+        if artifact.availability is not ArtifactAvailability.AVAILABLE:
+            continue
+        classification = _classify_artifact_log(artifact, profiles)
+        if classification is not None:
+            classifications.append(classification)
     return ArtifactSourceInventory(classifications=classifications)

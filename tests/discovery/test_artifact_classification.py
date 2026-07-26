@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+import pytest
 
 from maa_diagnostic_expert.contracts.domain import (
     AnalysisRequest,
@@ -35,6 +38,13 @@ class _GuiProfile:
             confidence=0.95,
             signals=("test_gui_banner",),
         )
+
+
+def _link_or_skip(source: Path, target: Path) -> None:
+    try:
+        os.link(source, target)
+    except OSError as error:
+        pytest.skip(f"Hard links are unavailable on this filesystem: {error}")
 
 
 def _prepare(directory: Path) -> PreparedAnalysis:
@@ -137,3 +147,92 @@ def test_bounded_sample_includes_log_tail(tmp_path: Path) -> None:
     inventory = classify_artifact_sources(prepared)
 
     assert inventory.classifications[0].source_kind is ArtifactSourceKind.MAA_FRAMEWORK
+
+
+def test_classifier_uses_log_alias_when_canonical_path_is_not_log(
+    tmp_path: Path,
+) -> None:
+    canonical_candidate = tmp_path / "aaa.txt"
+    log_alias = tmp_path / "zzz.log"
+    canonical_candidate.write_text(
+        "[2026-01-01 00:00:00.000][DBG][Px1][Tx2][Logger] MAA Process Start\n",
+        encoding="utf-8",
+    )
+    _link_or_skip(canonical_candidate, log_alias)
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="Classify the logs.",
+            artifacts=[
+                ArtifactInput(path=canonical_candidate, kind=ArtifactKind.FILE),
+                ArtifactInput(path=log_alias, kind=ArtifactKind.FILE),
+            ],
+        )
+    )
+    [record] = prepared.artifacts
+    assert record.path == canonical_candidate
+    assert record.media_kind.name == "TEXT"
+
+    inventory = classify_artifact_sources(prepared)
+
+    assert inventory.classifications[0].source_kind is ArtifactSourceKind.MAA_FRAMEWORK
+    assert inventory.classifications[0].path == log_alias
+
+
+def test_classifier_records_alias_source_kind_conflicts(tmp_path: Path) -> None:
+    maafw_alias = tmp_path / "maafw.log"
+    custom_dir = tmp_path / "custom"
+    custom_dir.mkdir()
+    gui_alias = custom_dir / "application.log"
+    maafw_alias.write_text("GUI application started\n", encoding="utf-8")
+    _link_or_skip(maafw_alias, gui_alias)
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="Classify the logs.",
+            artifacts=[
+                ArtifactInput(path=maafw_alias, kind=ArtifactKind.FILE),
+                ArtifactInput(path=gui_alias, kind=ArtifactKind.FILE),
+            ],
+        )
+    )
+
+    inventory = classify_artifact_sources(prepared, profiles=(_GuiProfile(),))
+
+    [classification] = inventory.classifications
+    assert classification.source_kind is ArtifactSourceKind.GUI
+    assert "alias_source_kind_conflict:gui,maa_framework" in classification.signals
+
+
+def test_classifier_does_not_sample_a_replaced_alias(tmp_path: Path) -> None:
+    canonical = tmp_path / "aaa.txt"
+    log_alias = tmp_path / "zzz.log"
+    canonical.write_text(
+        "[2026-01-01 00:00:00.000][DBG][Px1][Tx2][Logger] MAA Process Start\n",
+        encoding="utf-8",
+    )
+    _link_or_skip(canonical, log_alias)
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="Classify the original physical artifact.",
+            artifacts=[
+                ArtifactInput(path=canonical, kind=ArtifactKind.FILE),
+                ArtifactInput(path=log_alias, kind=ArtifactKind.FILE),
+            ],
+        )
+    )
+    log_alias.unlink()
+    log_alias.write_text("GUI application started\n", encoding="utf-8")
+
+    inventory = classify_artifact_sources(prepared, profiles=(_GuiProfile(),))
+
+    [classification] = inventory.classifications
+    assert classification.source_kind is ArtifactSourceKind.MAA_FRAMEWORK
+
+
+def test_classifier_ignores_a_directory_with_log_suffix(tmp_path: Path) -> None:
+    directory = tmp_path / "empty.log"
+    directory.mkdir()
+    prepared = _prepare(directory)
+
+    inventory = classify_artifact_sources(prepared)
+
+    assert inventory.classifications == []

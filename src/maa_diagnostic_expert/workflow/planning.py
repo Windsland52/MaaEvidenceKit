@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from maa_diagnostic_expert.contracts.domain import (
     ArtifactAvailability,
+    ArtifactKind,
     ArtifactMediaKind,
     PreparedAnalysis,
     RevisionResolutionStatus,
@@ -22,25 +23,14 @@ from maa_diagnostic_expert.discovery.source_preparation import (
     source_snapshot_matches_checkout,
     source_snapshot_supports_object_read,
 )
+from maa_diagnostic_expert.inspection.artifact_targets import select_mla_artifact_targets
 
 
 def _has_mla_candidate(
     prepared: PreparedAnalysis,
     inventory: ArtifactSourceInventory,
 ) -> bool:
-    if any(
-        item.source_kind is ArtifactSourceKind.MAA_FRAMEWORK for item in inventory.classifications
-    ):
-        return True
-    for artifact in prepared.artifacts:
-        if artifact.availability is not ArtifactAvailability.AVAILABLE:
-            continue
-        if (
-            artifact.media_kind is ArtifactMediaKind.ARCHIVE
-            and artifact.path.suffix.lower() == ".zip"
-        ):
-            return True
-    return False
+    return bool(select_mla_artifact_targets(prepared, inventory))
 
 
 def _log_branch_decision(
@@ -75,7 +65,11 @@ def _log_branch_decision(
 def _has_available_dump(prepared: PreparedAnalysis) -> bool:
     return any(
         artifact.availability is ArtifactAvailability.AVAILABLE
-        and artifact.media_kind is ArtifactMediaKind.DUMP
+        and any(
+            origin.kind is not ArtifactKind.DIRECTORY
+            and origin.media_kind is ArtifactMediaKind.DUMP
+            for origin in artifact.all_origins()
+        )
         for artifact in prepared.artifacts
     )
 

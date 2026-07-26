@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
+from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -10,6 +12,7 @@ from maa_diagnostic_expert.contracts.domain import (
     ArtifactInput,
     ArtifactKind,
     ArtifactMediaKind,
+    ArtifactOrigin,
     ArtifactRecord,
     MissingEvidence,
     PreparedAnalysis,
@@ -27,8 +30,15 @@ _LOG_SUFFIXES = (".log", ".jsonl")
 _TEXT_SUFFIXES = (".txt", ".md", ".csv")
 
 
-def _artifact_id(input_path: Path, path: Path) -> str:
-    digest = hashlib.sha256(f"{input_path}|{path}".encode()).hexdigest()[:20]
+def _lexical_absolute(path: Path) -> Path:
+    expanded = path.expanduser()
+    if expanded.is_absolute():
+        return expanded
+    return Path.cwd() / expanded
+
+
+def _artifact_id(path: Path) -> str:
+    digest = hashlib.sha256(str(path).encode()).hexdigest()[:20]
     return f"artifact:{digest}"
 
 
@@ -53,6 +63,8 @@ def _record(
     *,
     input_path: Path,
     path: Path,
+    origin_input_path: Path,
+    origin_path: Path,
     kind: ArtifactKind,
     availability: ArtifactAvailability,
 ) -> ArtifactRecord:
@@ -66,7 +78,7 @@ def _record(
         except OSError:
             availability = ArtifactAvailability.UNREADABLE
     return ArtifactRecord(
-        id=_artifact_id(input_path, path),
+        id=_artifact_id(path),
         input_path=input_path,
         path=path,
         kind=kind,
@@ -74,6 +86,14 @@ def _record(
         availability=availability,
         size_bytes=size_bytes,
         modified_at=modified_at,
+        origins=[
+            ArtifactOrigin(
+                input_path=origin_input_path,
+                path=origin_path,
+                kind=kind,
+                media_kind=_media_kind(origin_path),
+            )
+        ],
     )
 
 
@@ -86,13 +106,16 @@ def _expected_path_type_matches(artifact: ArtifactInput, path: Path) -> bool:
 def _discover_artifact(
     artifact: ArtifactInput,
 ) -> tuple[list[ArtifactRecord], list[MissingEvidence]]:
-    input_path = artifact.path.expanduser().resolve()
+    origin_input_path = _lexical_absolute(artifact.path)
+    input_path = origin_input_path.resolve()
     if not input_path.exists():
         return (
             [
                 _record(
                     input_path=input_path,
                     path=input_path,
+                    origin_input_path=origin_input_path,
+                    origin_path=origin_input_path,
                     kind=artifact.kind,
                     availability=ArtifactAvailability.MISSING,
                 )
@@ -111,6 +134,8 @@ def _discover_artifact(
                 _record(
                     input_path=input_path,
                     path=input_path,
+                    origin_input_path=origin_input_path,
+                    origin_path=origin_input_path,
                     kind=artifact.kind,
                     availability=ArtifactAvailability.TYPE_MISMATCH,
                 )
@@ -128,6 +153,8 @@ def _discover_artifact(
         _record(
             input_path=input_path,
             path=input_path,
+            origin_input_path=origin_input_path,
+            origin_path=origin_input_path,
             kind=artifact.kind,
             availability=ArtifactAvailability.AVAILABLE,
         )
@@ -140,6 +167,7 @@ def _discover_artifact(
     for child in sorted(input_path.rglob("*"), key=lambda item: str(item).lower()):
         if not child.is_file():
             continue
+        origin_child = origin_input_path / child.relative_to(input_path)
         resolved_child = child.resolve()
         if not resolved_child.is_relative_to(input_path):
             missing.append(
@@ -168,12 +196,85 @@ def _discover_artifact(
             _record(
                 input_path=input_path,
                 path=resolved_child,
+                origin_input_path=origin_input_path,
+                origin_path=origin_child,
                 kind=kind,
                 availability=ArtifactAvailability.AVAILABLE,
             )
         )
         discovered += 1
     return records, missing
+
+
+def _physical_identity(record: ArtifactRecord) -> tuple[str, str] | tuple[str, int, int]:
+    if record.availability is ArtifactAvailability.AVAILABLE:
+        try:
+            stat = record.path.stat()
+        except OSError:
+            pass
+        else:
+            if stat.st_ino:
+                return ("stat", stat.st_dev, stat.st_ino)
+    return ("path", os.path.normcase(str(record.path.resolve())))
+
+
+def _record_sort_key(record: ArtifactRecord) -> tuple[str, str, str, str, str, str]:
+    return (
+        os.path.normcase(str(record.path)),
+        str(record.path),
+        os.path.normcase(str(record.input_path)),
+        str(record.input_path),
+        record.kind.value,
+        record.media_kind.value,
+    )
+
+
+def _origin_sort_key(origin: ArtifactOrigin) -> tuple[str, str, str, str, str, str]:
+    return (
+        os.path.normcase(str(origin.path)),
+        str(origin.path),
+        os.path.normcase(str(origin.input_path)),
+        str(origin.input_path),
+        origin.kind.value,
+        origin.media_kind.value,
+    )
+
+
+def _deduplicate_origins(origins: list[ArtifactOrigin]) -> list[ArtifactOrigin]:
+    by_key: dict[tuple[str, str, str, str], ArtifactOrigin] = {}
+    for origin in origins:
+        key = (
+            str(origin.input_path),
+            str(origin.path),
+            origin.kind.value,
+            origin.media_kind.value,
+        )
+        by_key.setdefault(key, origin)
+    return sorted(by_key.values(), key=_origin_sort_key)
+
+
+def _deduplicate_records(records: list[ArtifactRecord]) -> list[ArtifactRecord]:
+    grouped: defaultdict[tuple[str, str] | tuple[str, int, int], list[ArtifactRecord]] = (
+        defaultdict(list)
+    )
+    for record in records:
+        grouped[_physical_identity(record)].append(record)
+
+    unique_records: list[ArtifactRecord] = []
+    for group in grouped.values():
+        canonical = min(group, key=_record_sort_key)
+        origins = _deduplicate_origins(
+            [origin for record in group for origin in record.all_origins()]
+        )
+        unique_records.append(
+            canonical.model_copy(
+                update={
+                    "id": _artifact_id(canonical.path),
+                    "origins": origins,
+                }
+            )
+        )
+    return sorted(unique_records, key=_record_sort_key)
 
 
 def prepare_analysis(request: AnalysisRequest) -> PreparedAnalysis:
@@ -194,10 +295,9 @@ def prepare_analysis(request: AnalysisRequest) -> PreparedAnalysis:
             )
         )
 
-    unique_records = {record.id: record for record in records}
     return PreparedAnalysis(
         request=normalized_request,
-        artifacts=list(unique_records.values()),
+        artifacts=_deduplicate_records(records),
         source_snapshots=snapshots,
         missing_evidence=missing,
     )

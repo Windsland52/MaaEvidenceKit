@@ -1,3 +1,4 @@
+import os
 import subprocess
 from pathlib import Path
 
@@ -5,6 +6,8 @@ import pytest
 
 from maa_diagnostic_expert.contracts.domain import (
     AnalysisRequest,
+    ArtifactInput,
+    ArtifactKind,
     EvidenceQuery,
     SourceInput,
     SourceRole,
@@ -34,6 +37,13 @@ def _commit_all(repository: Path, message: str) -> str:
     _git(repository, "add", ".")
     _git(repository, "commit", "-m", message)
     return _git(repository, "rev-parse", "HEAD")
+
+
+def _link_or_skip(source: Path, target: Path) -> None:
+    try:
+        os.link(source, target)
+    except OSError as error:
+        pytest.skip(f"Hard links are unavailable on this filesystem: {error}")
 
 
 def test_query_evidence_attributes_the_most_specific_source(tmp_path: Path) -> None:
@@ -206,5 +216,63 @@ def test_query_evidence_rejects_a_file_missing_from_the_revision(tmp_path: Path)
                 line_start=1,
                 line_end=1,
                 reason="This file did not exist at the requested revision.",
+            ),
+        )
+
+
+def test_query_evidence_authorizes_artifact_origin_alias(tmp_path: Path) -> None:
+    canonical = tmp_path / "canonical.log"
+    alias = tmp_path / "alias.log"
+    canonical.write_text("one\ntwo\n", encoding="utf-8")
+    _link_or_skip(canonical, alias)
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="Read the alias.",
+            artifacts=[
+                ArtifactInput(path=canonical, kind=ArtifactKind.FILE),
+                ArtifactInput(path=alias, kind=ArtifactKind.FILE),
+            ],
+        )
+    )
+
+    window = query_evidence(
+        prepared,
+        EvidenceQuery(
+            source_path=alias,
+            line_start=2,
+            line_end=2,
+            reason="Read through the supplied alias.",
+        ),
+    )
+
+    assert window.evidence.content == "two"
+    assert window.evidence.source_path == str(alias)
+
+
+def test_query_evidence_rejects_replaced_artifact_origin_alias(tmp_path: Path) -> None:
+    canonical = tmp_path / "aaa.log"
+    alias = tmp_path / "zzz.log"
+    canonical.write_text("original\n", encoding="utf-8")
+    _link_or_skip(canonical, alias)
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="Read the alias.",
+            artifacts=[
+                ArtifactInput(path=canonical, kind=ArtifactKind.FILE),
+                ArtifactInput(path=alias, kind=ArtifactKind.FILE),
+            ],
+        )
+    )
+    alias.unlink()
+    alias.write_text("replacement\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="outside the prepared analysis inputs"):
+        query_evidence(
+            prepared,
+            EvidenceQuery(
+                source_path=alias,
+                line_start=1,
+                line_end=1,
+                reason="A replaced alias must not become new evidence.",
             ),
         )
