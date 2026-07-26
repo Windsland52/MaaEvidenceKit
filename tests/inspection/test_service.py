@@ -79,15 +79,20 @@ def _empty_runtime_inspection() -> dict[str, JsonValue]:
     }
 
 
-def _mse_preflight(project_root: Path) -> dict[str, JsonValue]:
+def _mse_preflight(
+    project_root: Path,
+    *,
+    status: str = "supported",
+    reason: str = "The interface and resource loaded.",
+) -> dict[str, JsonValue]:
     return {
         "schema_version": "mde-mse-project-preflight/v1",
         "project_root": str(project_root),
         "interface_path": "assets/interface.json",
         "syntax_mode": "maafw",
         "compatibility": {
-            "status": "supported",
-            "reason": "The interface and resource loaded.",
+            "status": status,
+            "reason": reason,
         },
         "controllers": ["Adb"],
         "resources": ["Official"],
@@ -328,3 +333,42 @@ def test_inspect_runs_mse_for_revision_matched_project_source(tmp_path: Path) ->
     ]
     assert inspection.synthesized_evidence[1].role is EvidenceRole.SIGNAL
     assert inspection.synthesized_evidence[1].line_start == 3
+
+
+def test_inspect_records_partial_mse_project_as_required_missing_evidence(
+    tmp_path: Path,
+) -> None:
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "interface.json").write_text("{}", encoding="utf-8")
+    caller = RecordingToolCaller(
+        mse=_mse_preflight(
+            tmp_path,
+            status="partial",
+            reason="A configured resource path could not be read.",
+        )
+    )
+    prepared = PreparedAnalysis(
+        request=AnalysisRequest(question="Inspect the current project."),
+        source_snapshots=[
+            SourceSnapshot(
+                source_id="project",
+                role=SourceRole.PROJECT,
+                path=tmp_path,
+                revision_backend=SourceRevisionBackend.GIT,
+                current_revision="abc123",
+                resolution_status=RevisionResolutionStatus.NOT_REQUESTED,
+            )
+        ],
+    )
+
+    inspection = inspect_prepared_analysis(prepared, caller)
+
+    [missing] = [
+        item
+        for item in inspection.prepared.missing_evidence
+        if item.code == "mse_project_incomplete"
+    ]
+    assert missing.required is True
+    assert missing.source_id == "project"
+    assert missing.source_path == tmp_path

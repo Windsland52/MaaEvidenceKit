@@ -4,10 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 
+import { FsContentLoader } from "@nekosu/maa-pipeline-manager";
+
 import {
   handleRequest,
   type MlaPreflightResult,
-  type MseProjectPreflightResult
+  type MseProjectPreflightResult,
+  type MseTaskResolutionResult
 } from "./index.js";
 
 const temporaryRoots: string[] = [];
@@ -249,10 +252,176 @@ test("mse.project-preflight does not treat missing in-root resources as escapes"
   });
 
   assert.equal(response.ok, true);
+  const result = response.result as MseProjectPreflightResult;
+  assert.equal(result.compatibility.status, "partial");
+  assert.deepEqual(result.warnings, [
+    "Configured MSE resource root is missing: assets/missing/resource.",
+    "Configured MSE resource root is not a directory: assets/not-a-directory/child."
+  ]);
   assert.doesNotMatch(
     JSON.stringify(response),
     /escaped the configured project root/u
   );
+});
+
+test("mse.resolve-tasks returns partial for missing in-root resources", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mde-mse-resolve-missing-resource-"));
+  temporaryRoots.push(root);
+  await writeFile(
+    path.join(root, "interface.json"),
+    JSON.stringify({
+      controller: [{ name: "Adb" }],
+      resource: [{
+        name: "Incomplete",
+        path: ["missing/resource"],
+        controller: ["Adb"]
+      }]
+    }),
+    "utf8"
+  );
+
+  const response = await handleRequest({
+    id: "mse-resolve-missing-resource-1",
+    apiVersion: "tool-adapter/v1",
+    method: "tools/call",
+    params: {
+      name: "mse.resolve-tasks",
+      arguments: { path: root, tasks: ["SECRET_MARKER_SHOULD_NOT_LEAK"] }
+    }
+  });
+
+  assert.equal(response.ok, true);
+  const result = response.result as MseTaskResolutionResult;
+  assert.equal(result.compatibility.status, "partial");
+  assert.deepEqual(result.warnings, [
+    "Configured MSE resource root is missing: missing/resource."
+  ]);
+  assert.equal(result.resolutions[0]?.found, false);
+  assert.doesNotMatch(
+    JSON.stringify(response),
+    /SECRET_MARKER_SHOULD_NOT_LEAK":/u
+  );
+});
+
+test("mse.project-preflight returns partial when a configured resource root is a file", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mde-mse-resource-file-"));
+  temporaryRoots.push(root);
+  const assets = path.join(root, "assets");
+  await mkdir(assets, { recursive: true });
+  await writeFile(path.join(assets, "resource-file"), "not a directory", "utf8");
+  await writeFile(
+    path.join(assets, "interface.json"),
+    JSON.stringify({
+      controller: [{ name: "Adb" }],
+      resource: [{
+        name: "FileResource",
+        path: ["resource-file"],
+        controller: ["Adb"]
+      }]
+    }),
+    "utf8"
+  );
+
+  const response = await handleRequest({
+    id: "mse-resource-file-1",
+    apiVersion: "tool-adapter/v1",
+    method: "tools/call",
+    params: {
+      name: "mse.project-preflight",
+      arguments: { path: root }
+    }
+  });
+
+  assert.equal(response.ok, true);
+  const result = response.result as MseProjectPreflightResult;
+  assert.equal(result.compatibility.status, "partial");
+  assert.deepEqual(result.warnings, [
+    "Configured MSE resource root is not a directory: assets/resource-file."
+  ]);
+});
+
+test("mse.project-preflight records explicit file watch failures", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mde-mse-import-watch-"));
+  temporaryRoots.push(root);
+  const assets = path.join(root, "assets");
+  const pipeline = path.join(assets, "resource", "base", "pipeline");
+  await mkdir(pipeline, { recursive: true });
+  await mkdir(path.join(assets, "import-dir.json"), { recursive: true });
+  await writeFile(
+    path.join(assets, "interface.json"),
+    JSON.stringify({
+      import: ["missing-import.json", "import-dir.json"],
+      controller: [{ name: "Adb" }],
+      resource: [{ name: "Official", path: ["resource/base"], controller: ["Adb"] }]
+    }),
+    "utf8"
+  );
+  await writeFile(path.join(pipeline, "task.json"), JSON.stringify({ Start: {} }), "utf8");
+
+  const response = await handleRequest({
+    id: "mse-import-watch-1",
+    apiVersion: "tool-adapter/v1",
+    method: "tools/call",
+    params: {
+      name: "mse.project-preflight",
+      arguments: { path: root }
+    }
+  });
+
+  assert.equal(response.ok, true);
+  const result = response.result as MseProjectPreflightResult;
+  assert.equal(result.compatibility.status, "partial");
+  assert.deepEqual(result.warnings, [
+    "Configured MSE project file is missing: assets/missing-import.json.",
+    "Configured MSE project file is not a file: assets/import-dir.json."
+  ]);
+});
+
+test("mse.project-preflight records unavailable discovered files", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mde-mse-unavailable-file-"));
+  temporaryRoots.push(root);
+  const assets = path.join(root, "assets");
+  const pipeline = path.join(assets, "resource", "base", "pipeline");
+  const blockedFile = path.join(pipeline, "blocked.json");
+  await mkdir(pipeline, { recursive: true });
+  await writeFile(
+    path.join(assets, "interface.json"),
+    JSON.stringify({
+      controller: [{ name: "Adb" }],
+      resource: [{ name: "Official", path: ["resource/base"], controller: ["Adb"] }]
+    }),
+    "utf8"
+  );
+  await writeFile(blockedFile, JSON.stringify({ Start: {} }), "utf8");
+
+  const originalGet = FsContentLoader.prototype.get;
+  t.mock.method(
+    FsContentLoader.prototype,
+    "get",
+    async (file: string): Promise<string | null> => {
+      if (path.resolve(file) === path.resolve(blockedFile)) {
+        throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+      }
+      return originalGet.call(new FsContentLoader(), file);
+    }
+  );
+
+  const response = await handleRequest({
+    id: "mse-unavailable-file-1",
+    apiVersion: "tool-adapter/v1",
+    method: "tools/call",
+    params: {
+      name: "mse.project-preflight",
+      arguments: { path: root }
+    }
+  });
+
+  assert.equal(response.ok, true);
+  const result = response.result as MseProjectPreflightResult;
+  assert.equal(result.compatibility.status, "partial");
+  assert.deepEqual(result.warnings, [
+    "MSE project file was unavailable during read: assets/resource/base/pipeline/blocked.json."
+  ]);
 });
 
 test("mse.project-preflight rejects symlinked resource directory escapes", async (t) => {

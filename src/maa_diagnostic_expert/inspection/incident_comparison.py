@@ -11,7 +11,7 @@ from maa_diagnostic_expert.contracts.mla import (
     MlaRuntimeSignal,
     MlaRuntimeTaskExecution,
 )
-from maa_diagnostic_expert.contracts.mse import MseResolvedTask
+from maa_diagnostic_expert.contracts.mse import MseCompatibilityStatus, MseResolvedTask
 from maa_diagnostic_expert.contracts.workflow import (
     IncidentCandidate,
     IncidentComparison,
@@ -175,7 +175,12 @@ def _expected_tasks(
 ) -> list[IncidentExpectedTask]:
     grouped: dict[tuple[str, str], list[MseResolvedTask]] = defaultdict(list)
     for project in inspection.mse_task_resolutions:
+        status = project.resolution.compatibility.status
+        if status is MseCompatibilityStatus.UNSUPPORTED:
+            continue
         for resolved in project.resolution.resolutions:
+            if status is MseCompatibilityStatus.PARTIAL and not resolved.found:
+                continue
             if resolved.name in target_names:
                 grouped[(project.source_id, resolved.name)].append(resolved)
 

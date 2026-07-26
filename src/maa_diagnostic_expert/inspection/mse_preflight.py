@@ -195,6 +195,8 @@ def synthesize_mse_task_evidence(
                 )
                 if len(evidence) >= _MAX_TASK_RESOLUTION_EVIDENCE:
                     return evidence
+        if inspection.resolution.compatibility.status is not MseCompatibilityStatus.SUPPORTED:
+            continue
         for task_name in inspection.resolution.requested_tasks:
             variants = [
                 item for item in inspection.resolution.resolutions if item.name == task_name

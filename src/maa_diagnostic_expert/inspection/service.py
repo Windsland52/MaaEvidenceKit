@@ -203,6 +203,15 @@ def inspect_prepared_analysis(
                     source_path=snapshot.path,
                 )
             )
+        elif mse_preflight.compatibility.status is MseCompatibilityStatus.PARTIAL:
+            missing.append(
+                MissingEvidence(
+                    code="mse_project_incomplete",
+                    message=mse_preflight.compatibility.reason,
+                    source_id=snapshot.source_id,
+                    source_path=snapshot.path,
+                )
+            )
 
     prepared_with_tools = prepared.model_copy(update={"missing_evidence": missing})
     return DeterministicInspection(

@@ -25,6 +25,8 @@ const MAX_DIAGNOSTICS = 500;
 const MAX_TASK_RESOLUTION_CONFIGURATIONS = 64;
 const CONFINEMENT_ERROR =
   "MSE project access escaped the configured project root.";
+const NO_ACTIVE_RESOURCE_PATH_WARNING =
+  "No activated MSE resource paths were readable.";
 
 export type MseCompatibility = {
   status: "supported" | "partial" | "unsupported";
@@ -180,21 +182,110 @@ class ProjectRootConfinement {
   }
 }
 
+class MseResourceAccessRecorder {
+  private readonly issues = new Map<string, string>();
+  private readonly expectedFiles = new Set<string>();
+
+  constructor(private readonly projectRoot: string) {}
+
+  get hasIssues(): boolean {
+    return this.issues.size > 0;
+  }
+
+  recordMissingRoot(target: string): void {
+    this.record(
+      target,
+      "Configured MSE resource root is missing: "
+    );
+  }
+
+  recordNonDirectoryRoot(target: string): void {
+    this.record(
+      target,
+      "Configured MSE resource root is not a directory: "
+    );
+  }
+
+  recordUnreadableRoot(target: string): void {
+    this.record(
+      target,
+      "Configured MSE resource root is unreadable: "
+    );
+  }
+
+  recordExpectedFile(target: string): void {
+    this.expectedFiles.add(path.resolve(target));
+  }
+
+  recordMissingFile(target: string): void {
+    this.record(
+      target,
+      "Configured MSE project file is missing: "
+    );
+  }
+
+  recordNonFile(target: string): void {
+    this.record(
+      target,
+      "Configured MSE project file is not a file: "
+    );
+  }
+
+  recordUnreadableFile(target: string): void {
+    this.record(
+      target,
+      "Configured MSE project file is unreadable: "
+    );
+  }
+
+  recordUnavailableFile(target: string): void {
+    if (!this.expectedFiles.has(path.resolve(target))) return;
+    this.record(
+      target,
+      "MSE project file was unavailable during read: "
+    );
+  }
+
+  warnings(): string[] {
+    return [...this.issues.values()].sort();
+  }
+
+  private record(target: string, prefix: string): void {
+    this.issues.set(
+      prefix + path.resolve(target),
+      prefix + relativeSourcePath(this.projectRoot, target) + "."
+    );
+  }
+}
+
 class ConfinedContentLoader implements IContentLoader {
   private readonly inner = new FsContentLoader();
 
-  constructor(private readonly confinement: ProjectRootConfinement) {}
+  constructor(
+    private readonly confinement: ProjectRootConfinement,
+    private readonly accessRecorder: MseResourceAccessRecorder
+  ) {}
 
   async get(file: string): Promise<string | null> {
     if (!(await this.confinement.isAllowed(file))) return null;
-    return this.inner.get(file);
+    try {
+      const content = await this.inner.get(file);
+      if (content === null) this.accessRecorder.recordUnavailableFile(file);
+      return content;
+    } catch {
+      this.accessRecorder.recordUnavailableFile(file);
+      return null;
+    }
   }
 }
 
 class ReadOnlySnapshotWatcher implements IContentWatcher {
   private scannedFiles = 0;
 
-  constructor(private readonly confinement: ProjectRootConfinement) {}
+  constructor(
+    private readonly confinement: ProjectRootConfinement,
+    private readonly accessRecorder: MseResourceAccessRecorder
+  ) {}
 
   async watch(
     root: string,
@@ -204,7 +295,33 @@ class ReadOnlySnapshotWatcher implements IContentWatcher {
     if (!(await this.confinement.isAllowed(root))) {
       return { stop() {} };
     }
+    if (isFile) {
+      const rootStatus = await fileScanStatus(root);
+      if (rootStatus === "missing") {
+        this.accessRecorder.recordMissingFile(root);
+      } else if (rootStatus === "not_file") {
+        this.accessRecorder.recordNonFile(root);
+      } else if (rootStatus === "unreadable") {
+        this.accessRecorder.recordUnreadableFile(root);
+      } else {
+        this.accessRecorder.recordExpectedFile(root);
+      }
+      return { stop() {} };
+    }
     if (!isFile) {
+      const rootStatus = await directoryScanStatus(root);
+      if (rootStatus === "missing") {
+        this.accessRecorder.recordMissingRoot(root);
+        return { stop() {} };
+      }
+      if (rootStatus === "not_directory") {
+        this.accessRecorder.recordNonDirectoryRoot(root);
+        return { stop() {} };
+      }
+      if (rootStatus === "unreadable") {
+        this.accessRecorder.recordUnreadableRoot(root);
+        return { stop() {} };
+      }
       this.scannedFiles = 0;
       await this.scanDirectory(path.resolve(root), delegate);
     }
@@ -221,6 +338,7 @@ class ReadOnlySnapshotWatcher implements IContentWatcher {
     try {
       entries = await readdir(directory, { withFileTypes: true });
     } catch {
+      this.accessRecorder.recordUnreadableRoot(directory);
       return;
     }
     for (const entry of entries) {
@@ -233,6 +351,7 @@ class ReadOnlySnapshotWatcher implements IContentWatcher {
         if (this.scannedFiles > MAX_SCANNED_FILES) {
           throw new Error("MSE project scan exceeded " + MAX_SCANNED_FILES + " files.");
         }
+        this.accessRecorder.recordExpectedFile(target);
         delegate.fileAdded(target);
       }
     }
@@ -249,6 +368,53 @@ const isFile = async (
     return targetStat.isFile();
   } catch {
     return false;
+  }
+};
+
+const directoryScanStatus = async (
+  target: string
+): Promise<"directory" | "missing" | "not_directory" | "unreadable"> => {
+  try {
+    const targetStat = await stat(target);
+    return targetStat.isDirectory() ? "directory" : "not_directory";
+  } catch (error: unknown) {
+    const code = errorCode(error);
+    if (code === "ENOENT") return missingPathStatus(target, "not_directory");
+    if (code === "ENOTDIR") return "not_directory";
+    return "unreadable";
+  }
+};
+
+const fileScanStatus = async (
+  target: string
+): Promise<"file" | "missing" | "not_file" | "unreadable"> => {
+  try {
+    const targetStat = await stat(target);
+    return targetStat.isFile() ? "file" : "not_file";
+  } catch (error: unknown) {
+    const code = errorCode(error);
+    if (code === "ENOENT") return missingPathStatus(target, "not_file");
+    if (code === "ENOTDIR") return "not_file";
+    return "unreadable";
+  }
+};
+
+const missingPathStatus = async <T extends "not_directory" | "not_file">(
+  target: string,
+  blockedByFileStatus: T
+): Promise<"missing" | T | "unreadable"> => {
+  let current = path.dirname(path.resolve(target));
+  while (true) {
+    try {
+      const currentStat = await stat(current);
+      return currentStat.isDirectory() ? "missing" : blockedByFileStatus;
+    } catch (error: unknown) {
+      const code = errorCode(error);
+      if (code !== "ENOENT" && code !== "ENOTDIR") return "unreadable";
+      const parent = path.dirname(current);
+      if (parent === current) return "missing";
+      current = parent;
+    }
   }
 };
 
@@ -375,8 +541,9 @@ export async function runMseProjectPreflight(
     };
   }
 
-  const loader = new ConfinedContentLoader(confinement);
-  const watcher = new ReadOnlySnapshotWatcher(confinement);
+  const accessRecorder = new MseResourceAccessRecorder(projectRoot);
+  const loader = new ConfinedContentLoader(confinement, accessRecorder);
+  const watcher = new ReadOnlySnapshotWatcher(confinement, accessRecorder);
   const bundle = new InterfaceBundle(
     loader,
     watcher,
@@ -488,14 +655,21 @@ export async function runMseProjectPreflight(
     const hasConfigurations = configurations.some(
       (item) => item.resource_paths.length > 0
     );
+    if (!hasConfigurations) {
+      warnings.push(NO_ACTIVE_RESOURCE_PATH_WARNING);
+    }
+    warnings.push(...accessRecorder.warnings());
+    const fullyLoadedConfigurations = hasConfigurations && !accessRecorder.hasIssues;
     return {
       ...base,
       interface_path: relativeSourcePath(projectRoot, interfacePath),
       compatibility: {
-        status: hasConfigurations ? "supported" : "partial",
-        reason: hasConfigurations
+        status: fullyLoadedConfigurations ? "supported" : "partial",
+        reason: fullyLoadedConfigurations
           ? "The interface and at least one resource configuration were loaded."
-          : "The interface loaded, but no resource paths were activated."
+          : hasConfigurations
+            ? "The interface loaded, but one or more activated resource paths could not be fully scanned."
+            : "The interface loaded, but no resource paths were activated."
       },
       controllers,
       resources,
@@ -610,8 +784,9 @@ export async function runMseTaskResolution(
     };
   }
 
-  const loader = new ConfinedContentLoader(confinement);
-  const watcher = new ReadOnlySnapshotWatcher(confinement);
+  const accessRecorder = new MseResourceAccessRecorder(projectRoot);
+  const loader = new ConfinedContentLoader(confinement, accessRecorder);
+  const watcher = new ReadOnlySnapshotWatcher(confinement, accessRecorder);
   const bundle = new InterfaceBundle(
     loader,
     watcher,
@@ -636,6 +811,7 @@ export async function runMseTaskResolution(
   const resolutions: MseResolvedTask[] = [];
   let configurationsTruncated = false;
   let configurationCount = 0;
+  let hasActivatedResourcePaths = false;
   try {
     await bundle.load();
     confinement.assertNoViolations();
@@ -660,6 +836,7 @@ export async function runMseTaskResolution(
         configurationCount += 1;
         await bundle.switchActive(controller ?? "", resource ?? "");
         confinement.assertNoViolations();
+        if (bundle.paths.length > 0) hasActivatedResourcePaths = true;
         await bundle.flush(true);
         confinement.assertNoViolations();
         for (const task of tasks) {
@@ -669,20 +846,31 @@ export async function runMseTaskResolution(
         }
       }
     }
-    const warnings = configurationsTruncated
-      ? [
-          "Controller/resource configurations were truncated at "
-          + MAX_TASK_RESOLUTION_CONFIGURATIONS
-          + " records."
-        ]
-      : [];
+    const warnings: string[] = [];
+    if (configurationsTruncated) {
+      warnings.push(
+        "Controller/resource configurations were truncated at "
+        + MAX_TASK_RESOLUTION_CONFIGURATIONS
+        + " records."
+      );
+    }
+    if (!hasActivatedResourcePaths) {
+      warnings.push(NO_ACTIVE_RESOURCE_PATH_WARNING);
+    }
+    warnings.push(...accessRecorder.warnings());
+    const fullyLoadedConfigurations =
+      hasActivatedResourcePaths && !accessRecorder.hasIssues;
     return {
       schema_version: "mde-mse-task-resolution/v1",
       project_root: projectRoot,
       interface_path: relativeSourcePath(projectRoot, interfacePath),
       compatibility: {
-        status: "supported",
-        reason: "Requested MaaFramework tasks were resolved across active configurations."
+        status: fullyLoadedConfigurations ? "supported" : "partial",
+        reason: fullyLoadedConfigurations
+          ? "Requested MaaFramework tasks were resolved across active configurations."
+          : hasActivatedResourcePaths
+            ? "Requested MaaFramework tasks were resolved, but one or more activated resource paths could not be fully scanned."
+            : "The interface loaded, but no resource paths were activated."
       },
       requested_tasks: tasks,
       resolutions,

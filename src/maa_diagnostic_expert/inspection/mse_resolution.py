@@ -64,7 +64,8 @@ def resolve_incident_pipeline_tasks(
 
     resolutions: list[MseTaskResolutionInspection] = []
     for project in inspection.mse_project_inspections:
-        if project.preflight.compatibility.status is MseCompatibilityStatus.UNSUPPORTED:
+        project_status = project.preflight.compatibility.status
+        if project_status is MseCompatibilityStatus.UNSUPPORTED:
             continue
         try:
             arguments: dict[str, JsonValue] = {
@@ -86,6 +87,23 @@ def resolve_incident_pipeline_tasks(
                 )
             )
             continue
+        if (
+            project_status is MseCompatibilityStatus.PARTIAL
+            and result.compatibility.status is MseCompatibilityStatus.SUPPORTED
+        ):
+            result = result.model_copy(
+                update={
+                    "compatibility": result.compatibility.model_copy(
+                        update={
+                            "status": MseCompatibilityStatus.PARTIAL,
+                            "reason": (
+                                "MSE project preflight was incomplete: "
+                                f"{project.preflight.compatibility.reason}"
+                            ),
+                        }
+                    )
+                }
+            )
         resolutions.append(
             MseTaskResolutionInspection(
                 source_id=project.source_id,
@@ -102,6 +120,17 @@ def resolve_incident_pipeline_tasks(
                     source_path=project.path,
                 )
             )
+        elif result.compatibility.status is MseCompatibilityStatus.PARTIAL:
+            missing.append(
+                MissingEvidence(
+                    code="mse_task_resolution_incomplete",
+                    message=result.compatibility.reason,
+                    source_id=project.source_id,
+                    source_path=project.path,
+                )
+            )
+        if result.compatibility.status is not MseCompatibilityStatus.SUPPORTED:
+            continue
         missing_tasks = [
             name
             for name in result.requested_tasks

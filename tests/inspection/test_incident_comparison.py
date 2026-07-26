@@ -70,7 +70,19 @@ def _runtime() -> MlaRuntimeInspectionArtifact:
     )
 
 
-def _mse_resolution() -> MseTaskResolutionInspection:
+def _mse_resolution(
+    *,
+    status: MseCompatibilityStatus = MseCompatibilityStatus.SUPPORTED,
+    login_button_found: bool = True,
+) -> MseTaskResolutionInspection:
+    definitions = [
+        MseTaskDefinition(
+            source_path="assets/pipeline/login.json",
+            line=12,
+            column=3,
+            raw_config={"recognition": "OCR"},
+        )
+    ]
     return MseTaskResolutionInspection(
         source_id="project",
         path=Path("C:/project"),
@@ -78,7 +90,7 @@ def _mse_resolution() -> MseTaskResolutionInspection:
             project_root=Path("C:/project"),
             interface_path="assets/interface.json",
             compatibility=MseCompatibility(
-                status=MseCompatibilityStatus.SUPPORTED,
+                status=status,
                 reason="Resolved.",
             ),
             requested_tasks=["LoginButton", "LoginTask"],
@@ -87,19 +99,14 @@ def _mse_resolution() -> MseTaskResolutionInspection:
                     name="LoginButton",
                     controller="Adb",
                     resource="Official",
-                    found=True,
-                    definitions=[
-                        MseTaskDefinition(
-                            source_path="assets/pipeline/login.json",
-                            line=12,
-                            column=3,
-                            raw_config={"recognition": "OCR"},
-                        )
-                    ],
+                    found=login_button_found,
+                    definitions=definitions if login_button_found else [],
                     effective_config={
                         "recognition": "OCR",
                         "expected": ["Login"],
-                    },
+                    }
+                    if login_button_found
+                    else {},
                 ),
                 MseResolvedTask(
                     name="LoginTask",
@@ -135,9 +142,18 @@ def _correlation() -> IncidentCorrelationDraft:
     )
 
 
-def _inspection(*, include_mse: bool) -> DeterministicInspection:
+def _inspection(
+    *,
+    include_mse: bool,
+    mse_status: MseCompatibilityStatus = MseCompatibilityStatus.SUPPORTED,
+    login_button_found: bool = True,
+) -> DeterministicInspection:
     runtime = _runtime()
-    resolutions = [_mse_resolution()] if include_mse else []
+    resolutions = (
+        [_mse_resolution(status=mse_status, login_button_found=login_button_found)]
+        if include_mse
+        else []
+    )
     evidence = [
         *synthesize_evidence([runtime]),
         *synthesize_mse_task_evidence(resolutions),
@@ -191,3 +207,44 @@ def test_compare_incident_execution_remains_partial_without_mse() -> None:
     assert comparison.expected_tasks == []
     assert comparison.findings[0].kind is (IncidentComparisonFindingKind.ACTUAL_EXECUTION_ONLY)
     assert comparison.missing_evidence
+
+
+def test_compare_incident_execution_does_not_report_not_found_from_partial_mse() -> None:
+    inspection = compare_incident_execution(
+        _inspection(
+            include_mse=True,
+            mse_status=MseCompatibilityStatus.PARTIAL,
+            login_button_found=False,
+        ),
+        _correlation(),
+    )
+
+    comparison = inspection.incident_comparison
+    assert comparison.status is IncidentComparisonStatus.PARTIAL
+    assert comparison.expected_tasks == []
+    assert IncidentComparisonFindingKind.EXPECTED_TASK_NOT_FOUND not in {
+        finding.kind for finding in comparison.findings
+    }
+    assert comparison.findings[0].kind is IncidentComparisonFindingKind.ACTUAL_EXECUTION_ONLY
+
+
+def test_compare_incident_execution_keeps_found_variant_from_partial_mse() -> None:
+    inspection = compare_incident_execution(
+        _inspection(
+            include_mse=True,
+            mse_status=MseCompatibilityStatus.PARTIAL,
+            login_button_found=True,
+        ),
+        _correlation(),
+    )
+
+    comparison = inspection.incident_comparison
+    assert comparison.status is IncidentComparisonStatus.COMPLETE
+    assert [item.task_name for item in comparison.expected_tasks] == ["LoginButton"]
+    assert comparison.expected_tasks[0].found_variants == 1
+    assert IncidentComparisonFindingKind.ACTUAL_AND_EXPECTED_AVAILABLE in {
+        finding.kind for finding in comparison.findings
+    }
+    assert IncidentComparisonFindingKind.EXPECTED_TASK_NOT_FOUND not in {
+        finding.kind for finding in comparison.findings
+    }
