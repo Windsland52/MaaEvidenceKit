@@ -55,6 +55,30 @@ def test_trusted_command_finishes_without_approval(tmp_path: Path) -> None:
     assert not outcome.execution.approved
 
 
+def test_calling_workflow_can_require_approval_even_in_trusted_mode(
+    tmp_path: Path,
+) -> None:
+    workflow = CommandApprovalWorkflow(_executor(tmp_path, CommandToolMode.TRUSTED))
+    request = _python_request(tmp_path, "print('explicitly-approved')")
+
+    pending = asyncio.run(workflow.submit(request, require_approval=True))
+
+    assert pending.status is CommandApprovalStatus.AWAITING_APPROVAL
+    assert pending.approval is not None
+    assert pending.approval.pending_execution.policy.matched_rule == "workflow:explicit-approval"
+    finished = asyncio.run(
+        workflow.resume(
+            CommandApprovalResponse(
+                approval_id=pending.approval_id,
+                decision=CommandApprovalDecision.APPROVE,
+            )
+        )
+    )
+    assert finished.execution is not None
+    assert finished.execution.status is CommandExecutionStatus.COMPLETED
+    assert finished.execution.approved
+
+
 def test_safe_command_pauses_and_replays_exact_request_after_approval(
     tmp_path: Path,
 ) -> None:
@@ -121,6 +145,23 @@ def test_disabled_command_finishes_as_denied_without_approval(tmp_path: Path) ->
     assert outcome.approval is None
     assert outcome.execution is not None
     assert outcome.execution.status is CommandExecutionStatus.DENIED
+
+
+def test_required_approval_cannot_override_disabled_mode(tmp_path: Path) -> None:
+    workflow = CommandApprovalWorkflow(_executor(tmp_path, CommandToolMode.DISABLED))
+
+    outcome = asyncio.run(
+        workflow.submit(
+            _python_request(tmp_path, "print('never')"),
+            require_approval=True,
+        )
+    )
+
+    assert outcome.status is CommandApprovalStatus.FINISHED
+    assert outcome.approval is None
+    assert outcome.execution is not None
+    assert outcome.execution.status is CommandExecutionStatus.DENIED
+    assert outcome.execution.policy.matched_rule == "mode:disabled"
 
 
 def test_completed_approval_cannot_be_resumed_twice(tmp_path: Path) -> None:

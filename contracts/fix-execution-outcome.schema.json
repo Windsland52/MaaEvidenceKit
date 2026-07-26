@@ -1,0 +1,728 @@
+{
+  "$defs": {
+    "CommandApprovalDecision": {
+      "enum": [
+        "approve",
+        "reject"
+      ],
+      "title": "CommandApprovalDecision",
+      "type": "string"
+    },
+    "CommandApprovalOutcome": {
+      "additionalProperties": false,
+      "description": "Current or terminal state of one approval-aware command execution.",
+      "properties": {
+        "api_version": {
+          "const": "command-approval-outcome/v1",
+          "default": "command-approval-outcome/v1",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "approval_id": {
+          "minLength": 1,
+          "title": "Approval Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/CommandApprovalStatus"
+        },
+        "approval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommandApprovalPrompt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "response": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommandApprovalResponse"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "execution": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommandExecutionResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "approval_id",
+        "status"
+      ],
+      "title": "CommandApprovalOutcome",
+      "type": "object"
+    },
+    "CommandApprovalPrompt": {
+      "additionalProperties": false,
+      "description": "Auditable command policy result presented to a human approval surface.",
+      "properties": {
+        "api_version": {
+          "const": "command-approval-prompt/v1",
+          "default": "command-approval-prompt/v1",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "approval_id": {
+          "minLength": 1,
+          "title": "Approval Id",
+          "type": "string"
+        },
+        "pending_execution": {
+          "$ref": "#/$defs/CommandExecutionResult"
+        }
+      },
+      "required": [
+        "approval_id",
+        "pending_execution"
+      ],
+      "title": "CommandApprovalPrompt",
+      "type": "object"
+    },
+    "CommandApprovalResponse": {
+      "additionalProperties": false,
+      "description": "A harness-owned approval response; this is never a model-call parameter.",
+      "properties": {
+        "api_version": {
+          "const": "command-approval-response/v1",
+          "default": "command-approval-response/v1",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "approval_id": {
+          "minLength": 1,
+          "title": "Approval Id",
+          "type": "string"
+        },
+        "decision": {
+          "$ref": "#/$defs/CommandApprovalDecision"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "approval_id",
+        "decision"
+      ],
+      "title": "CommandApprovalResponse",
+      "type": "object"
+    },
+    "CommandApprovalStatus": {
+      "enum": [
+        "awaiting_approval",
+        "finished",
+        "rejected"
+      ],
+      "title": "CommandApprovalStatus",
+      "type": "string"
+    },
+    "CommandExecutionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "const": "command-execution-result/v1",
+          "default": "command-execution-result/v1",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "execution_id": {
+          "minLength": 1,
+          "title": "Execution Id",
+          "type": "string"
+        },
+        "request": {
+          "discriminator": {
+            "mapping": {
+              "process": "#/$defs/ProcessCommandRequest",
+              "shell": "#/$defs/ShellCommandRequest"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ProcessCommandRequest"
+            },
+            {
+              "$ref": "#/$defs/ShellCommandRequest"
+            }
+          ],
+          "title": "Request"
+        },
+        "policy": {
+          "$ref": "#/$defs/CommandPolicyResult"
+        },
+        "approved": {
+          "default": false,
+          "title": "Approved",
+          "type": "boolean"
+        },
+        "status": {
+          "$ref": "#/$defs/CommandExecutionStatus"
+        },
+        "command_display": {
+          "minLength": 1,
+          "title": "Command Display",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "finished_at": {
+          "format": "date-time",
+          "title": "Finished At",
+          "type": "string"
+        },
+        "duration_ms": {
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exit Code"
+        },
+        "stdout_preview": {
+          "default": "",
+          "title": "Stdout Preview",
+          "type": "string"
+        },
+        "stderr_preview": {
+          "default": "",
+          "title": "Stderr Preview",
+          "type": "string"
+        },
+        "stdout_path": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stdout Path"
+        },
+        "stderr_path": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stderr Path"
+        },
+        "stdout_truncated": {
+          "default": false,
+          "title": "Stdout Truncated",
+          "type": "boolean"
+        },
+        "stderr_truncated": {
+          "default": false,
+          "title": "Stderr Truncated",
+          "type": "boolean"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        }
+      },
+      "required": [
+        "execution_id",
+        "request",
+        "policy",
+        "status",
+        "command_display",
+        "started_at",
+        "finished_at",
+        "duration_ms"
+      ],
+      "title": "CommandExecutionResult",
+      "type": "object"
+    },
+    "CommandExecutionStatus": {
+      "enum": [
+        "completed",
+        "failed",
+        "timed_out",
+        "approval_required",
+        "denied",
+        "execution_error"
+      ],
+      "title": "CommandExecutionStatus",
+      "type": "string"
+    },
+    "CommandPolicyDecision": {
+      "enum": [
+        "allow",
+        "require_approval",
+        "deny"
+      ],
+      "title": "CommandPolicyDecision",
+      "type": "string"
+    },
+    "CommandPolicyResult": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "const": "command-policy-result/v1",
+          "default": "command-policy-result/v1",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "decision": {
+          "$ref": "#/$defs/CommandPolicyDecision"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "matched_rule": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Matched Rule"
+        }
+      },
+      "required": [
+        "decision",
+        "reason"
+      ],
+      "title": "CommandPolicyResult",
+      "type": "object"
+    },
+    "FixCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "const": "fix-candidate/v1",
+          "default": "fix-candidate/v1",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "fix_id": {
+          "minLength": 1,
+          "title": "Fix Id",
+          "type": "string"
+        },
+        "target": {
+          "minLength": 1,
+          "title": "Target",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/FixScope"
+        },
+        "method": {
+          "$ref": "#/$defs/FixMethod"
+        },
+        "rationale": {
+          "minLength": 1,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "regression_risks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Regression Risks",
+          "type": "array"
+        },
+        "verification_steps": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Verification Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "fix_id",
+        "target",
+        "scope",
+        "method",
+        "rationale",
+        "evidence_ids",
+        "verification_steps"
+      ],
+      "title": "FixCandidate",
+      "type": "object"
+    },
+    "FixExecutionRequest": {
+      "additionalProperties": false,
+      "description": "One selected fix translated into one exact command pending human approval.",
+      "properties": {
+        "api_version": {
+          "const": "fix-execution-request/v1",
+          "default": "fix-execution-request/v1",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "fix_id": {
+          "minLength": 1,
+          "title": "Fix Id",
+          "type": "string"
+        },
+        "command": {
+          "discriminator": {
+            "mapping": {
+              "process": "#/$defs/ProcessCommandRequest",
+              "shell": "#/$defs/ShellCommandRequest"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ProcessCommandRequest"
+            },
+            {
+              "$ref": "#/$defs/ShellCommandRequest"
+            }
+          ],
+          "title": "Command"
+        },
+        "rationale": {
+          "minLength": 1,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "expected_changed_paths": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Expected Changed Paths",
+          "type": "array"
+        }
+      },
+      "required": [
+        "fix_id",
+        "command",
+        "rationale",
+        "expected_changed_paths"
+      ],
+      "title": "FixExecutionRequest",
+      "type": "object"
+    },
+    "FixExecutionStatus": {
+      "enum": [
+        "awaiting_approval",
+        "command_completed",
+        "rejected",
+        "command_failed"
+      ],
+      "title": "FixExecutionStatus",
+      "type": "string"
+    },
+    "FixMethod": {
+      "enum": [
+        "configuration",
+        "roi",
+        "only_rec",
+        "expected_replace",
+        "color_filter",
+        "project_code",
+        "gui_code",
+        "framework_code",
+        "model_change"
+      ],
+      "title": "FixMethod",
+      "type": "string"
+    },
+    "FixScope": {
+      "enum": [
+        "node",
+        "pipeline",
+        "project",
+        "gui",
+        "framework",
+        "dependency"
+      ],
+      "title": "FixScope",
+      "type": "string"
+    },
+    "ProcessCommandRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "const": "process-command-request/v1",
+          "default": "process-command-request/v1",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "kind": {
+          "const": "process",
+          "default": "process",
+          "title": "Kind",
+          "type": "string"
+        },
+        "executable": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Executable",
+          "type": "string"
+        },
+        "arguments": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Arguments",
+          "type": "array"
+        },
+        "cwd": {
+          "format": "path",
+          "title": "Cwd",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "default": 60,
+          "exclusiveMinimum": 0,
+          "maximum": 3600,
+          "title": "Timeout Seconds",
+          "type": "number"
+        },
+        "max_output_bytes": {
+          "default": 100000,
+          "maximum": 10000000,
+          "minimum": 1024,
+          "title": "Max Output Bytes",
+          "type": "integer"
+        },
+        "max_output_lines": {
+          "default": 2000,
+          "maximum": 100000,
+          "minimum": 10,
+          "title": "Max Output Lines",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "executable",
+        "cwd"
+      ],
+      "title": "ProcessCommandRequest",
+      "type": "object"
+    },
+    "ShellCommandRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "const": "shell-command-request/v1",
+          "default": "shell-command-request/v1",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "kind": {
+          "const": "shell",
+          "default": "shell",
+          "title": "Kind",
+          "type": "string"
+        },
+        "command": {
+          "maxLength": 100000,
+          "minLength": 1,
+          "title": "Command",
+          "type": "string"
+        },
+        "cwd": {
+          "format": "path",
+          "title": "Cwd",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "default": 60,
+          "exclusiveMinimum": 0,
+          "maximum": 3600,
+          "title": "Timeout Seconds",
+          "type": "number"
+        },
+        "max_output_bytes": {
+          "default": 100000,
+          "maximum": 10000000,
+          "minimum": 1024,
+          "title": "Max Output Bytes",
+          "type": "integer"
+        },
+        "max_output_lines": {
+          "default": 2000,
+          "maximum": 100000,
+          "minimum": 10,
+          "title": "Max Output Lines",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "command",
+        "cwd"
+      ],
+      "title": "ShellCommandRequest",
+      "type": "object"
+    },
+    "VerificationMethod": {
+      "enum": [
+        "offline_screenshot",
+        "static_configuration",
+        "runtime_execution",
+        "manual_observation"
+      ],
+      "title": "VerificationMethod",
+      "type": "string"
+    },
+    "VerificationPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "const": "verification-plan/v2",
+          "default": "verification-plan/v2",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "fix_id": {
+          "minLength": 1,
+          "title": "Fix Id",
+          "type": "string"
+        },
+        "methods": {
+          "items": {
+            "$ref": "#/$defs/VerificationMethod"
+          },
+          "minItems": 1,
+          "title": "Methods",
+          "type": "array"
+        },
+        "steps": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        },
+        "business_milestones": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Business Milestones",
+          "type": "array"
+        },
+        "regression_checks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Regression Checks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "fix_id",
+        "methods",
+        "steps",
+        "business_milestones"
+      ],
+      "title": "VerificationPlan",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Audited command outcome; command completion is not repair verification.",
+  "properties": {
+    "api_version": {
+      "const": "fix-execution-outcome/v1",
+      "default": "fix-execution-outcome/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/FixExecutionStatus"
+    },
+    "request": {
+      "$ref": "#/$defs/FixExecutionRequest"
+    },
+    "candidate": {
+      "$ref": "#/$defs/FixCandidate"
+    },
+    "verification_plan": {
+      "$ref": "#/$defs/VerificationPlan"
+    },
+    "command_outcome": {
+      "$ref": "#/$defs/CommandApprovalOutcome"
+    }
+  },
+  "required": [
+    "status",
+    "request",
+    "candidate",
+    "verification_plan",
+    "command_outcome"
+  ],
+  "title": "FixExecutionOutcome",
+  "type": "object"
+}

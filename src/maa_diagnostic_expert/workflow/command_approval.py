@@ -28,6 +28,7 @@ from maa_diagnostic_expert.reasoning.tools.command import CommandExecutor
 class CommandApprovalState(TypedDict):
     approval_id: str
     request: CommandRequest
+    require_approval: bool
     pending_execution: NotRequired[CommandExecutionResult]
     approval: NotRequired[CommandApprovalPrompt]
     response: NotRequired[CommandApprovalResponse]
@@ -78,11 +79,17 @@ class CommandApprovalWorkflow:
         self.executor = executor
         self._graph = self._build_graph()
 
-    async def submit(self, request: CommandRequest) -> CommandApprovalOutcome:
+    async def submit(
+        self,
+        request: CommandRequest,
+        *,
+        require_approval: bool = False,
+    ) -> CommandApprovalOutcome:
         approval_id = _new_approval_id()
         state: CommandApprovalState = {
             "approval_id": approval_id,
             "request": request,
+            "require_approval": require_approval,
         }
         raw = await self._graph.ainvoke(  # pyright: ignore[reportUnknownMemberType]
             state,
@@ -108,7 +115,10 @@ class CommandApprovalWorkflow:
         return self._outcome(cast(CommandApprovalState, raw))
 
     async def _evaluate_node(self, state: CommandApprovalState) -> _CommandStateUpdate:
-        result = await self.executor.execute(state["request"])
+        result = await self.executor.execute(
+            state["request"],
+            require_approval=state["require_approval"],
+        )
         update: _CommandStateUpdate = {"pending_execution": result}
         if result.status is CommandExecutionStatus.APPROVAL_REQUIRED:
             update["approval"] = CommandApprovalPrompt(
@@ -157,6 +167,7 @@ class CommandApprovalWorkflow:
         result = await self.executor.execute(
             approval.pending_execution.request,
             approved=True,
+            require_approval=state["require_approval"],
         )
         if result.status is CommandExecutionStatus.APPROVAL_REQUIRED:
             raise RuntimeError("approved command unexpectedly requested approval again")

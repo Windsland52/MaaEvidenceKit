@@ -523,6 +523,7 @@ class CommandExecutor:
         request: CommandRequest,
         *,
         approved: bool = False,
+        require_approval: bool = False,
     ) -> CommandExecutionResult:
         execution_id = secrets.token_hex(8)
         started_at = datetime.now(UTC)
@@ -535,6 +536,12 @@ class CommandExecutor:
                 decision=CommandPolicyDecision.DENY,
                 reason=cwd_error,
                 matched_rule="cwd:outside-allowed-roots",
+            )
+        elif require_approval and policy.decision is not CommandPolicyDecision.DENY:
+            policy = CommandPolicyResult(
+                decision=CommandPolicyDecision.REQUIRE_APPROVAL,
+                reason="The calling workflow requires explicit approval for this command.",
+                matched_rule="workflow:explicit-approval",
             )
         if policy.decision is CommandPolicyDecision.DENY:
             return _non_execution_result(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import cast
 
 from maa_diagnostic_expert.contracts.domain import (
@@ -17,6 +18,7 @@ from maa_diagnostic_expert.contracts.domain import (
 )
 from maa_diagnostic_expert.contracts.workflow import (
     EvidenceResearchPlan,
+    FixCandidate,
     FixCandidatePlan,
     FixPlanningStatus,
     IncidentComparison,
@@ -26,6 +28,7 @@ from maa_diagnostic_expert.contracts.workflow import (
     KnowledgeResearchPlan,
     SourceResearchPlan,
     SourceResearchStatus,
+    VerificationPlan,
     VerificationPlanningStatus,
     VerificationPlanSet,
 )
@@ -542,6 +545,55 @@ def build_verification_plan_context(
         stage="plan_verification",
         instruction="\n".join(lines),
         evidence=order_evidence_for_reasoning(evidence),
+    )
+
+
+def build_fix_execution_context(
+    reported_context: str,
+    evidence: list[Evidence],
+    candidate: FixCandidate,
+    verification: VerificationPlan,
+    allowed_roots: list[Path],
+) -> ReasoningContext:
+    """Translate a user-selected candidate into one exact, still-unapproved command."""
+    focused = order_evidence_for_reasoning(
+        [
+            item
+            for item in evidence
+            if item.id in candidate.evidence_ids
+            or item.kind in {"source_guidance", "source_search_match"}
+        ]
+    )
+    lines = [
+        "Translate the explicitly selected repair candidate into one exact command request.",
+        "Return a request only. Do not execute it or claim that it is approved or successful.",
+        "",
+        "Reported diagnostic context:",
+        reported_context,
+        f"Selected fix: {candidate.fix_id}",
+        f"Target: {candidate.target}",
+        f"Scope/method: {candidate.scope.value}/{candidate.method.value}",
+        f"Rationale: {candidate.rationale}",
+        f"Evidence: {', '.join(candidate.evidence_ids)}",
+        f"Verification steps: {'; '.join(verification.steps)}",
+        "Allowed working-directory roots:",
+        *(f"- {root.resolve()}" for root in allowed_roots),
+        "",
+        "Rules:",
+        "1. Preserve the selected fix_id exactly and produce one process or shell command.",
+        "2. Use a cwd at or below an exact allowed root. Do not use cwd to broaden scope.",
+        "3. List every expected changed path relative to cwd; do not traverse parents or .git.",
+        "4. Apply only the selected minimal repair. Do not bundle refactors or unrelated cleanup.",
+        "5. Respect applicable source_guidance evidence, including repository structure.",
+        "6. Do not push, publish, modify remote issues, change branches, or commit changes.",
+        "7. Prefer a process request without a shell when it can express the exact operation.",
+        "8. Approval is owned by the harness. Never include or infer an approval flag.",
+        "9. The command will be approved separately and its completion will not prove the fix.",
+    ]
+    return ReasoningContext(
+        stage="plan_fix_execution",
+        instruction="\n".join(lines),
+        evidence=focused,
     )
 
 

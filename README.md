@@ -80,6 +80,11 @@ Every proposed candidate then receives a separate pre-execution verification pla
 steps, business milestones, and regression checks. Python requires exactly one plan per candidate
 and rejects risk-bearing candidates without regression coverage. These plans are available through
 `DiagnosticWorkflow.verification_plan_set` or `diagnose --verification-plan`.
+SDK callers may pass an explicitly selected candidate to `FixExecutionWorkflow`. A reasoning
+backend can translate that one candidate into one exact `FixExecutionRequest`, but execution always
+pauses for a harness-owned approval—even when the command executor is configured as `trusted`.
+Approval replays the exact pending command; rejection has no command side effect. A zero exit code
+is recorded only as `command_completed`, not as proof that the repair works.
 Inputs that are unrelated to MaaFramework logs can therefore bypass MLA. Explicit graph state
 keeps the plan, inspection facts, authoritative evidence, model drafts, failures, and final
 results separate.

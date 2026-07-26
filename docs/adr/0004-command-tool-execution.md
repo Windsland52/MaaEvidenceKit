@@ -50,6 +50,11 @@ the existing one-shot structured-output reasoning calls. An approval-required re
 or route the graph through a user-confirmation surface before the same request is resubmitted with
 approval.
 
+Repair execution adds a stricter workflow-level override: a model-planned repair command always
+requires explicit approval, including in `trusted` mode. This override can turn an allowed command
+into an approval-required command, but it can never turn a policy or cwd denial into an approval.
+The approved transition replays the exact pending request.
+
 ## Consequences
 
 - Python remains the understandable source of command policy and execution behavior.

@@ -83,6 +83,9 @@ from .contracts.workflow import (
     EvidenceResearchPlan,
     FixCandidate,
     FixCandidatePlan,
+    FixExecutionOutcome,
+    FixExecutionRequest,
+    FixExecutionStatus,
     FixMethod,
     FixPlanningStatus,
     FixScope,
@@ -186,6 +189,7 @@ from .reasoning.prompts import (
     StubReasoningSession,
     build_evidence_research_context,
     build_fix_candidate_context,
+    build_fix_execution_context,
     build_incident_correlation_context,
     build_knowledge_research_context,
     build_reasoning_context,
@@ -201,6 +205,7 @@ from .reasoning.protocol import (
 )
 from .reasoning.tools.command import CommandExecutor, CommandExecutorConfig, CommandPolicy
 from .workflow.command_approval import CommandApprovalWorkflow
+from .workflow.fix_execution import FixExecutionWorkflow
 from .workflow.graph import DiagnosticWorkflow
 from .workflow.validation import (
     collect_deterministic_missing_evidence,
@@ -259,6 +264,10 @@ __all__ = [
     "EvidenceWindow",
     "FixCandidate",
     "FixCandidatePlan",
+    "FixExecutionOutcome",
+    "FixExecutionRequest",
+    "FixExecutionStatus",
+    "FixExecutionWorkflow",
     "FixMethod",
     "FixPlanningStatus",
     "FixScope",
@@ -352,6 +361,7 @@ __all__ = [
     "build_reasoning_context",
     "build_evidence_research_context",
     "build_fix_candidate_context",
+    "build_fix_execution_context",
     "build_source_research_context",
     "build_verification_plan_context",
     "build_incident_correlation_context",

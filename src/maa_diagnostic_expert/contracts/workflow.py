@@ -7,6 +7,12 @@ from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
+from .command import (
+    CommandApprovalOutcome,
+    CommandApprovalStatus,
+    CommandExecutionStatus,
+    CommandRequest,
+)
 from .domain import ContractModel, EvidenceQuery, MissingEvidence, SourceRole
 
 
@@ -436,6 +442,81 @@ class VerificationPlanSet(ContractModel):
             raise ValueError("A planned verification set requires at least one plan")
         if self.status is VerificationPlanningStatus.SKIP and self.plans:
             raise ValueError("A skipped verification set cannot contain plans")
+        return self
+
+
+class FixExecutionRequest(ContractModel):
+    """One selected fix translated into one exact command pending human approval."""
+
+    api_version: Literal["fix-execution-request/v1"] = "fix-execution-request/v1"
+    fix_id: str = Field(min_length=1)
+    command: CommandRequest
+    rationale: str = Field(min_length=1)
+    expected_changed_paths: list[str] = Field(min_length=1, max_length=20)
+
+    @field_validator("expected_changed_paths")
+    @classmethod
+    def validate_changed_paths(cls, value: list[str]) -> list[str]:
+        normalized = [item.strip().replace("\\", "/") for item in value]
+        for item in normalized:
+            path = Path(item)
+            if (
+                not item
+                or path.is_absolute()
+                or ".." in path.parts
+                or any(part.casefold() == ".git" for part in path.parts)
+            ):
+                raise ValueError(
+                    "Expected changed paths must be relative and cannot traverse parents or .git"
+                )
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("Expected changed paths must be unique")
+        return normalized
+
+
+class FixExecutionStatus(StrEnum):
+    AWAITING_APPROVAL = "awaiting_approval"
+    COMMAND_COMPLETED = "command_completed"
+    REJECTED = "rejected"
+    COMMAND_FAILED = "command_failed"
+
+
+class FixExecutionOutcome(ContractModel):
+    """Audited command outcome; command completion is not repair verification."""
+
+    api_version: Literal["fix-execution-outcome/v1"] = "fix-execution-outcome/v1"
+    status: FixExecutionStatus
+    request: FixExecutionRequest
+    candidate: FixCandidate
+    verification_plan: VerificationPlan
+    command_outcome: CommandApprovalOutcome
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> FixExecutionOutcome:
+        if self.request.fix_id != self.candidate.fix_id:
+            raise ValueError("Fix execution request must match its candidate")
+        if self.verification_plan.fix_id != self.candidate.fix_id:
+            raise ValueError("Fix execution verification plan must match its candidate")
+        if self.command_outcome.approval is not None:
+            pending_request = self.command_outcome.approval.pending_execution.request
+            if pending_request != self.request.command:
+                raise ValueError("Fix execution approval must contain the exact requested command")
+        execution = self.command_outcome.execution
+        if execution is not None and execution.request != self.request.command:
+            raise ValueError("Fix execution must replay the exact requested command")
+        if self.status is FixExecutionStatus.AWAITING_APPROVAL:
+            if self.command_outcome.status is not CommandApprovalStatus.AWAITING_APPROVAL:
+                raise ValueError("Awaiting fix execution requires a pending command approval")
+        elif self.status is FixExecutionStatus.REJECTED:
+            if self.command_outcome.status is not CommandApprovalStatus.REJECTED:
+                raise ValueError("Rejected fix execution requires a rejected command")
+        elif self.command_outcome.status is not CommandApprovalStatus.FINISHED or execution is None:
+            raise ValueError("Terminal fix execution requires a terminal command result")
+        elif self.status is FixExecutionStatus.COMMAND_COMPLETED:
+            if execution.status is not CommandExecutionStatus.COMPLETED:
+                raise ValueError("Completed fix execution requires a completed command")
+        elif execution.status is CommandExecutionStatus.COMPLETED:
+            raise ValueError("Failed fix execution cannot contain a completed command")
         return self
 
 
