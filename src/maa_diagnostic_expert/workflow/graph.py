@@ -57,6 +57,7 @@ from maa_diagnostic_expert.inspection.mse_resolution import (
 from maa_diagnostic_expert.inspection.service import (
     attach_incident_selection,
     attach_runtime_identity,
+    inspect_builtin_artifacts,
     inspect_prepared_analysis,
     synthesize_inspection_evidence,
 )
@@ -444,14 +445,16 @@ class DiagnosticWorkflow:
         )
         inspection = DeterministicInspection(
             prepared=prepared_with_overview,
+            artifact_evidence=inspect_builtin_artifacts(prepared_with_overview),
             log_overviews=overviews,
         )
         _emit(
             _WorkflowUpdate(
                 kind=DiagnosticEventKind.STAGE_COMPLETED,
                 stage="inspect",
-                message="Deterministic tool inspection skipped because no eligible input was found",
+                message="External tool inspection skipped; built-in artifact inspection complete",
                 data={
+                    "artifact_evidence": len(inspection.artifact_evidence),
                     "preflights": 0,
                     "runtime_inspections": 0,
                     "mse_projects": 0,

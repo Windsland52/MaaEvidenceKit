@@ -3858,13 +3858,20 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
-      "const": "deterministic-inspection/v14",
-      "default": "deterministic-inspection/v14",
+      "const": "deterministic-inspection/v16",
+      "default": "deterministic-inspection/v16",
       "title": "Api Version",
       "type": "string"
     },
     "prepared": {
       "$ref": "#/$defs/PreparedAnalysis"
+    },
+    "artifact_evidence": {
+      "items": {
+        "$ref": "#/$defs/Evidence"
+      },
+      "title": "Artifact Evidence",
+      "type": "array"
     },
     "log_overviews": {
       "$ref": "#/$defs/LogOverviewCollection"

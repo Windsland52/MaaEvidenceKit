@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import struct
 import subprocess
 from pathlib import Path
 from typing import cast
@@ -634,6 +635,29 @@ def test_workflow_skips_mla_when_only_image_is_supplied(tmp_path: Path) -> None:
     assert any(event.stage == "inspect" and "skipped" in event.message for event in events)
     assert workflow.result is not None
     assert workflow.result.status is DiagnosisStatus.INSUFFICIENT_EVIDENCE
+
+
+def test_workflow_uses_minidump_exception_as_direct_failure_evidence(tmp_path: Path) -> None:
+    dump = tmp_path / "client.dmp"
+    exception_rva = 44
+    header = struct.pack("<4sIIIIIQ", b"MDMP", 0xA793, 1, 32, 0, 1_700_000_000, 0)
+    directory = struct.pack("<III", 6, 32, exception_rva)
+    exception = bytearray(32)
+    struct.pack_into("<IIII", exception, 0, 7, 0, 0xC0000005, 0)
+    struct.pack_into("<Q", exception, 24, 0x1234)
+    dump.write_bytes(header + directory + exception)
+    workflow = DiagnosticWorkflow(_ToolCaller(), StubReasoningBackend())
+    request = AnalysisRequest(
+        question="Why did the client crash?",
+        artifacts=[ArtifactInput(path=dump, kind=ArtifactKind.FILE)],
+    )
+
+    _collect_events(workflow, request)
+
+    assert workflow.result is not None
+    assert workflow.result.status is DiagnosisStatus.COMPLETE
+    assert [item.kind for item in workflow.result.evidence] == ["minidump_exception"]
+    assert workflow.result.conclusions[0].evidence_ids == [workflow.result.evidence[0].id]
 
 
 def test_workflow_does_not_send_custom_log_to_mla(tmp_path: Path) -> None:

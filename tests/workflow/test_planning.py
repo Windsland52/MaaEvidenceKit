@@ -116,7 +116,7 @@ def test_plan_runs_mla_for_explicit_zip_without_mla_log(tmp_path: Path) -> None:
     assert mla.relevance is AnalysisRelevance.USEFUL
 
 
-def test_plan_exposes_unimplemented_dump_branch(tmp_path: Path) -> None:
+def test_plan_runs_built_in_dump_branch(tmp_path: Path) -> None:
     dump = tmp_path / "client.dmp"
     dump.write_bytes(b"dump")
     prepared = prepare_analysis(
@@ -128,7 +128,7 @@ def test_plan_exposes_unimplemented_dump_branch(tmp_path: Path) -> None:
 
     crash = _decision(prepared, InvestigationBranch.CRASH_PREFLIGHT)
 
-    assert crash.disposition is BranchDisposition.DEFERRED
+    assert crash.disposition is BranchDisposition.RUN
     assert crash.relevance is AnalysisRelevance.REQUIRED
 
 
@@ -152,7 +152,7 @@ def test_plan_detects_a_dump_alias_when_the_canonical_path_is_text(tmp_path: Pat
 
     crash = _decision(prepared, InvestigationBranch.CRASH_PREFLIGHT)
 
-    assert crash.disposition is BranchDisposition.DEFERRED
+    assert crash.disposition is BranchDisposition.RUN
     assert crash.relevance is AnalysisRelevance.REQUIRED
 
 

@@ -196,12 +196,12 @@ def plan_initial_investigation(
             ),
             BranchDecision(
                 branch=InvestigationBranch.CRASH_PREFLIGHT,
-                disposition=BranchDisposition.DEFERRED if has_dump else BranchDisposition.SKIP,
+                disposition=BranchDisposition.RUN if has_dump else BranchDisposition.SKIP,
                 relevance=(
                     AnalysisRelevance.REQUIRED if has_dump else AnalysisRelevance.NOT_RELEVANT
                 ),
                 reason=(
-                    "A dump artifact is available; dump inspection is not implemented yet."
+                    "A dump artifact is available for built-in Minidump preflight."
                     if has_dump
                     else "No dump artifact was supplied."
                 ),

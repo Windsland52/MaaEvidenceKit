@@ -4,6 +4,7 @@ from pydantic import ValidationError
 
 from maa_diagnostic_expert.contracts.domain import (
     AnalysisRequest,
+    Evidence,
     MissingEvidence,
     PreparedAnalysis,
     SourceRole,
@@ -32,6 +33,7 @@ from .artifact_targets import (
     mla_artifact_target_is_current,
     select_mla_artifact_targets,
 )
+from .dump_evidence import synthesize_dump_evidence
 from .evidence_synthesis import synthesize_evidence
 from .incident_candidates import generate_incident_selection
 from .log_overview import (
@@ -70,6 +72,14 @@ def inspect_analysis(
     inspection = attach_runtime_identity(inspection)
     inspection = synthesize_inspection_evidence(inspection)
     return attach_incident_selection(inspection)
+
+
+def inspect_builtin_artifacts(prepared: PreparedAnalysis) -> list[Evidence]:
+    """Capture direct artifact facts once so later synthesis cannot observe changed files."""
+    return [
+        *synthesize_dump_evidence(prepared),
+        *synthesize_screenshot_evidence(prepared),
+    ]
 
 
 def inspect_prepared_analysis(
@@ -222,6 +232,7 @@ def inspect_prepared_analysis(
     prepared_with_tools = prepared.model_copy(update={"missing_evidence": missing})
     return DeterministicInspection(
         prepared=prepared_with_tools,
+        artifact_evidence=inspect_builtin_artifacts(prepared_with_tools),
         log_overviews=log_overviews or LogOverviewCollection(),
         mla_preflights=preflights,
         mla_runtime_inspections=runtime_inspections,
@@ -234,7 +245,7 @@ def synthesize_inspection_evidence(
 ) -> DeterministicInspection:
     """Attach project-owned evidence records derived from deterministic facts."""
     evidence = [
-        *synthesize_screenshot_evidence(inspection.prepared),
+        *inspection.artifact_evidence,
         *synthesize_runtime_identity_evidence(inspection.runtime_identity),
         *synthesize_log_overview_evidence(inspection.log_overviews),
         *synthesize_evidence(inspection.mla_runtime_inspections),
