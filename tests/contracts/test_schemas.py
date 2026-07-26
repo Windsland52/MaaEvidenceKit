@@ -32,6 +32,19 @@ def test_contract_generation(tmp_path: Path) -> None:
         assert schema["type"] == "object"
 
 
+def test_committed_contracts_match_generated_schemas(tmp_path: Path) -> None:
+    generated = generate_contracts(tmp_path)
+    repository_contracts = Path(__file__).resolve().parents[2] / "contracts"
+    committed = sorted(repository_contracts.glob("*.schema.json"))
+
+    assert {path.name for path in committed} == {path.name for path in generated}
+    for generated_path in generated:
+        committed_path = repository_contracts / generated_path.name
+        assert committed_path.read_bytes() == generated_path.read_bytes(), (
+            f"{generated_path.name} is stale; run 'uv run maa-generate-contracts'"
+        )
+
+
 @pytest.mark.parametrize(
     "model_type",
     _VERSIONED_CONTRACT_MODELS,
