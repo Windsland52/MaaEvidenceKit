@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
-from maa_diagnostic_expert.contracts.domain import Evidence, EvidenceReliability, EvidenceRole
+from maa_diagnostic_expert.contracts.domain import (
+    Evidence,
+    EvidenceReliability,
+    EvidenceRole,
+    SourceRole,
+    SourceSnapshot,
+)
 from maa_diagnostic_expert.contracts.mla import MlaPreflightResult
 from maa_diagnostic_expert.contracts.workflow import (
     RuntimeComponent,
@@ -24,6 +31,9 @@ class MlaPreflightArtifact(Protocol):
     def preflight(self) -> MlaPreflightResult: ...
 
 
+_RELEASE_VERSION = re.compile(r"^v?\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.-]+)?$")
+
+
 def _observed_at(value: str | None) -> datetime | None:
     if value is None:
         return None
@@ -34,13 +44,14 @@ def _observed_at(value: str | None) -> datetime | None:
 
 
 def _evidence_id(
+    component: RuntimeComponent,
     source_ref: str,
     line_number: int | None,
     session_id: str | None,
     version: str,
 ) -> str:
     digest = hashlib.sha256(
-        f"{source_ref}|{line_number}|{session_id}|{version}".encode()
+        f"{component.value}|{source_ref}|{line_number}|{session_id}|{version}".encode()
     ).hexdigest()[:20]
     return f"evidence:runtime-version:{digest}"
 
@@ -51,6 +62,7 @@ def _source_path(source_ref: str) -> str:
 
 def _observation(
     *,
+    component: RuntimeComponent = RuntimeComponent.MAA_FRAMEWORK,
     version: str,
     kind: VersionObservationKind,
     source_ref: str,
@@ -60,12 +72,12 @@ def _observation(
     confidence: float,
 ) -> RuntimeVersionObservation:
     return RuntimeVersionObservation(
-        component=RuntimeComponent.MAA_FRAMEWORK,
+        component=component,
         version=version,
         kind=kind,
         source_ref=source_ref,
         line_number=line_number,
-        evidence_id=_evidence_id(source_ref, line_number, session_id, version),
+        evidence_id=_evidence_id(component, source_ref, line_number, session_id, version),
         session_id=session_id,
         observed_at=_observed_at(timestamp),
         confidence=confidence,
@@ -74,9 +86,10 @@ def _observation(
 
 def extract_runtime_identity(
     preflights: Sequence[MlaPreflightArtifact],
+    source_snapshots: Sequence[SourceSnapshot] = (),
 ) -> RuntimeIdentity:
     observations: list[RuntimeVersionObservation] = []
-    known: set[tuple[str, str | None, str]] = set()
+    known: set[tuple[RuntimeComponent, str, str | None, str]] = set()
 
     for artifact in preflights:
         framework = artifact.preflight.framework
@@ -84,7 +97,12 @@ def extract_runtime_identity(
         for session in framework.sessions:
             session_versions: set[str] = set()
             for item in session.version_evidence:
-                key = (item.source, session.session_id, item.version)
+                key = (
+                    RuntimeComponent.MAA_FRAMEWORK,
+                    item.source,
+                    session.session_id,
+                    item.version,
+                )
                 if key in known:
                     continue
                 known.add(key)
@@ -106,7 +124,12 @@ def extract_runtime_identity(
             if session.version is not None:
                 unresolved_versions.add(session.version)
             for version in sorted(unresolved_versions - session_versions):
-                key = (session.start.source, session.session_id, version)
+                key = (
+                    RuntimeComponent.MAA_FRAMEWORK,
+                    session.start.source,
+                    session.session_id,
+                    version,
+                )
                 if key in known:
                     continue
                 known.add(key)
@@ -127,7 +150,7 @@ def extract_runtime_identity(
             if version in artifact_versions:
                 continue
             source_ref = str(artifact.path)
-            key = (source_ref, None, version)
+            key = (RuntimeComponent.MAA_FRAMEWORK, source_ref, None, version)
             if key in known:
                 continue
             known.add(key)
@@ -142,6 +165,32 @@ def extract_runtime_identity(
                     confidence=0.7,
                 )
             )
+
+    for snapshot in source_snapshots:
+        version = snapshot.requested_revision
+        if (
+            snapshot.role is not SourceRole.PROJECT
+            or version is None
+            or _RELEASE_VERSION.fullmatch(version) is None
+        ):
+            continue
+        source_ref = str(snapshot.path)
+        key = (RuntimeComponent.PROJECT, source_ref, None, version)
+        if key in known:
+            continue
+        known.add(key)
+        observations.append(
+            _observation(
+                component=RuntimeComponent.PROJECT,
+                version=version,
+                kind=VersionObservationKind.USER_DECLARED,
+                source_ref=source_ref,
+                line_number=None,
+                session_id=None,
+                timestamp=None,
+                confidence=0.8,
+            )
+        )
 
     return RuntimeIdentity(versions=observations)
 
@@ -159,8 +208,16 @@ def synthesize_runtime_identity_evidence(identity: RuntimeIdentity) -> list[Evid
         evidence.append(
             Evidence(
                 id=observation.evidence_id,
-                kind="runtime_version",
-                source_component="mla:preflight",
+                kind=(
+                    "runtime_version"
+                    if observation.component is RuntimeComponent.MAA_FRAMEWORK
+                    else f"{observation.component.value}_version"
+                ),
+                source_component=(
+                    "mla:preflight"
+                    if observation.component is RuntimeComponent.MAA_FRAMEWORK
+                    else f"source-revision:{observation.component.value}"
+                ),
                 source_path=_source_path(observation.source_ref),
                 content=(
                     f"component={observation.component.value}; version={observation.version}; "

@@ -259,7 +259,10 @@ def synthesize_inspection_evidence(
 
 
 def attach_runtime_identity(inspection: DeterministicInspection) -> DeterministicInspection:
-    identity = extract_runtime_identity(inspection.mla_preflights)
+    identity = extract_runtime_identity(
+        inspection.mla_preflights,
+        inspection.prepared.source_snapshots,
+    )
     return inspection.model_copy(update={"runtime_identity": identity})
 
 

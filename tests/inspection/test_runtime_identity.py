@@ -5,7 +5,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from maa_diagnostic_expert.contracts.domain import EvidenceRole
+from maa_diagnostic_expert.contracts.domain import (
+    EvidenceRole,
+    RevisionResolutionStatus,
+    SourceRevisionBackend,
+    SourceRole,
+    SourceSnapshot,
+)
 from maa_diagnostic_expert.contracts.mla import MlaPreflightResult
 from maa_diagnostic_expert.contracts.workflow import (
     RuntimeComponent,
@@ -179,6 +185,53 @@ def test_extract_runtime_identity_does_not_merge_artifacts_with_same_version(
         str(tmp_path / "second.log"),
     }
     assert len({item.evidence_id for item in identity.versions}) == 2
+
+
+def test_extract_runtime_identity_records_declared_project_release_version(
+    tmp_path: Path,
+) -> None:
+    snapshot = SourceSnapshot(
+        source_id="project",
+        role=SourceRole.PROJECT,
+        path=tmp_path,
+        revision_backend=SourceRevisionBackend.GIT,
+        requested_revision="v2.4.1",
+        resolved_revision="a" * 40,
+        current_revision="a" * 40,
+        resolution_status=RevisionResolutionStatus.RESOLVED,
+    )
+
+    identity = extract_runtime_identity([], [snapshot])
+
+    [observation] = identity.versions
+    assert observation.component is RuntimeComponent.PROJECT
+    assert observation.version == "v2.4.1"
+    assert observation.kind is VersionObservationKind.USER_DECLARED
+    assert observation.source_ref == str(tmp_path)
+    assert observation.confidence == 0.8
+    [evidence] = synthesize_runtime_identity_evidence(identity)
+    assert evidence.kind == "project_version"
+    assert evidence.source_component == "source-revision:project"
+    assert evidence.reliability.value == "context"
+
+
+@pytest.mark.parametrize("revision", ["main", "feature/version-2", "a" * 40, "release"])
+def test_extract_runtime_identity_does_not_treat_git_refs_as_project_versions(
+    tmp_path: Path,
+    revision: str,
+) -> None:
+    snapshot = SourceSnapshot(
+        source_id="project",
+        role=SourceRole.PROJECT,
+        path=tmp_path,
+        revision_backend=SourceRevisionBackend.GIT,
+        requested_revision=revision,
+        resolved_revision="b" * 40,
+        current_revision="b" * 40,
+        resolution_status=RevisionResolutionStatus.RESOLVED,
+    )
+
+    assert extract_runtime_identity([], [snapshot]).versions == []
 
 
 def test_runtime_identity_evidence_preserves_source_line_and_reliability(
