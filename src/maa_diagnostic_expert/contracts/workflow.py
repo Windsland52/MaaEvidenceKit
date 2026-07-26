@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -36,7 +37,7 @@ def _new_artifact_classifications() -> list[ArtifactSourceClassification]:
 
 
 class ArtifactSourceInventory(ContractModel):
-    api_version: str = "artifact-source-inventory/v1"
+    api_version: Literal["artifact-source-inventory/v1"] = "artifact-source-inventory/v1"
     classifications: list[ArtifactSourceClassification] = Field(
         default_factory=_new_artifact_classifications
     )
@@ -74,7 +75,7 @@ def _new_version_observations() -> list[RuntimeVersionObservation]:
 class RuntimeIdentity(ContractModel):
     """Version observations remain scoped to their source and optional session."""
 
-    api_version: str = "runtime-identity/v1"
+    api_version: Literal["runtime-identity/v1"] = "runtime-identity/v1"
     versions: list[RuntimeVersionObservation] = Field(default_factory=_new_version_observations)
 
     @model_validator(mode="after")
@@ -123,7 +124,7 @@ def _new_missing_evidence() -> list[MissingEvidence]:
 
 
 class IncidentSelection(ContractModel):
-    api_version: str = "incident-selection/v2"
+    api_version: Literal["incident-selection/v2"] = "incident-selection/v2"
     status: IncidentSelectionStatus
     candidates: list[IncidentCandidate] = Field(default_factory=_new_incident_candidates)
     selected_candidate_id: str | None = None
@@ -145,7 +146,7 @@ class IncidentSelection(ContractModel):
 class IncidentCorrelationDraft(ContractModel):
     """Model interpretation that references deterministic incident candidates."""
 
-    api_version: str = "incident-correlation-draft/v1"
+    api_version: Literal["incident-correlation-draft/v1"] = "incident-correlation-draft/v1"
     status: IncidentSelectionStatus
     selected_candidate_id: str | None = None
     relevant_candidate_ids: list[str] = Field(default_factory=_new_strings)
@@ -238,7 +239,7 @@ def _new_comparison_findings() -> list[IncidentComparisonFinding]:
 
 
 class IncidentComparison(ContractModel):
-    api_version: str = "incident-comparison/v2"
+    api_version: Literal["incident-comparison/v2"] = "incident-comparison/v2"
     status: IncidentComparisonStatus
     candidate_ids: list[str] = Field(default_factory=_new_strings)
     observed_executions: list[IncidentObservedExecution] = Field(
@@ -290,7 +291,7 @@ def _new_branch_decisions() -> list[BranchDecision]:
 class InvestigationPlan(ContractModel):
     """Deterministic plan for available, skipped, and not-yet-implemented branches."""
 
-    api_version: str = "investigation-plan/v1"
+    api_version: Literal["investigation-plan/v1"] = "investigation-plan/v1"
     decisions: list[BranchDecision] = Field(default_factory=_new_branch_decisions)
 
     @model_validator(mode="after")
@@ -329,7 +330,7 @@ class FixMethod(StrEnum):
 
 
 class FixCandidate(ContractModel):
-    api_version: str = "fix-candidate/v1"
+    api_version: Literal["fix-candidate/v1"] = "fix-candidate/v1"
     fix_id: str = Field(min_length=1)
     target: str = Field(min_length=1)
     scope: FixScope
@@ -355,7 +356,7 @@ class VerificationStatus(StrEnum):
 
 
 class VerificationPlan(ContractModel):
-    api_version: str = "verification-plan/v1"
+    api_version: Literal["verification-plan/v1"] = "verification-plan/v1"
     fix_id: str = Field(min_length=1)
     methods: list[VerificationMethod] = Field(min_length=1)
     business_milestones: list[str] = Field(min_length=1)
@@ -365,7 +366,7 @@ class VerificationPlan(ContractModel):
 class SourceGuidance(ContractModel):
     """AGENTS.md guidance resolved for one repository revision and target path."""
 
-    api_version: str = "source-guidance/v1"
+    api_version: Literal["source-guidance/v1"] = "source-guidance/v1"
     source_id: str = Field(min_length=1)
     source_role: SourceRole
     revision: str | None = None
@@ -429,7 +430,7 @@ def _new_source_search_queries() -> list[SourceSearchQuery]:
 
 
 class SourceResearchPlan(ContractModel):
-    api_version: str = "source-research-plan/v1"
+    api_version: Literal["source-research-plan/v1"] = "source-research-plan/v1"
     status: SourceResearchStatus
     queries: list[SourceSearchQuery] = Field(
         default_factory=_new_source_search_queries,
@@ -450,7 +451,7 @@ class SourceResearchPlan(ContractModel):
 
 
 class KnowledgeResearchPlan(ContractModel):
-    api_version: str = "knowledge-research-plan/v1"
+    api_version: Literal["knowledge-research-plan/v1"] = "knowledge-research-plan/v1"
     status: SourceResearchStatus
     queries: list[SourceSearchQuery] = Field(
         default_factory=_new_source_search_queries,

@@ -68,6 +68,7 @@
   "description": "Deterministic plan for available, skipped, and not-yet-implemented branches.",
   "properties": {
     "api_version": {
+      "const": "investigation-plan/v1",
       "default": "investigation-plan/v1",
       "title": "Api Version",
       "type": "string"

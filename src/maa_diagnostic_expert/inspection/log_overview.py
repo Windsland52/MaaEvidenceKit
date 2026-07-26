@@ -5,6 +5,7 @@ import re
 from collections import Counter, deque
 from enum import StrEnum
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 
@@ -92,7 +93,7 @@ def _new_log_artifact_overviews() -> list[LogArtifactOverview]:
 
 
 class LogOverviewCollection(ContractModel):
-    api_version: str = "log-overview/v1"
+    api_version: Literal["log-overview/v1"] = "log-overview/v1"
     overviews: list[LogArtifactOverview] = Field(default_factory=_new_log_artifact_overviews)
 
 

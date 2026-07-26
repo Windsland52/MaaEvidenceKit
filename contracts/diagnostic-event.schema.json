@@ -19,6 +19,7 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
+      "const": "diagnostic-event/v1",
       "default": "diagnostic-event/v1",
       "title": "Api Version",
       "type": "string"

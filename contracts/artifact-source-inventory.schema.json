@@ -61,6 +61,7 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
+      "const": "artifact-source-inventory/v1",
       "default": "artifact-source-inventory/v1",
       "title": "Api Version",
       "type": "string"

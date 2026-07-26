@@ -178,6 +178,7 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
+      "const": "incident-selection/v2",
       "default": "incident-selection/v2",
       "title": "Api Version",
       "type": "string"

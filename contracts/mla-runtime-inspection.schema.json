@@ -1397,6 +1397,7 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
+      "const": "mla-runtime-inspection/v1",
       "default": "mla-runtime-inspection/v1",
       "title": "Schema Version",
       "type": "string"

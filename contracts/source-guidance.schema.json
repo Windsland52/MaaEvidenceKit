@@ -18,6 +18,7 @@
   "description": "AGENTS.md guidance resolved for one repository revision and target path.",
   "properties": {
     "api_version": {
+      "const": "source-guidance/v1",
       "default": "source-guidance/v1",
       "title": "Api Version",
       "type": "string"

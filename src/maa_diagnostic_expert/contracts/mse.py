@@ -1,5 +1,6 @@
 from enum import StrEnum
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, JsonValue
 
@@ -55,7 +56,7 @@ class MseDiagnostic(ContractModel):
 
 
 class MseProjectPreflightResult(ContractModel):
-    schema_version: str = "mde-mse-project-preflight/v2"
+    schema_version: Literal["mde-mse-project-preflight/v2"] = "mde-mse-project-preflight/v2"
     project_root: Path
     interface_path: str | None = None
     syntax_mode: MseSyntaxMode
@@ -98,7 +99,7 @@ class MseResolvedTask(ContractModel):
 
 
 class MseTaskResolutionResult(ContractModel):
-    schema_version: str = "mde-mse-task-resolution/v2"
+    schema_version: Literal["mde-mse-task-resolution/v2"] = "mde-mse-task-resolution/v2"
     project_root: Path
     interface_path: str | None = None
     syntax_mode: MseSyntaxMode

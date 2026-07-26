@@ -86,7 +86,7 @@ def _new_warnings() -> list[str]:
 
 
 class MlaPreflightResult(ContractModel):
-    schema_version: str = "mde-mla-preflight/v1"
+    schema_version: Literal["mde-mla-preflight/v1"] = "mde-mla-preflight/v1"
     mla_schema_version: str = Field(min_length=1)
     compatibility: MlaCompatibility
     framework: MlaFrameworkSummary
@@ -424,7 +424,7 @@ def _new_runtime_unscoped_tasks() -> list[MlaRuntimeTaskExecution]:
 
 
 class MlaRuntimeInspectionResult(ContractModel):
-    schema_version: str = "mla-runtime-inspection/v1"
+    schema_version: Literal["mla-runtime-inspection/v1"] = "mla-runtime-inspection/v1"
     sessions: list[MlaRuntimeSession] = Field(default_factory=_new_runtime_sessions)
     failures: list[MlaRuntimeFailure] = Field(default_factory=_new_runtime_failures)
     outcomes: list[MlaRuntimeOutcome] = Field(default_factory=_new_runtime_outcomes)

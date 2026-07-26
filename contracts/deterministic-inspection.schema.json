@@ -4,6 +4,7 @@
       "additionalProperties": false,
       "properties": {
         "api_version": {
+          "const": "analysis-request/v2",
           "default": "analysis-request/v2",
           "title": "Api Version",
           "type": "string"
@@ -434,6 +435,7 @@
       "additionalProperties": false,
       "properties": {
         "api_version": {
+          "const": "incident-comparison/v2",
           "default": "incident-comparison/v2",
           "title": "Api Version",
           "type": "string"
@@ -702,6 +704,7 @@
       "additionalProperties": false,
       "properties": {
         "api_version": {
+          "const": "incident-selection/v2",
           "default": "incident-selection/v2",
           "title": "Api Version",
           "type": "string"
@@ -908,6 +911,7 @@
       "additionalProperties": false,
       "properties": {
         "api_version": {
+          "const": "log-overview/v1",
           "default": "log-overview/v1",
           "title": "Api Version",
           "type": "string"
@@ -1240,6 +1244,7 @@
       "additionalProperties": false,
       "properties": {
         "schema_version": {
+          "const": "mde-mla-preflight/v1",
           "default": "mde-mla-preflight/v1",
           "title": "Schema Version",
           "type": "string"
@@ -2056,6 +2061,7 @@
       "additionalProperties": false,
       "properties": {
         "schema_version": {
+          "const": "mla-runtime-inspection/v1",
           "default": "mla-runtime-inspection/v1",
           "title": "Schema Version",
           "type": "string"
@@ -2966,6 +2972,7 @@
       "additionalProperties": false,
       "properties": {
         "schema_version": {
+          "const": "mde-mse-project-preflight/v2",
           "default": "mde-mse-project-preflight/v2",
           "title": "Schema Version",
           "type": "string"
@@ -3256,6 +3263,7 @@
       "additionalProperties": false,
       "properties": {
         "schema_version": {
+          "const": "mde-mse-task-resolution/v2",
           "default": "mde-mse-task-resolution/v2",
           "title": "Schema Version",
           "type": "string"
@@ -3324,6 +3332,7 @@
       "additionalProperties": false,
       "properties": {
         "api_version": {
+          "const": "prepared-analysis/v3",
           "default": "prepared-analysis/v3",
           "title": "Api Version",
           "type": "string"
@@ -3392,6 +3401,7 @@
       "description": "Version observations remain scoped to their source and optional session.",
       "properties": {
         "api_version": {
+          "const": "runtime-identity/v1",
           "default": "runtime-identity/v1",
           "title": "Api Version",
           "type": "string"
@@ -3498,6 +3508,7 @@
       "description": "AGENTS.md guidance resolved for one repository revision and target path.",
       "properties": {
         "api_version": {
+          "const": "source-guidance/v1",
           "default": "source-guidance/v1",
           "title": "Api Version",
           "type": "string"
@@ -3847,6 +3858,7 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
+      "const": "deterministic-inspection/v13",
       "default": "deterministic-inspection/v13",
       "title": "Api Version",
       "type": "string"

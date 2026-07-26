@@ -15,6 +15,7 @@
   "description": "Serializable model selection without credential values.",
   "properties": {
     "api_version": {
+      "const": "model-config/v1",
       "default": "model-config/v1",
       "title": "Api Version",
       "type": "string"

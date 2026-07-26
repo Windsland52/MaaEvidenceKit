@@ -108,6 +108,7 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
+      "const": "evidence-window/v1",
       "default": "evidence-window/v1",
       "title": "Api Version",
       "type": "string"

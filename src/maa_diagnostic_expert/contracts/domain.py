@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
@@ -78,7 +78,7 @@ def _new_source_inputs() -> list[SourceInput]:
 
 
 class AnalysisRequest(ContractModel):
-    api_version: str = "analysis-request/v2"
+    api_version: Literal["analysis-request/v2"] = "analysis-request/v2"
     issue: str | None = None
     artifacts: list[ArtifactInput] = Field(default_factory=_new_artifact_inputs)
     sources: list[SourceInput] = Field(default_factory=_new_source_inputs)
@@ -291,7 +291,7 @@ def _new_source_snapshots() -> list[SourceSnapshot]:
 
 
 class PreparedAnalysis(ContractModel):
-    api_version: str = "prepared-analysis/v3"
+    api_version: Literal["prepared-analysis/v3"] = "prepared-analysis/v3"
     request: AnalysisRequest
     artifacts: list[ArtifactRecord] = Field(default_factory=_new_artifact_records)
     source_snapshots: list[SourceSnapshot] = Field(default_factory=_new_source_snapshots)
@@ -315,7 +315,7 @@ class EvidenceQuery(ContractModel):
 
 
 class EvidenceWindow(ContractModel):
-    api_version: str = "evidence-window/v1"
+    api_version: Literal["evidence-window/v1"] = "evidence-window/v1"
     evidence: Evidence
     requested_line_start: int = Field(ge=1)
     requested_line_end: int = Field(ge=1)
@@ -362,7 +362,7 @@ class DiagnosisDraft(ContractModel):
 
     model_config = ConfigDict(json_schema_extra=_COMPLETE_DIAGNOSIS_JSON_SCHEMA)
 
-    api_version: str = "diagnosis-draft/v1"
+    api_version: Literal["diagnosis-draft/v1"] = "diagnosis-draft/v1"
     status: DiagnosisStatus
     summary: str = Field(min_length=1)
     conclusions: list[Conclusion] = Field(default_factory=_new_conclusions)
@@ -382,7 +382,7 @@ def _new_evidence_items() -> list[Evidence]:
 class DiagnosisResult(ContractModel):
     model_config = ConfigDict(json_schema_extra=_COMPLETE_DIAGNOSIS_JSON_SCHEMA)
 
-    api_version: str = "diagnosis/v2"
+    api_version: Literal["diagnosis/v2"] = "diagnosis/v2"
     status: DiagnosisStatus
     summary: str = Field(min_length=1)
     evidence: list[Evidence] = Field(default_factory=_new_evidence_items)
@@ -427,7 +427,7 @@ def _new_event_data() -> dict[str, JsonValue]:
 
 
 class DiagnosticEvent(ContractModel):
-    api_version: str = "diagnostic-event/v1"
+    api_version: Literal["diagnostic-event/v1"] = "diagnostic-event/v1"
     run_id: str = Field(min_length=1)
     sequence: int = Field(ge=0)
     occurred_at: datetime

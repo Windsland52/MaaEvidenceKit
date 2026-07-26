@@ -270,6 +270,7 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
+      "const": "incident-comparison/v2",
       "default": "incident-comparison/v2",
       "title": "Api Version",
       "type": "string"

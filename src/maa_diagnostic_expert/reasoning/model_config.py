@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from enum import StrEnum
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator
@@ -20,7 +21,7 @@ class StructuredOutputMethod(StrEnum):
 class ModelConfig(ContractModel):
     """Serializable model selection without credential values."""
 
-    api_version: str = "model-config/v1"
+    api_version: Literal["model-config/v1"] = "model-config/v1"
     provider: str = Field(pattern=r"^[a-z][a-z0-9_-]*$")
     model: str = Field(min_length=1)
     api_key_env: str | None = Field(

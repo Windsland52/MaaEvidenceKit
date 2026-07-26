@@ -70,6 +70,7 @@
   "description": "Model-produced interpretation without authority to create evidence.",
   "properties": {
     "api_version": {
+      "const": "diagnosis-draft/v1",
       "default": "diagnosis-draft/v1",
       "title": "Api Version",
       "type": "string"

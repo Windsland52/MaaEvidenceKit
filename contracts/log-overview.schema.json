@@ -207,6 +207,7 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
+      "const": "log-overview/v1",
       "default": "log-overview/v1",
       "title": "Api Version",
       "type": "string"

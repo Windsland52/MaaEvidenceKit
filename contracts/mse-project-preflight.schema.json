@@ -212,6 +212,7 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
+      "const": "mde-mse-project-preflight/v2",
       "default": "mde-mse-project-preflight/v2",
       "title": "Schema Version",
       "type": "string"

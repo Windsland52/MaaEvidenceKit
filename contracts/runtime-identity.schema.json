@@ -109,6 +109,7 @@
   "description": "Version observations remain scoped to their source and optional session.",
   "properties": {
     "api_version": {
+      "const": "runtime-identity/v1",
       "default": "runtime-identity/v1",
       "title": "Api Version",
       "type": "string"

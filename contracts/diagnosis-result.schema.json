@@ -173,6 +173,7 @@
   ],
   "properties": {
     "api_version": {
+      "const": "diagnosis/v2",
       "default": "diagnosis/v2",
       "title": "Api Version",
       "type": "string"

@@ -4,6 +4,7 @@
       "additionalProperties": false,
       "properties": {
         "api_version": {
+          "const": "analysis-request/v2",
           "default": "analysis-request/v2",
           "title": "Api Version",
           "type": "string"
@@ -525,6 +526,7 @@
   "additionalProperties": false,
   "properties": {
     "api_version": {
+      "const": "prepared-analysis/v3",
       "default": "prepared-analysis/v3",
       "title": "Api Version",
       "type": "string"
