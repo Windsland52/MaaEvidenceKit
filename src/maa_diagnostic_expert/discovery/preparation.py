@@ -22,6 +22,7 @@ from .archive_parts import (
     collect_multipart_archive_missing_evidence,
     is_multipart_archive_path,
 )
+from .evidence_completeness import collect_artifact_completeness_missing_evidence
 from .source_preparation import prepare_sources
 
 MAX_DISCOVERED_FILES = 10_000
@@ -307,5 +308,6 @@ def prepare_analysis(request: AnalysisRequest) -> PreparedAnalysis:
         missing_evidence=[
             *missing,
             *collect_multipart_archive_missing_evidence(unique_records),
+            *collect_artifact_completeness_missing_evidence(unique_records),
         ],
     )
