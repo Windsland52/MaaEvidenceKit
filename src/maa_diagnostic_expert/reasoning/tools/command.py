@@ -49,6 +49,161 @@ _SAFE_GIT_COMMANDS = {
     "status",
     "tag",
 }
+_GIT_GLOBAL_OPTIONS_REQUIRING_APPROVAL = (
+    "-c",
+    "-C",
+    "--config-env",
+    "--exec-path",
+    "--git-dir",
+    "--work-tree",
+    "--paginate",
+)
+_GIT_OPTIONS_REQUIRING_APPROVAL = (
+    "-O",
+    "--ext-diff",
+    "--ext-grep",
+    "--help",
+    "--open-files-in-pager",
+    "--output",
+    "--show-signature",
+    "--textconv",
+)
+_GIT_HARDENING_CONFIG = (
+    "core.fsmonitor=false",
+    f"core.hooksPath={os.devnull}",
+    "core.pager=cat",
+    "core.untrackedCache=false",
+    "diff.external=",
+    "format.pretty=medium",
+    "interactive.diffFilter=",
+    "log.showSignature=false",
+    "pager.branch=false",
+    "pager.diff=false",
+    "pager.grep=false",
+    "pager.log=false",
+    "pager.show=false",
+    "pager.status=false",
+    "pager.tag=false",
+)
+_GIT_HARDENING_ENVIRONMENT = {
+    "GIT_NO_LAZY_FETCH": "1",
+    "GIT_OPTIONAL_LOCKS": "0",
+    "GIT_PAGER": "cat",
+}
+_GIT_DIFF_FLAGS = frozenset(
+    {
+        "--cached",
+        "--check",
+        "--name-only",
+        "--name-status",
+        "--no-patch",
+        "--numstat",
+        "--patch",
+        "--raw",
+        "--shortstat",
+        "--staged",
+        "--stat",
+        "--summary",
+        "-p",
+    }
+)
+_GIT_DIFF_VALUE_OPTIONS = frozenset({"--unified"})
+_GIT_LOG_SHOW_FLAGS = frozenset(
+    {
+        "--all",
+        "--date-order",
+        "--decorate",
+        "--name-only",
+        "--name-status",
+        "--no-decorate",
+        "--no-patch",
+        "--numstat",
+        "--oneline",
+        "--patch",
+        "--raw",
+        "--reverse",
+        "--shortstat",
+        "--stat",
+        "--summary",
+        "--topo-order",
+        "-p",
+    }
+)
+_GIT_LOG_SHOW_VALUE_OPTIONS = frozenset(
+    {
+        "--author",
+        "--date",
+        "--grep",
+        "--max-count",
+        "--since",
+        "--until",
+        "-n",
+    }
+)
+_GIT_GREP_FLAGS = frozenset(
+    {
+        "--count",
+        "--files-with-matches",
+        "--files-without-match",
+        "--fixed-strings",
+        "--ignore-case",
+        "--line-number",
+        "--name-only",
+        "--perl-regexp",
+        "--untracked",
+        "-E",
+        "-F",
+        "-I",
+        "-L",
+        "-P",
+        "-i",
+        "-l",
+        "-n",
+    }
+)
+_GIT_LS_FILES_FLAGS = frozenset(
+    {
+        "--cached",
+        "--deleted",
+        "--exclude-standard",
+        "--ignored",
+        "--modified",
+        "--others",
+        "--stage",
+        "--unmerged",
+        "-s",
+        "-z",
+    }
+)
+_GIT_REV_PARSE_FLAGS = frozenset(
+    {
+        "--abbrev-ref",
+        "--is-bare-repository",
+        "--is-inside-work-tree",
+        "--show-cdup",
+        "--show-prefix",
+        "--show-toplevel",
+        "--symbolic-full-name",
+        "--verify",
+    }
+)
+_GIT_REV_PARSE_VALUE_OPTIONS = frozenset({"--short"})
+_GIT_STATUS_FLAGS = frozenset(
+    {
+        "--ahead-behind",
+        "--branch",
+        "--ignored",
+        "--no-ahead-behind",
+        "--porcelain",
+        "--short",
+        "--show-stash",
+        "--untracked-files",
+        "-b",
+        "-s",
+    }
+)
+_GIT_TAG_FLAGS = frozenset({"--list", "-l"})
+_GIT_TAG_VALUE_OPTIONS = frozenset({"--sort"})
 _SAFE_GH_COMMANDS = {
     "issue": {"list", "status", "view"},
     "pr": {"checks", "diff", "list", "status", "view"},
@@ -140,16 +295,7 @@ def _safe_process_rule(request: ProcessCommandRequest) -> str | None:
             return None
         return "safe:rg"
     if executable == "git":
-        if arguments == ["--version"]:
-            return "safe:git-version"
-        filtered = [argument for argument in arguments if argument != "--no-pager"]
-        if filtered and filtered[0] in _SAFE_GIT_COMMANDS:
-            if filtered[0] == "branch" and len(filtered) > 1 and filtered[1] != "--show-current":
-                return None
-            if filtered[0] == "tag" and len(filtered) > 1 and filtered[1] not in {"--list", "-l"}:
-                return None
-            return f"safe:git-{filtered[0]}"
-        return None
+        return _safe_git_rule(arguments)
     if executable != "gh":
         return None
     if arguments == ["--version"]:
@@ -183,6 +329,180 @@ def _safe_process_rule(request: ProcessCommandRequest) -> str | None:
     operations = _SAFE_GH_COMMANDS.get(arguments[0])
     if operations is not None and arguments[1] in operations:
         return f"safe:gh-{arguments[0]}-{arguments[1]}"
+    return None
+
+
+def _safe_git_rule(arguments: Sequence[str]) -> str | None:
+    git_arguments = list(arguments)
+    if git_arguments and git_arguments[0] == "--no-pager":
+        if git_arguments.count("--no-pager") > 1:
+            return None
+        git_arguments = git_arguments[1:]
+    elif "--no-pager" in git_arguments:
+        return None
+    if git_arguments == ["--version"]:
+        return "safe:git-version"
+    if not git_arguments:
+        return None
+    if _git_arguments_require_approval(git_arguments):
+        return None
+    command = git_arguments[0]
+    if command not in _SAFE_GIT_COMMANDS:
+        return None
+    command_arguments = git_arguments[1:]
+    allowed = {
+        "branch": _safe_git_branch,
+        "diff": _safe_git_diff,
+        "grep": _safe_git_grep,
+        "log": _safe_git_log_show,
+        "ls-files": _safe_git_ls_files,
+        "rev-parse": _safe_git_rev_parse,
+        "show": _safe_git_log_show,
+        "status": _safe_git_status,
+        "tag": _safe_git_tag,
+    }[command](command_arguments)
+    if not allowed:
+        return None
+    return f"safe:git-{command}"
+
+
+def _git_arguments_require_approval(arguments: Sequence[str]) -> bool:
+    for argument in arguments:
+        if argument == "--":
+            return False
+        if (
+            argument == "--help"
+            or _matches_git_option(argument, _GIT_GLOBAL_OPTIONS_REQUIRING_APPROVAL)
+            or _matches_git_option(argument, _GIT_OPTIONS_REQUIRING_APPROVAL)
+        ):
+            return True
+    return False
+
+
+def _matches_git_option(argument: str, option_names: Sequence[str]) -> bool:
+    return any(
+        argument == option
+        or argument.startswith(f"{option}=")
+        or (option in {"-c", "-C", "-O"} and argument.startswith(option) and argument != "-")
+        for option in option_names
+    )
+
+
+def _safe_git_branch(arguments: Sequence[str]) -> bool:
+    return list(arguments) in ([], ["--show-current"])
+
+
+def _safe_git_diff(arguments: Sequence[str]) -> bool:
+    return _only_known_git_options(
+        arguments,
+        flags=_GIT_DIFF_FLAGS,
+        value_options=_GIT_DIFF_VALUE_OPTIONS,
+    )
+
+
+def _safe_git_log_show(arguments: Sequence[str]) -> bool:
+    return _only_known_git_options(
+        arguments,
+        flags=_GIT_LOG_SHOW_FLAGS,
+        value_options=_GIT_LOG_SHOW_VALUE_OPTIONS,
+        numeric_short_option=True,
+    )
+
+
+def _safe_git_grep(arguments: Sequence[str]) -> bool:
+    return _only_known_git_options(arguments, flags=_GIT_GREP_FLAGS, value_options=frozenset())
+
+
+def _safe_git_ls_files(arguments: Sequence[str]) -> bool:
+    return _only_known_git_options(
+        arguments,
+        flags=_GIT_LS_FILES_FLAGS,
+        value_options=frozenset(),
+    )
+
+
+def _safe_git_rev_parse(arguments: Sequence[str]) -> bool:
+    return _only_known_git_options(
+        arguments,
+        flags=_GIT_REV_PARSE_FLAGS,
+        value_options=_GIT_REV_PARSE_VALUE_OPTIONS,
+    )
+
+
+def _safe_git_status(arguments: Sequence[str]) -> bool:
+    return _only_known_git_options(
+        arguments,
+        flags=_GIT_STATUS_FLAGS,
+        value_options=frozenset(),
+    )
+
+
+def _safe_git_tag(arguments: Sequence[str]) -> bool:
+    if not arguments:
+        return True
+    list_mode = False
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument == "--":
+            return list_mode
+        if not argument.startswith("-"):
+            if not list_mode:
+                return False
+            index += 1
+            continue
+        if argument in _GIT_TAG_FLAGS:
+            list_mode = True
+            index += 1
+            continue
+        value = _option_value(argument, arguments, index, _GIT_TAG_VALUE_OPTIONS)
+        if value is None:
+            return False
+        index += 1 if "=" in argument else 2
+    return True
+
+
+def _only_known_git_options(
+    arguments: Sequence[str],
+    *,
+    flags: frozenset[str],
+    value_options: frozenset[str],
+    numeric_short_option: bool = False,
+) -> bool:
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument == "--":
+            return True
+        if not argument.startswith("-"):
+            index += 1
+            continue
+        if numeric_short_option and argument[1:].isdigit():
+            index += 1
+            continue
+        if argument in flags:
+            index += 1
+            continue
+        value = _option_value(argument, arguments, index, value_options)
+        if value is None:
+            return False
+        index += 1 if "=" in argument else 2
+    return True
+
+
+def _option_value(
+    argument: str,
+    arguments: Sequence[str],
+    index: int,
+    option_names: frozenset[str],
+) -> str | None:
+    for option in option_names:
+        if argument == option:
+            if index + 1 >= len(arguments):
+                return None
+            return arguments[index + 1]
+        if argument.startswith(f"{option}="):
+            return argument.removeprefix(f"{option}=")
     return None
 
 
@@ -269,9 +589,10 @@ class CommandExecutor:
         started: float,
     ) -> CommandExecutionResult:
         cwd = request.cwd.expanduser().resolve()
-        environment = self._environment(request)
+        harden_git = _should_harden_git_execution(request, policy)
+        environment = self._environment(request, harden_git=harden_git)
         try:
-            program, arguments = _program_and_arguments(request)
+            program, arguments = _program_and_arguments(request, harden_git=harden_git)
             process = await asyncio.create_subprocess_exec(
                 program,
                 *arguments,
@@ -356,18 +677,29 @@ class CommandExecutor:
             error=error,
         )
 
-    def _environment(self, request: CommandRequest) -> dict[str, str]:
+    def _environment(self, request: CommandRequest, *, harden_git: bool = False) -> dict[str, str]:
         names = list(self.config.inherited_environment)
         if (
             isinstance(request, ProcessCommandRequest)
             and _executable_name(request.executable) == "gh"
         ):
             names.extend(_GH_ENVIRONMENT)
-        return {name: value for name in names if (value := self._environ.get(name)) is not None}
+        environment = {
+            name: value for name in names if (value := self._environ.get(name)) is not None
+        }
+        if harden_git:
+            environment.update(_GIT_HARDENING_ENVIRONMENT)
+        return environment
 
 
-def _program_and_arguments(request: CommandRequest) -> tuple[str, Sequence[str]]:
+def _program_and_arguments(
+    request: CommandRequest,
+    *,
+    harden_git: bool = False,
+) -> tuple[str, Sequence[str]]:
     if isinstance(request, ProcessCommandRequest):
+        if harden_git:
+            return request.executable, _hardened_git_arguments(request.arguments)
         return request.executable, request.arguments
     if os.name == "nt":
         return (
@@ -381,6 +713,37 @@ def _program_and_arguments(request: CommandRequest) -> tuple[str, Sequence[str]]
             ],
         )
     return os.environ.get("SHELL", "/bin/sh"), ["-lc", request.command]
+
+
+def _should_harden_git_execution(
+    request: CommandRequest,
+    policy: CommandPolicyResult,
+) -> bool:
+    return (
+        isinstance(request, ProcessCommandRequest)
+        and _executable_name(request.executable) == "git"
+        and policy.decision is CommandPolicyDecision.ALLOW
+        and policy.matched_rule is not None
+        and policy.matched_rule.startswith("safe:git-")
+    )
+
+
+def _hardened_git_arguments(arguments: Sequence[str]) -> list[str]:
+    hardened_arguments: list[str] = []
+    for item in _GIT_HARDENING_CONFIG:
+        hardened_arguments.extend(("-c", item))
+    hardened_arguments.append("--no-pager")
+    if arguments and arguments[0] == "--no-pager":
+        arguments = arguments[1:]
+    if arguments and arguments[0] in {"diff", "log", "show"}:
+        return [
+            *hardened_arguments,
+            arguments[0],
+            "--no-ext-diff",
+            "--no-textconv",
+            *arguments[1:],
+        ]
+    return [*hardened_arguments, *arguments]
 
 
 def _command_display(request: CommandRequest) -> str:
