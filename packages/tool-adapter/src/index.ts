@@ -172,6 +172,7 @@ export type {
   MlaFrameworkSession,
   MlaLogPosition,
   MlaPreflightResult,
+  MlaRuntimeInspectionResult,
   MlaVersionEvidence
 } from "./mla.js";
 export type {

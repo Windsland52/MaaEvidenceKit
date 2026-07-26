@@ -9,6 +9,7 @@ import { FsContentLoader } from "@nekosu/maa-pipeline-manager";
 import {
   handleRequest,
   type MlaPreflightResult,
+  type MlaRuntimeInspectionResult,
   type MseProjectPreflightResult,
   type MseTaskResolutionResult
 } from "./index.js";
@@ -645,13 +646,16 @@ test("mla.runtime-inspection returns snake_case structured output", async () => 
   });
 
   assert.equal(response.ok, true);
-  const result = response.result as Record<string, unknown>;
+  const result = response.result as MlaRuntimeInspectionResult;
   assert.equal(result.schema_version, "mla-runtime-inspection/v1");
-  assert.ok(Array.isArray(result.sessions));
-  assert.ok(Array.isArray(result.failures));
-  assert.ok(Array.isArray(result.outcomes));
-  assert.ok(Array.isArray(result.signals));
-  assert.ok(Array.isArray(result.warnings));
+  assert.equal(result.sessions.length, 1);
+  assert.equal(result.sessions[0]?.framework_version, "v5.11.1");
+  assert.equal(result.sessions[0]?.start.line, 1);
+  assert.equal("sessionId" in (result.sessions[0] ?? {}), false);
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(result.outcomes, []);
+  assert.deepEqual(result.signals, []);
+  assert.deepEqual(result.warnings, []);
 });
 
 test("mla.runtime-inspection validates arguments", async () => {

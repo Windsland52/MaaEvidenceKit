@@ -23,6 +23,11 @@ import type {
   FrameworkVersionEvidence
 } from "@windsland52/maa-log-tools";
 
+import { translateRuntimeInspection } from "./mla-runtime.js";
+import type { MlaRuntimeInspectionResult } from "./mla-runtime.js";
+
+export type { MlaRuntimeInspectionResult } from "./mla-runtime.js";
+
 export type MlaLogPosition = {
   source: string;
   path: string;
@@ -131,24 +136,9 @@ export async function runMlaPreflight(targetPath: string): Promise<MlaPreflightR
   return translatePreflight(buildPreflightOutput(output, framework));
 }
 
-const camelToSnake = (key: string): string =>
-  key.replace(/([A-Z])/g, "_$1").toLowerCase();
-
-const convertKeys = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(convertKeys);
-  if (value !== null && typeof value === "object") {
-    const result: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-      result[camelToSnake(key)] = convertKeys(val);
-    }
-    return result;
-  }
-  return value;
-};
-
 export async function runMlaRuntimeInspection(
   targetPath: string
-): Promise<Record<string, unknown>> {
+): Promise<MlaRuntimeInspectionResult> {
   const resolvedPath = path.resolve(targetPath);
   const targetStat = await stat(resolvedPath);
   const framework = extractFrameworkSessions(
@@ -198,5 +188,5 @@ export async function runMlaRuntimeInspection(
   }
 
   const inspection = buildRuntimeInspection(output, framework, sourceSegments);
-  return convertKeys(inspection) as Record<string, unknown>;
+  return translateRuntimeInspection(inspection);
 }
