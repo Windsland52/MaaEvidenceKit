@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ from maa_diagnostic_expert.contracts.domain import (
     ArtifactKind,
     PreparedAnalysis,
     RevisionResolutionStatus,
+    SourceRevisionBackend,
     SourceRole,
     SourceSnapshot,
 )
@@ -29,6 +31,15 @@ from maa_diagnostic_expert.contracts.workflow import (
 )
 from maa_diagnostic_expert.discovery.preparation import prepare_analysis
 from maa_diagnostic_expert.workflow.planning import plan_initial_investigation
+
+
+def _git(repository: Path, *arguments: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repository), *arguments],
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    ).stdout.strip()
 
 
 def _decision(prepared: PreparedAnalysis, branch: InvestigationBranch) -> BranchDecision:
@@ -89,6 +100,12 @@ def test_plan_exposes_mse_when_project_revision_is_resolved(tmp_path: Path) -> N
     assets = tmp_path / "assets"
     assets.mkdir()
     (assets / "interface.json").write_text("{}", encoding="utf-8")
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    _git(tmp_path, "config", "user.email", "mde@example.invalid")
+    _git(tmp_path, "config", "user.name", "MDE Test")
+    _git(tmp_path, "add", "assets/interface.json")
+    _git(tmp_path, "commit", "-m", "first")
+    revision = _git(tmp_path, "rev-parse", "HEAD")
     request = AnalysisRequest(question="Inspect the project configuration.")
     prepared = PreparedAnalysis(
         request=request,
@@ -97,9 +114,10 @@ def test_plan_exposes_mse_when_project_revision_is_resolved(tmp_path: Path) -> N
                 source_id="project",
                 role=SourceRole.PROJECT,
                 path=tmp_path,
-                requested_revision="abc123",
-                resolved_revision="abc123",
-                current_revision="abc123",
+                revision_backend=SourceRevisionBackend.GIT,
+                requested_revision=revision,
+                resolved_revision=revision,
+                current_revision=revision,
                 resolution_status=RevisionResolutionStatus.RESOLVED,
             )
         ],
@@ -120,6 +138,7 @@ def test_plan_skips_mse_when_resolved_revision_is_not_checked_out(tmp_path: Path
                 source_id="project",
                 role=SourceRole.PROJECT,
                 path=tmp_path,
+                revision_backend=SourceRevisionBackend.GIT,
                 requested_revision="v1",
                 resolved_revision="old",
                 current_revision="new",
@@ -134,6 +153,13 @@ def test_plan_skips_mse_when_resolved_revision_is_not_checked_out(tmp_path: Path
 
 
 def test_plan_runs_knowledge_research_for_explicit_documentation(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("OCR documentation", encoding="utf-8")
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    _git(tmp_path, "config", "user.email", "mde@example.invalid")
+    _git(tmp_path, "config", "user.name", "MDE Test")
+    _git(tmp_path, "add", "README.md")
+    _git(tmp_path, "commit", "-m", "documentation")
+    revision = _git(tmp_path, "rev-parse", "HEAD")
     prepared = PreparedAnalysis(
         request=AnalysisRequest(question="How does OCR replace work?"),
         source_snapshots=[
@@ -141,7 +167,8 @@ def test_plan_runs_knowledge_research_for_explicit_documentation(tmp_path: Path)
                 source_id="maafw-docs",
                 role=SourceRole.DOCUMENTATION,
                 path=tmp_path,
-                current_revision="abc123",
+                revision_backend=SourceRevisionBackend.GIT,
+                current_revision=revision,
                 resolution_status=RevisionResolutionStatus.NOT_REQUESTED,
             )
         ],

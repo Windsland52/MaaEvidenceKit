@@ -8,6 +8,7 @@ from maa_diagnostic_expert.contracts.domain import (
     AnalysisRequest,
     EvidenceReliability,
     SourceInput,
+    SourceRevisionBackend,
     SourceRole,
 )
 from maa_diagnostic_expert.contracts.workflow import (
@@ -112,6 +113,29 @@ def test_source_search_reads_requested_revision_not_dirty_worktree(
     assert match.source_locator == (f"git:project@{revision}:src/login.py")
     assert len(evidence) == 1
     assert evidence[0].reliability is EvidenceReliability.SECONDARY
+
+
+def test_source_search_reads_requested_revision_when_head_has_advanced(
+    tmp_path: Path,
+) -> None:
+    repository, revision = _repository(tmp_path)
+    (repository / "src" / "login.py").write_text(
+        "def NewLoginButton():\n    return 'new'\n",
+        encoding="utf-8",
+    )
+    _git(repository, "add", ".")
+    _git(repository, "commit", "-m", "new source")
+
+    inspection = execute_source_research(
+        _inspection(repository, revision),
+        _plan("LoginButton"),
+    )
+
+    [match] = inspection.source_search_matches
+    assert "committed" in match.content
+    assert "requested_revision_not_checked_out" in {
+        item.code for item in inspection.prepared.missing_evidence
+    }
 
 
 def test_source_search_records_no_matches(tmp_path: Path) -> None:
@@ -262,6 +286,7 @@ def test_knowledge_search_classifies_document_and_wiki_evidence(
     evidence = synthesize_knowledge_search_evidence(inspection.knowledge_search_matches)
 
     assert len(inspection.knowledge_search_matches) == 1
+    assert inspection.prepared.source_snapshots[0].revision_backend is SourceRevisionBackend.GIT
     assert inspection.source_search_matches == []
     assert evidence[0].kind == expected_kind
     assert evidence[0].reliability is EvidenceReliability.CONTEXT

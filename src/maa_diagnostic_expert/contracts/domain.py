@@ -104,14 +104,50 @@ class RevisionResolutionStatus(StrEnum):
     NOT_A_DIRECTORY = "not_a_directory"
 
 
+class SourceRevisionBackend(StrEnum):
+    UNKNOWN = "unknown"
+    GIT = "git"
+    WIKI_CATALOG = "wiki_catalog"
+
+
+_SOURCE_REVISION_BACKEND_JSON_SCHEMA: dict[str, JsonValue] = {
+    "allOf": [
+        {
+            "if": {
+                "properties": {
+                    "revision_backend": {"const": SourceRevisionBackend.WIKI_CATALOG.value}
+                },
+                "required": ["revision_backend"],
+            },
+            "then": {
+                "properties": {"role": {"const": SourceRole.WIKI.value}},
+                "required": ["role"],
+            },
+        }
+    ]
+}
+
+
 class SourceSnapshot(ContractModel):
+    model_config = ConfigDict(json_schema_extra=_SOURCE_REVISION_BACKEND_JSON_SCHEMA)
+
     source_id: str = Field(min_length=1)
     role: SourceRole
     path: Path
+    revision_backend: SourceRevisionBackend = SourceRevisionBackend.UNKNOWN
     requested_revision: str | None = None
     resolved_revision: str | None = None
     current_revision: str | None = None
     resolution_status: RevisionResolutionStatus
+
+    @model_validator(mode="after")
+    def constrain_revision_backend(self) -> SourceSnapshot:
+        if (
+            self.revision_backend is SourceRevisionBackend.WIKI_CATALOG
+            and self.role is not SourceRole.WIKI
+        ):
+            raise ValueError("The Wiki catalog revision backend requires the Wiki source role")
+        return self
 
 
 class MissingEvidence(ContractModel):

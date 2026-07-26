@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from maa_diagnostic_expert.contracts.domain import DiagnosisDraft, DiagnosisResult
+from maa_diagnostic_expert.contracts.domain import DiagnosisDraft, DiagnosisResult, SourceSnapshot
 from maa_diagnostic_expert.contracts.schemas import CONTRACT_MODELS, generate_contracts
 
 
@@ -30,6 +30,23 @@ def test_complete_diagnosis_schema_requires_conclusions(
             "then": {
                 "properties": {"conclusions": {"minItems": 1}},
                 "required": ["conclusions"],
+            },
+        }
+    ]
+
+
+def test_source_snapshot_schema_constrains_wiki_catalog_backend() -> None:
+    schema = SourceSnapshot.model_json_schema()
+
+    assert schema["allOf"] == [
+        {
+            "if": {
+                "properties": {"revision_backend": {"const": "wiki_catalog"}},
+                "required": ["revision_backend"],
+            },
+            "then": {
+                "properties": {"role": {"const": "wiki"}},
+                "required": ["role"],
             },
         }
     ]

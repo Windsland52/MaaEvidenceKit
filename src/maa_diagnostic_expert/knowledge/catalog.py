@@ -136,12 +136,40 @@ def _validate_snapshot(path: Path) -> WikiCatalogManifest:
     if not manifest_path.is_file():
         raise ValueError(f"Catalog snapshot is missing {_MANIFEST_NAME}")
     manifest = _load_manifest(manifest_path.read_bytes())
+    expected_paths = {_MANIFEST_NAME, *(record.path for record in manifest.files)}
+    actual_paths: set[str] = set()
+    for candidate in path.rglob("*"):
+        relative = candidate.relative_to(path)
+        if any(part.casefold() == ".git" for part in relative.parts) or not candidate.is_file():
+            continue
+        actual_paths.add(relative.as_posix())
+    if actual_paths != expected_paths:
+        raise ValueError("Catalog snapshot files differ from its manifest")
     for record in manifest.files:
         file_path = path / Path(record.path)
         if not file_path.is_file() or not file_path.resolve().is_relative_to(path.resolve()):
             raise ValueError(f"Catalog snapshot is missing file: {record.path}")
         _verify_content(record.path, file_path.read_bytes(), record.size_bytes, record.sha256)
     return manifest
+
+
+def read_catalog_snapshot_file(path: Path, relative_path: Path) -> tuple[str, bytes]:
+    """Read bytes that are verified against a live catalog manifest record."""
+    root = path.resolve()
+    relative = relative_path.as_posix()
+    candidate = (root / relative_path).resolve()
+    if not candidate.is_relative_to(root):
+        raise ValueError(f"Catalog snapshot file escapes its root: {relative}")
+    manifest_path = root / _MANIFEST_NAME
+    if not manifest_path.is_file():
+        raise ValueError(f"Catalog snapshot is missing {_MANIFEST_NAME}")
+    manifest = _load_manifest(manifest_path.read_bytes())
+    record = next((item for item in manifest.files if item.path == relative), None)
+    if record is None or not candidate.is_file():
+        raise ValueError(f"Catalog snapshot is missing manifest file: {relative}")
+    content = candidate.read_bytes()
+    _verify_content(record.path, content, record.size_bytes, record.sha256)
+    return manifest.wiki_revision, content
 
 
 def _install_bundle(bundle: Path, cache_root: Path) -> tuple[Path, WikiCatalogManifest]:

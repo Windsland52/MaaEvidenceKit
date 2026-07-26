@@ -4,6 +4,7 @@ from maa_diagnostic_expert.contracts.domain import (
     AnalysisRequest,
     PreparedAnalysis,
     RevisionResolutionStatus,
+    SourceRevisionBackend,
     SourceRole,
     SourceSnapshot,
 )
@@ -33,6 +34,7 @@ def _inspection(root: Path, source_paths: list[str]) -> DeterministicInspection:
                     source_id="project",
                     role=SourceRole.PROJECT,
                     path=root,
+                    revision_backend=SourceRevisionBackend.GIT,
                     current_revision="abc123",
                     resolution_status=RevisionResolutionStatus.NOT_REQUESTED,
                 )

@@ -20,6 +20,7 @@ from maa_diagnostic_expert.discovery.artifact_classification import classify_art
 from maa_diagnostic_expert.discovery.inputs import find_maa_interface
 from maa_diagnostic_expert.discovery.source_preparation import (
     source_snapshot_matches_checkout,
+    source_snapshot_supports_object_read,
 )
 
 
@@ -106,7 +107,7 @@ def _has_usable_knowledge_source(prepared: PreparedAnalysis) -> bool:
     }
     return any(
         snapshot.role in knowledge_roles
-        and source_snapshot_matches_checkout(
+        and source_snapshot_supports_object_read(
             snapshot,
             require_requested_revision=prepared.request.issue is not None,
         )

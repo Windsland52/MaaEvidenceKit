@@ -9,6 +9,7 @@ from maa_diagnostic_expert.contracts.domain import (
     EvidenceRole,
     PreparedAnalysis,
     RevisionResolutionStatus,
+    SourceRevisionBackend,
     SourceRole,
     SourceSnapshot,
 )
@@ -306,6 +307,7 @@ def test_inspect_runs_mse_for_revision_matched_project_source(tmp_path: Path) ->
                 source_id="project",
                 role=SourceRole.PROJECT,
                 path=tmp_path,
+                revision_backend=SourceRevisionBackend.GIT,
                 current_revision="abc123",
                 resolution_status=RevisionResolutionStatus.NOT_REQUESTED,
             )

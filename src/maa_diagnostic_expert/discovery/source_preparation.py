@@ -2,18 +2,27 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Literal
 
 from maa_diagnostic_expert.contracts.domain import (
     AnalysisRequest,
     MissingEvidence,
     RevisionResolutionStatus,
     SourceInput,
+    SourceRevisionBackend,
     SourceRole,
     SourceSnapshot,
 )
-from maa_diagnostic_expert.knowledge.catalog import snapshot_revision
+from maa_diagnostic_expert.contracts.knowledge import WikiCatalogKind
+from maa_diagnostic_expert.knowledge.catalog import (
+    is_catalog_snapshot,
+    resolve_wiki_catalog,
+    snapshot_revision,
+)
 
 from .inputs import resolve_project_root
+
+type _GitWorktreeState = Literal["clean", "dirty", "unresolved"]
 
 
 def _git_revision(repository: Path, revision: str) -> str | None:
@@ -29,6 +38,75 @@ def _git_revision(repository: Path, revision: str) -> str | None:
         return None
     resolved = completed.stdout.strip()
     return resolved if completed.returncode == 0 and resolved else None
+
+
+def _git_worktree_state(repository: Path) -> _GitWorktreeState:
+    try:
+        completed = subprocess.run(
+            [
+                "git",
+                "--no-optional-locks",
+                "-C",
+                str(repository),
+                "-c",
+                "core.fsmonitor=false",
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=all",
+                "--ignore-submodules=none",
+                "--",
+                ".",
+            ],
+            capture_output=True,
+            check=False,
+            encoding="utf-8",
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unresolved"
+    if completed.returncode != 0:
+        return "unresolved"
+    return "dirty" if completed.stdout.strip() else "clean"
+
+
+def _live_catalog_revision(snapshot: SourceSnapshot) -> str | None:
+    if snapshot.revision_backend is not SourceRevisionBackend.WIKI_CATALOG:
+        return None
+    if not is_catalog_snapshot(snapshot.path):
+        return None
+    try:
+        status = resolve_wiki_catalog(snapshot.path)
+    except (OSError, ValueError):
+        return None
+    if status.kind is not WikiCatalogKind.BUNDLE_SNAPSHOT:
+        return None
+    return status.wiki_revision
+
+
+def _catalog_snapshot_matches_checkout(snapshot: SourceSnapshot) -> bool:
+    live_revision = _live_catalog_revision(snapshot)
+    expected_revision = _snapshot_object_revision(snapshot, require_requested_revision=False)
+    return (
+        live_revision is not None
+        and expected_revision is not None
+        and expected_revision == live_revision
+    )
+
+
+def _snapshot_object_revision(
+    snapshot: SourceSnapshot,
+    *,
+    require_requested_revision: bool,
+) -> str | None:
+    if require_requested_revision and snapshot.requested_revision is None:
+        return None
+    if snapshot.requested_revision is not None:
+        if snapshot.resolution_status is not RevisionResolutionStatus.RESOLVED:
+            return None
+        return snapshot.resolved_revision
+    if snapshot.resolution_status is not RevisionResolutionStatus.NOT_REQUESTED:
+        return None
+    return snapshot.current_revision
 
 
 def _normalize_sources(request: AnalysisRequest) -> list[SourceInput]:
@@ -50,6 +128,7 @@ def _normalize_sources(request: AnalysisRequest) -> list[SourceInput]:
 
 def _snapshot(source: SourceInput) -> SourceSnapshot:
     source_path = source.path
+    revision_backend = SourceRevisionBackend.UNKNOWN
     current_revision: str | None = None
     resolved_revision: str | None = None
     if not source_path.exists():
@@ -62,6 +141,7 @@ def _snapshot(source: SourceInput) -> SourceSnapshot:
         )
         current_revision = catalog_revision or _git_revision(source_path, "HEAD")
         if catalog_revision is not None:
+            revision_backend = SourceRevisionBackend.WIKI_CATALOG
             if source.revision is None:
                 status = RevisionResolutionStatus.NOT_REQUESTED
             elif source.revision == catalog_revision:
@@ -71,19 +151,22 @@ def _snapshot(source: SourceInput) -> SourceSnapshot:
                 status = RevisionResolutionStatus.UNRESOLVED
         elif current_revision is None:
             status = RevisionResolutionStatus.NOT_A_GIT_REPOSITORY
-        elif source.revision is None:
-            status = RevisionResolutionStatus.NOT_REQUESTED
         else:
-            resolved_revision = _git_revision(source_path, source.revision)
-            status = (
-                RevisionResolutionStatus.RESOLVED
-                if resolved_revision is not None
-                else RevisionResolutionStatus.UNRESOLVED
-            )
+            revision_backend = SourceRevisionBackend.GIT
+            if source.revision is None:
+                status = RevisionResolutionStatus.NOT_REQUESTED
+            else:
+                resolved_revision = _git_revision(source_path, source.revision)
+                status = (
+                    RevisionResolutionStatus.RESOLVED
+                    if resolved_revision is not None
+                    else RevisionResolutionStatus.UNRESOLVED
+                )
     return SourceSnapshot(
         source_id=source.source_id,
         role=source.role,
         path=source_path,
+        revision_backend=revision_backend,
         requested_revision=source.revision,
         resolved_revision=resolved_revision,
         current_revision=current_revision,
@@ -161,7 +244,99 @@ def _missing_evidence(snapshot: SourceSnapshot, *, issue_diagnosis: bool) -> lis
                 source_path=snapshot.path,
             )
         )
+    elif (
+        snapshot.requested_revision is not None
+        and snapshot.revision_backend is SourceRevisionBackend.WIKI_CATALOG
+    ):
+        if not _catalog_snapshot_matches_checkout(snapshot):
+            missing.append(
+                MissingEvidence(
+                    code="requested_revision_worktree_state_unresolved",
+                    message=(
+                        f"Catalog snapshot revision for source '{snapshot.source_id}' could "
+                        "not be confirmed at the requested revision."
+                    ),
+                    source_id=snapshot.source_id,
+                    source_path=snapshot.path,
+                )
+            )
+    elif (
+        snapshot.requested_revision is not None
+        and snapshot.revision_backend is SourceRevisionBackend.GIT
+    ):
+        worktree_state = _git_worktree_state(snapshot.path)
+        if worktree_state == "dirty":
+            missing.append(
+                MissingEvidence(
+                    code="requested_revision_worktree_dirty",
+                    message=(
+                        f"Source '{snapshot.source_id}' has uncommitted worktree changes "
+                        "at the requested revision."
+                    ),
+                    source_id=snapshot.source_id,
+                    source_path=snapshot.path,
+                )
+            )
+        elif worktree_state == "unresolved":
+            missing.append(
+                MissingEvidence(
+                    code="requested_revision_worktree_state_unresolved",
+                    message=(
+                        f"Worktree cleanliness for source '{snapshot.source_id}' could "
+                        "not be determined at the requested revision."
+                    ),
+                    source_id=snapshot.source_id,
+                    source_path=snapshot.path,
+                )
+            )
+    elif snapshot.requested_revision is not None:
+        missing.append(
+            MissingEvidence(
+                code="requested_revision_worktree_state_unresolved",
+                message=(
+                    f"Revision backend for source '{snapshot.source_id}' could not be determined."
+                ),
+                source_id=snapshot.source_id,
+                source_path=snapshot.path,
+            )
+        )
     return missing
+
+
+def source_snapshot_supports_object_read(
+    snapshot: SourceSnapshot,
+    *,
+    require_requested_revision: bool,
+) -> bool:
+    """Return whether a captured Git object or Wiki catalog is still readable."""
+    revision = _snapshot_object_revision(
+        snapshot,
+        require_requested_revision=require_requested_revision,
+    )
+    if revision is None:
+        return False
+    if snapshot.revision_backend is SourceRevisionBackend.WIKI_CATALOG:
+        return _live_catalog_revision(snapshot) == revision
+    if snapshot.revision_backend is SourceRevisionBackend.GIT:
+        return _git_revision(snapshot.path, revision) == revision
+    return False
+
+
+def source_snapshot_object_revision(
+    snapshot: SourceSnapshot,
+    *,
+    require_requested_revision: bool,
+) -> str | None:
+    """Return the immutable revision selected for object-backed reads, if usable."""
+    if not source_snapshot_supports_object_read(
+        snapshot,
+        require_requested_revision=require_requested_revision,
+    ):
+        return None
+    return _snapshot_object_revision(
+        snapshot,
+        require_requested_revision=require_requested_revision,
+    )
 
 
 def source_snapshot_matches_checkout(
@@ -169,16 +344,24 @@ def source_snapshot_matches_checkout(
     *,
     require_requested_revision: bool,
 ) -> bool:
-    """Return whether reading the source path observes the intended revision."""
-    if snapshot.current_revision is None:
+    """Return whether direct worktree reads observe the intended revision."""
+    revision = _snapshot_object_revision(
+        snapshot,
+        require_requested_revision=require_requested_revision,
+    )
+    if revision is None:
         return False
-    if require_requested_revision and snapshot.requested_revision is None:
+    if snapshot.requested_revision is not None and snapshot.current_revision != revision:
+        return False
+    if snapshot.revision_backend is SourceRevisionBackend.WIKI_CATALOG:
+        return _catalog_snapshot_matches_checkout(snapshot)
+    if snapshot.revision_backend is not SourceRevisionBackend.GIT:
         return False
     if snapshot.requested_revision is None:
-        return snapshot.resolution_status is RevisionResolutionStatus.NOT_REQUESTED
+        return True
     return (
-        snapshot.resolution_status is RevisionResolutionStatus.RESOLVED
-        and snapshot.resolved_revision == snapshot.current_revision
+        _git_revision(snapshot.path, "HEAD") == revision
+        and _git_worktree_state(snapshot.path) == "clean"
     )
 
 

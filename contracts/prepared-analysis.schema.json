@@ -370,6 +370,15 @@
       "title": "SourceInput",
       "type": "object"
     },
+    "SourceRevisionBackend": {
+      "enum": [
+        "unknown",
+        "git",
+        "wiki_catalog"
+      ],
+      "title": "SourceRevisionBackend",
+      "type": "string"
+    },
     "SourceRole": {
       "enum": [
         "project",
@@ -385,6 +394,30 @@
     },
     "SourceSnapshot": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "revision_backend": {
+                "const": "wiki_catalog"
+              }
+            },
+            "required": [
+              "revision_backend"
+            ]
+          },
+          "then": {
+            "properties": {
+              "role": {
+                "const": "wiki"
+              }
+            },
+            "required": [
+              "role"
+            ]
+          }
+        }
+      ],
       "properties": {
         "source_id": {
           "minLength": 1,
@@ -398,6 +431,10 @@
           "format": "path",
           "title": "Path",
           "type": "string"
+        },
+        "revision_backend": {
+          "$ref": "#/$defs/SourceRevisionBackend",
+          "default": "unknown"
         },
         "requested_revision": {
           "anyOf": [

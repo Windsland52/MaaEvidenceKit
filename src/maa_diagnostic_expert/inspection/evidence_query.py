@@ -14,10 +14,13 @@ from maa_diagnostic_expert.contracts.domain import (
     EvidenceRole,
     EvidenceWindow,
     PreparedAnalysis,
-    RevisionResolutionStatus,
+    SourceRevisionBackend,
     SourceSnapshot,
 )
-from maa_diagnostic_expert.knowledge.catalog import is_catalog_snapshot
+from maa_diagnostic_expert.discovery.source_preparation import (
+    source_snapshot_object_revision,
+)
+from maa_diagnostic_expert.knowledge.catalog import read_catalog_snapshot_file
 
 MAX_EVIDENCE_CHARACTERS = 40_000
 
@@ -75,28 +78,27 @@ def _git_blob(
     snapshot: SourceSnapshot,
     source_path: Path,
 ) -> tuple[str, str]:
-    if (
-        snapshot.resolution_status is not RevisionResolutionStatus.RESOLVED
-        or snapshot.resolved_revision is None
-    ):
-        raise ValueError(f"Requested revision for source '{snapshot.source_id}' is unresolved")
+    revision = source_snapshot_object_revision(
+        snapshot,
+        require_requested_revision=False,
+    )
+    if revision is None:
+        raise ValueError(f"Source revision for '{snapshot.source_id}' is unavailable")
     relative = source_path.relative_to(snapshot.path)
     prefix_result = _git_command(snapshot.path, "rev-parse", "--show-prefix")
     if prefix_result.returncode != 0:
         message = prefix_result.stderr.strip() or "unable to resolve repository prefix"
         raise ValueError(f"Unable to locate source in Git repository: {message}")
     repository_path = f"{prefix_result.stdout.strip()}{relative.as_posix()}"
-    object_spec = f"{snapshot.resolved_revision}:{repository_path}"
+    object_spec = f"{revision}:{repository_path}"
     type_result = _git_command(snapshot.path, "cat-file", "-t", object_spec)
     if type_result.returncode != 0 or type_result.stdout.strip() != "blob":
-        raise ValueError(
-            f"Source file is not present at revision {snapshot.resolved_revision}: {relative}"
-        )
+        raise ValueError(f"Source file is not present at revision {revision}: {relative}")
     content_result = _git_command(snapshot.path, "show", object_spec)
     if content_result.returncode != 0:
         message = content_result.stderr.strip() or "git show failed"
         raise ValueError(f"Unable to read versioned source: {message}")
-    locator = f"git:{snapshot.source_id}@{snapshot.resolved_revision}:{relative.as_posix()}"
+    locator = f"git:{snapshot.source_id}@{revision}:{relative.as_posix()}"
     return content_result.stdout, locator
 
 
@@ -145,27 +147,48 @@ def _select_lines(
 def query_evidence(prepared: PreparedAnalysis, query: EvidenceQuery) -> EvidenceWindow:
     source = _authorized_source(prepared, query.source_path)
     snapshot = source.snapshot
-    if (
-        snapshot is not None
-        and snapshot.requested_revision is not None
-        and not is_catalog_snapshot(snapshot.path)
-    ):
+    if snapshot is not None and snapshot.revision_backend is SourceRevisionBackend.GIT:
         content, source_label = _git_blob(snapshot, source.path)
         selected, actual_end, has_more_after, truncated = _select_lines(
             content.splitlines(keepends=True), query, source_label
         )
     else:
+        catalog_content: str | None = None
+        if snapshot is not None and snapshot.revision_backend is SourceRevisionBackend.WIKI_CATALOG:
+            revision = source_snapshot_object_revision(
+                snapshot,
+                require_requested_revision=False,
+            )
+            if revision is None:
+                raise ValueError(f"Wiki catalog '{snapshot.source_id}' is unavailable")
+            relative = source.path.relative_to(snapshot.path)
+            live_revision, verified_content = read_catalog_snapshot_file(
+                snapshot.path,
+                relative,
+            )
+            if live_revision != revision:
+                raise ValueError(f"Wiki catalog '{snapshot.source_id}' revision changed")
+            catalog_content = verified_content.decode("utf-8", errors="replace")
+        elif snapshot is not None and snapshot.requested_revision is not None:
+            raise ValueError(f"Source revision for '{snapshot.source_id}' is unavailable")
+        else:
+            revision = None
         if not source.path.is_file():
             raise ValueError(f"Evidence source is not a file: {source.path}")
-        if snapshot is not None and is_catalog_snapshot(snapshot.path):
+        if revision is not None and snapshot is not None:
             relative = source.path.relative_to(snapshot.path).as_posix()
-            source_label = f"catalog:{snapshot.source_id}@{snapshot.current_revision}:{relative}"
+            source_label = f"catalog:{snapshot.source_id}@{revision}:{relative}"
         else:
             source_label = str(source.path)
-        with source.path.open("r", encoding="utf-8", errors="replace") as handle:
+        if catalog_content is not None:
             selected, actual_end, has_more_after, truncated = _select_lines(
-                handle, query, source_label
+                catalog_content.splitlines(keepends=True), query, source_label
             )
+        else:
+            with source.path.open("r", encoding="utf-8", errors="replace") as handle:
+                selected, actual_end, has_more_after, truncated = _select_lines(
+                    handle, query, source_label
+                )
 
     if not selected:
         raise ValueError(f"Evidence query starts past the end of the file: {source_label}")

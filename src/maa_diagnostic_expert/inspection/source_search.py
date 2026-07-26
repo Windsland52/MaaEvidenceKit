@@ -9,7 +9,7 @@ from maa_diagnostic_expert.contracts.domain import (
     EvidenceReliability,
     EvidenceRole,
     MissingEvidence,
-    RevisionResolutionStatus,
+    SourceRevisionBackend,
     SourceRole,
     SourceSnapshot,
 )
@@ -19,9 +19,9 @@ from maa_diagnostic_expert.contracts.workflow import (
     SourceSearchQuery,
 )
 from maa_diagnostic_expert.discovery.source_preparation import (
-    source_snapshot_matches_checkout,
+    source_snapshot_object_revision,
+    source_snapshot_supports_object_read,
 )
-from maa_diagnostic_expert.knowledge.catalog import is_catalog_snapshot
 
 from .evidence_query import query_evidence
 from .models import DeterministicInspection, SourceSearchMatch
@@ -94,21 +94,19 @@ def _grep_lines(
     snapshot: SourceSnapshot,
     query: SourceSearchQuery,
 ) -> tuple[list[tuple[Path, int, str]], bool]:
-    if is_catalog_snapshot(snapshot.path):
+    if snapshot.revision_backend is SourceRevisionBackend.WIKI_CATALOG:
         return _grep_snapshot_files(snapshot, query)
     repository_root = _repository_root(snapshot)
     arguments = ["grep", "-n", "-I", "-F"]
     for term in query.terms:
         arguments.extend(["-e", term])
-    revision: str | None = None
-    if snapshot.requested_revision is not None:
-        if (
-            snapshot.resolution_status is not RevisionResolutionStatus.RESOLVED
-            or snapshot.resolved_revision is None
-        ):
-            raise ValueError(f"Requested revision for source '{snapshot.source_id}' is unresolved")
-        revision = snapshot.resolved_revision
-        arguments.append(revision)
+    revision = source_snapshot_object_revision(
+        snapshot,
+        require_requested_revision=False,
+    )
+    if revision is None:
+        raise ValueError(f"Source revision for '{snapshot.source_id}' is unavailable")
+    arguments.append(revision)
     arguments.append("--")
     arguments.extend(_search_pathspecs(snapshot, repository_root, query))
     result = _git(repository_root, *arguments)
@@ -120,7 +118,7 @@ def _grep_lines(
     truncated = False
     for raw_line in result.stdout.splitlines():
         line = raw_line
-        if revision is not None and line.startswith(f"{revision}:"):
+        if line.startswith(f"{revision}:"):
             line = line[len(revision) + 1 :]
         parts = line.split(":", 2)
         if len(parts) != 3:
@@ -151,10 +149,17 @@ def _grep_snapshot_files(
         candidate = (root / requested_path).resolve()
         if not candidate.is_relative_to(root):
             raise ValueError(f"Knowledge search path escapes catalog: {requested_path}")
-        if candidate.is_file():
+        if candidate.is_file() and not any(
+            part.casefold() == ".git" for part in candidate.relative_to(root).parts
+        ):
             files.add(candidate)
         elif candidate.is_dir():
-            files.update(path for path in candidate.rglob("*") if path.is_file())
+            files.update(
+                path
+                for path in candidate.rglob("*")
+                if path.is_file()
+                and not any(part.casefold() == ".git" for part in path.relative_to(root).parts)
+            )
 
     matches: list[tuple[Path, int, str]] = []
     for path in sorted(files):
@@ -196,7 +201,7 @@ def execute_source_research(
             )
             break
         snapshot = snapshots.get(query.source_id)
-        if snapshot is None or not source_snapshot_matches_checkout(
+        if snapshot is None or not source_snapshot_supports_object_read(
             snapshot,
             require_requested_revision=inspection.prepared.request.issue is not None,
         ):

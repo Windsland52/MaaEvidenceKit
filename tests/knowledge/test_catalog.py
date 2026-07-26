@@ -3,7 +3,15 @@ import json
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from maa_diagnostic_expert.contracts.domain import AnalysisRequest, SourceInput, SourceRole
+import pytest
+
+from maa_diagnostic_expert.contracts.domain import (
+    AnalysisRequest,
+    EvidenceQuery,
+    SourceInput,
+    SourceRevisionBackend,
+    SourceRole,
+)
 from maa_diagnostic_expert.contracts.knowledge import (
     WikiCatalogFile,
     WikiCatalogKind,
@@ -16,6 +24,7 @@ from maa_diagnostic_expert.contracts.workflow import (
     SourceSearchQuery,
 )
 from maa_diagnostic_expert.discovery.preparation import prepare_analysis
+from maa_diagnostic_expert.inspection.evidence_query import query_evidence
 from maa_diagnostic_expert.inspection.models import DeterministicInspection
 from maa_diagnostic_expert.inspection.source_search import (
     execute_knowledge_research,
@@ -29,6 +38,7 @@ from maa_diagnostic_expert.knowledge.catalog import (
 )
 
 _REVISION = "a" * 40
+_DOCUMENT_PATH = "generated/maa-framework/5.12.2/documentation/zh-cn.md"
 
 
 def _manifest(content: bytes) -> WikiCatalogManifest:
@@ -38,7 +48,7 @@ def _manifest(content: bytes) -> WikiCatalogManifest:
         sources=[WikiCatalogSource(source_id="maafw", version="5.12.2", revision="b" * 40)],
         files=[
             WikiCatalogFile(
-                path="generated/maa-framework/5.12.2/documentation/zh-cn.md",
+                path=_DOCUMENT_PATH,
                 size_bytes=len(content),
                 sha256=hashlib.sha256(content).hexdigest(),
             )
@@ -93,6 +103,7 @@ def test_snapshot_is_revisioned_and_searchable_without_git(tmp_path: Path) -> No
         )
     )
     inspection = DeterministicInspection(prepared=prepared)
+    assert prepared.source_snapshots[0].revision_backend is SourceRevisionBackend.WIKI_CATALOG
     plan = KnowledgeResearchPlan(
         status=SourceResearchStatus.RUN,
         rationale="Find the versioned navigation entry.",
@@ -116,6 +127,65 @@ def test_snapshot_is_revisioned_and_searchable_without_git(tmp_path: Path) -> No
     assert prepared.source_snapshots[0].resolved_revision == _REVISION
     assert match.source_locator.startswith(f"catalog:maa-llm-wiki@{_REVISION}:")
     assert evidence.kind == "wiki_navigation_match"
+
+
+@pytest.mark.parametrize("tamper", ["listed_file", "extra_file"])
+def test_tampered_catalog_snapshot_is_not_read_as_pinned_evidence(
+    tmp_path: Path,
+    tamper: str,
+) -> None:
+    snapshot = _snapshot(tmp_path / "wiki")
+    document = snapshot / _DOCUMENT_PATH
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="Explain the timeout.",
+            sources=[
+                SourceInput(
+                    source_id="maa-llm-wiki",
+                    role=SourceRole.WIKI,
+                    path=snapshot,
+                    revision=_REVISION,
+                )
+            ],
+        )
+    )
+    if tamper == "listed_file":
+        document.write_text("Tampered next list guidance.\n", encoding="utf-8")
+    else:
+        (snapshot / "injected.md").write_text("Injected next list guidance.\n", encoding="utf-8")
+
+    plan = KnowledgeResearchPlan(
+        status=SourceResearchStatus.RUN,
+        rationale="Find the versioned navigation entry.",
+        queries=[
+            SourceSearchQuery(
+                query_id="timeout-doc",
+                source_id="maa-llm-wiki",
+                terms=["next list"],
+                paths=["."],
+                reason="Locate timeout documentation.",
+                context_lines=0,
+                max_results=5,
+            )
+        ],
+    )
+
+    result = execute_knowledge_research(DeterministicInspection(prepared=prepared), plan)
+
+    assert result.knowledge_search_matches == []
+    assert "source_search_source_unavailable" in {
+        item.code for item in result.prepared.missing_evidence
+    }
+    with pytest.raises(ValueError, match="Wiki catalog .* is unavailable"):
+        query_evidence(
+            prepared,
+            EvidenceQuery(
+                source_path=document,
+                line_start=1,
+                line_end=1,
+                reason="Read the pinned navigation evidence.",
+            ),
+        )
 
 
 def test_remote_bundle_is_downloaded_once_and_reused_offline(tmp_path: Path) -> None:

@@ -13,8 +13,11 @@ from maa_diagnostic_expert.contracts.domain import (
     Evidence,
     EvidenceReliability,
     EvidenceRole,
+    RevisionResolutionStatus,
     SourceInput,
+    SourceRevisionBackend,
     SourceRole,
+    SourceSnapshot,
 )
 from maa_diagnostic_expert.discovery.inputs import resolve_project_root
 
@@ -42,6 +45,32 @@ def test_request_rejects_duplicate_source_ids(tmp_path: Path) -> None:
         AnalysisRequest(
             question="Which source revision applies?",
             sources=duplicate_sources,
+        )
+
+
+def test_legacy_source_snapshot_defaults_to_unknown_revision_backend(tmp_path: Path) -> None:
+    snapshot = SourceSnapshot.model_validate(
+        {
+            "source_id": "project",
+            "role": "project",
+            "path": tmp_path,
+            "current_revision": "abc123",
+            "resolution_status": "not_requested",
+        }
+    )
+
+    assert snapshot.revision_backend is SourceRevisionBackend.UNKNOWN
+
+
+def test_wiki_catalog_backend_requires_wiki_role(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError, match="requires the Wiki source role"):
+        SourceSnapshot(
+            source_id="project",
+            role=SourceRole.PROJECT,
+            path=tmp_path,
+            revision_backend=SourceRevisionBackend.WIKI_CATALOG,
+            current_revision="abc123",
+            resolution_status=RevisionResolutionStatus.NOT_REQUESTED,
         )
 
 

@@ -40,7 +40,7 @@ from maa_diagnostic_expert.discovery.artifact_classification import (
 )
 from maa_diagnostic_expert.discovery.preparation import prepare_analysis
 from maa_diagnostic_expert.discovery.source_preparation import (
-    source_snapshot_matches_checkout,
+    source_snapshot_supports_object_read,
 )
 from maa_diagnostic_expert.inspection.incident_comparison import (
     compare_incident_execution,
@@ -101,7 +101,7 @@ def _available_knowledge_sources(
         (snapshot.source_id, snapshot.role)
         for snapshot in inspection.prepared.source_snapshots
         if snapshot.role in _KNOWLEDGE_SOURCE_ROLES
-        and source_snapshot_matches_checkout(
+        and source_snapshot_supports_object_read(
             snapshot,
             require_requested_revision=require_revision,
         )
