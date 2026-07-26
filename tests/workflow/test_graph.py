@@ -26,6 +26,11 @@ from maa_diagnostic_expert.contracts.domain import (
 )
 from maa_diagnostic_expert.contracts.workflow import (
     EvidenceResearchPlan,
+    FixCandidate,
+    FixCandidatePlan,
+    FixMethod,
+    FixPlanningStatus,
+    FixScope,
     IncidentCorrelationDraft,
     IncidentSelectionStatus,
     KnowledgeResearchPlan,
@@ -37,6 +42,13 @@ from maa_diagnostic_expert.inspection import log_overview
 from maa_diagnostic_expert.reasoning.prompts import StubReasoningBackend
 from maa_diagnostic_expert.reasoning.protocol import ReasoningContext
 from maa_diagnostic_expert.workflow.graph import DiagnosticWorkflow
+
+
+def _skip_fix_candidate_plan() -> FixCandidatePlan:
+    return FixCandidatePlan(
+        status=FixPlanningStatus.SKIP,
+        rationale="This test backend does not propose a repair.",
+    )
 
 
 def _supported_preflight() -> dict[str, JsonValue]:
@@ -144,6 +156,8 @@ class _InventingReasoningSession:
                     rationale="No focused window is needed for this test.",
                 ),
             )
+        if result_type is FixCandidatePlan:
+            return cast(ResultT, _skip_fix_candidate_plan())
         del context, result_type
         return cast(
             ResultT,
@@ -331,6 +345,8 @@ class _SourceResearchSession:
                     ],
                 ),
             )
+        if result_type is FixCandidatePlan:
+            return cast(ResultT, _skip_fix_candidate_plan())
         raise TypeError(result_type.__name__)
 
     async def close(self) -> None:
@@ -398,6 +414,8 @@ class _KnowledgeResearchSession:
                     ],
                 ),
             )
+        if result_type is FixCandidatePlan:
+            return cast(ResultT, _skip_fix_candidate_plan())
         raise TypeError(result_type.__name__)
 
     async def close(self) -> None:
@@ -461,6 +479,30 @@ class _AdaptiveEvidenceSession:
                     ],
                 ),
             )
+        if result_type is FixCandidatePlan:
+            window = next(item for item in context.evidence if item.kind == "text_line_window")
+            evidence_id = "ev:invented" if self.backend.invent_fix_evidence else window.id
+            return cast(
+                ResultT,
+                FixCandidatePlan(
+                    status=FixPlanningStatus.PROPOSED,
+                    rationale="The retry boundary identifies a focused configuration target.",
+                    candidates=[
+                        FixCandidate(
+                            fix_id="fix-retry-policy",
+                            target="custom-agent retry policy",
+                            scope=FixScope.PROJECT,
+                            method=FixMethod.CONFIGURATION,
+                            rationale="Adjust only the exhausted retry policy.",
+                            evidence_ids=[evidence_id],
+                            regression_risks=["Transient failures may take longer to surface."],
+                            verification_steps=[
+                                "Replay the failed operation and an adjacent successful case."
+                            ],
+                        )
+                    ],
+                ),
+            )
         raise TypeError(result_type.__name__)
 
     async def close(self) -> None:
@@ -468,8 +510,9 @@ class _AdaptiveEvidenceSession:
 
 
 class _AdaptiveEvidenceBackend:
-    def __init__(self, log_path: Path) -> None:
+    def __init__(self, log_path: Path, *, invent_fix_evidence: bool = False) -> None:
         self.log_path = log_path
+        self.invent_fix_evidence = invent_fix_evidence
         self.plan_calls = 0
 
     async def start(self, *, run_id: str) -> _AdaptiveEvidenceSession:
@@ -537,6 +580,7 @@ def test_issue_only_context_reaches_correlation_and_final_reasoning(tmp_path: Pa
     assert {context.stage for context in resolved_contexts} == {
         "correlate_incident",
         "diagnose",
+        "propose_fix",
     }
     for context in resolved_contexts:
         assert "Reported issue:\nLoginTask stopped after LoginButton timed out." in (
@@ -558,6 +602,8 @@ def test_diagnose_returns_insufficient_without_failures(tmp_path: Path) -> None:
     assert result.status is DiagnosisStatus.INSUFFICIENT_EVIDENCE
     assert result.conclusions == []
     assert "incident_candidates_not_found" in result.missing_evidence
+    assert workflow.fix_candidate_plan is not None
+    assert workflow.fix_candidate_plan.status is FixPlanningStatus.SKIP
 
 
 def test_workflow_rejects_model_invented_evidence_ids(tmp_path: Path) -> None:
@@ -628,6 +674,7 @@ def test_stream_emits_events_in_order(tmp_path: Path) -> None:
         "correlate_incident",
         "plan_evidence_research",
         "reason",
+        "propose_fix",
     ]
     assert completed_stages == [
         "prepare",
@@ -798,7 +845,38 @@ def test_workflow_adaptively_queries_focused_raw_evidence(tmp_path: Path) -> Non
     assert window.line_start == 2
     assert window.line_end == 3
     assert window.content == "retry exhausted\noperation failed"
+    assert workflow.fix_candidate_plan is not None
+    assert workflow.fix_candidate_plan.status is FixPlanningStatus.PROPOSED
+    [candidate] = workflow.fix_candidate_plan.candidates
+    assert candidate.fix_id == "fix-retry-policy"
+    assert candidate.evidence_ids == [window.id]
     assert any(event.stage == "query_evidence" for event in events)
+    assert any(event.stage == "propose_fix" for event in events)
+
+
+def test_workflow_rejects_fix_candidate_with_invented_evidence(tmp_path: Path) -> None:
+    log = tmp_path / "agent.log"
+    log.write_text(
+        "operation started\nretry exhausted\noperation failed\n",
+        encoding="utf-8",
+    )
+    workflow = DiagnosticWorkflow(
+        _ToolCaller(),
+        _AdaptiveEvidenceBackend(log.resolve(), invent_fix_evidence=True),
+    )
+    request = AnalysisRequest(
+        question="Why did the custom operation fail?",
+        artifacts=[ArtifactInput(path=log, kind=ArtifactKind.FILE)],
+    )
+
+    events = _collect_events(workflow, request)
+
+    assert events[-1].kind is DiagnosticEventKind.RUN_FAILED
+    assert events[-1].stage == "propose_fix"
+    assert workflow.result is not None
+    assert workflow.result.status is DiagnosisStatus.FAILED
+    assert "unknown evidence IDs" in workflow.result.summary
+    assert workflow.fix_candidate_plan is None
 
 
 def test_workflow_runs_model_planned_versioned_source_search(
@@ -948,6 +1026,7 @@ def test_workflow_runs_document_search_without_runtime_incident(tmp_path: Path) 
     assert {context.stage for context in backend.contexts} == {
         "plan_knowledge_research",
         "diagnose",
+        "propose_fix",
     }
     for context in backend.contexts:
         assert (

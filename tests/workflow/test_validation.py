@@ -18,6 +18,11 @@ from maa_diagnostic_expert.contracts.domain import (
 )
 from maa_diagnostic_expert.contracts.workflow import (
     ArtifactSourceKind,
+    FixCandidate,
+    FixCandidatePlan,
+    FixMethod,
+    FixPlanningStatus,
+    FixScope,
     IncidentCandidate,
     IncidentComparison,
     IncidentComparisonStatus,
@@ -34,6 +39,7 @@ from maa_diagnostic_expert.inspection.models import DeterministicInspection
 from maa_diagnostic_expert.workflow.validation import (
     collect_deterministic_missing_evidence,
     finalize_diagnosis_draft,
+    validate_fix_candidate_plan,
     validate_incident_correlation,
     validate_result_against_inspection,
 )
@@ -67,6 +73,25 @@ def _inspection(*, missing: bool = False) -> DeterministicInspection:
     )
 
 
+def _fix_plan(evidence_id: str = "ev:known") -> FixCandidatePlan:
+    return FixCandidatePlan(
+        status=FixPlanningStatus.PROPOSED,
+        rationale="The observed failure has a focused configuration target.",
+        candidates=[
+            FixCandidate(
+                fix_id="fix-1",
+                target="pipeline.json:LoginButton.expected",
+                scope=FixScope.NODE,
+                method=FixMethod.EXPECTED_REPLACE,
+                rationale="Normalize the observed OCR variant.",
+                evidence_ids=[evidence_id],
+                regression_risks=["A broad replacement could accept unrelated text."],
+                verification_steps=["Replay the failure screenshot."],
+            )
+        ],
+    )
+
+
 def _draft(evidence_id: str = "ev:known") -> DiagnosisDraft:
     return DiagnosisDraft(
         status=DiagnosisStatus.COMPLETE,
@@ -93,6 +118,51 @@ def _incident_selection() -> IncidentSelection:
             )
         ],
     )
+
+
+def test_fix_candidate_plan_accepts_diagnosis_backed_evidence() -> None:
+    plan = _fix_plan()
+
+    assert validate_fix_candidate_plan(plan, _draft(), [_evidence()]) is plan
+
+
+def test_fix_candidate_plan_rejects_unknown_evidence() -> None:
+    with pytest.raises(ValueError, match="unknown evidence IDs"):
+        validate_fix_candidate_plan(_fix_plan("ev:invented"), _draft(), [_evidence()])
+
+
+def test_fix_candidate_plan_requires_diagnosis_conclusion_evidence() -> None:
+    supporting = _evidence().model_copy(update={"id": "ev:supporting"})
+
+    with pytest.raises(ValueError, match="must cite diagnosis conclusion evidence"):
+        validate_fix_candidate_plan(
+            _fix_plan("ev:supporting"),
+            _draft(),
+            [_evidence(), supporting],
+        )
+
+
+def test_fix_candidate_plan_rejects_navigation_only_evidence() -> None:
+    wiki = _evidence().model_copy(
+        update={
+            "id": "ev:wiki",
+            "kind": "wiki_navigation_match",
+            "role": EvidenceRole.CONTEXT,
+        }
+    )
+
+    with pytest.raises(ValueError, match="navigation-only evidence IDs"):
+        validate_fix_candidate_plan(_fix_plan("ev:wiki"), _draft("ev:wiki"), [wiki])
+
+
+def test_fix_candidate_plan_requires_complete_diagnosis() -> None:
+    diagnosis = DiagnosisDraft(
+        status=DiagnosisStatus.INSUFFICIENT_EVIDENCE,
+        summary="No direct failure was observed.",
+    )
+
+    with pytest.raises(ValueError, match="complete evidence-backed diagnosis"):
+        validate_fix_candidate_plan(_fix_plan(), diagnosis, [_evidence()])
 
 
 def test_finalize_draft_attaches_only_authoritative_evidence() -> None:

@@ -1,0 +1,137 @@
+{
+  "$defs": {
+    "FixCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "const": "fix-candidate/v1",
+          "default": "fix-candidate/v1",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "fix_id": {
+          "minLength": 1,
+          "title": "Fix Id",
+          "type": "string"
+        },
+        "target": {
+          "minLength": 1,
+          "title": "Target",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/FixScope"
+        },
+        "method": {
+          "$ref": "#/$defs/FixMethod"
+        },
+        "rationale": {
+          "minLength": 1,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "regression_risks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Regression Risks",
+          "type": "array"
+        },
+        "verification_steps": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Verification Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "fix_id",
+        "target",
+        "scope",
+        "method",
+        "rationale",
+        "evidence_ids",
+        "verification_steps"
+      ],
+      "title": "FixCandidate",
+      "type": "object"
+    },
+    "FixMethod": {
+      "enum": [
+        "configuration",
+        "roi",
+        "only_rec",
+        "expected_replace",
+        "color_filter",
+        "project_code",
+        "gui_code",
+        "framework_code",
+        "model_change"
+      ],
+      "title": "FixMethod",
+      "type": "string"
+    },
+    "FixPlanningStatus": {
+      "enum": [
+        "proposed",
+        "skip"
+      ],
+      "title": "FixPlanningStatus",
+      "type": "string"
+    },
+    "FixScope": {
+      "enum": [
+        "node",
+        "pipeline",
+        "project",
+        "gui",
+        "framework",
+        "dependency"
+      ],
+      "title": "FixScope",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A bounded set of evidence-backed repair proposals, never an execution request.",
+  "properties": {
+    "api_version": {
+      "const": "fix-candidate-plan/v1",
+      "default": "fix-candidate-plan/v1",
+      "title": "Api Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/FixPlanningStatus"
+    },
+    "candidates": {
+      "items": {
+        "$ref": "#/$defs/FixCandidate"
+      },
+      "maxItems": 3,
+      "title": "Candidates",
+      "type": "array"
+    },
+    "rationale": {
+      "minLength": 1,
+      "title": "Rationale",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "rationale"
+  ],
+  "title": "FixCandidatePlan",
+  "type": "object"
+}

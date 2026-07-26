@@ -71,6 +71,11 @@ Python executes them with Git and returns only bounded line windows as secondary
 Explicit `documentation`, `wiki`, and MaaFramework source inputs can also enter a separate bounded
 knowledge-search stage. Original documentation passages are context evidence; Wiki passages are
 navigation-only and validation rejects conclusions that cite them directly.
+After a complete diagnosis, a separate model stage may return up to three repair candidates.
+Python rejects unknown evidence IDs, navigation-only citations, and candidates that do not cite
+at least one diagnosis-conclusion evidence record. These are proposals only: they do not write
+files or run commands. SDK callers can inspect the validated `DiagnosticWorkflow.fix_candidate_plan`
+after a run; insufficient diagnoses produce an explicit skipped plan.
 Inputs that are unrelated to MaaFramework logs can therefore bypass MLA. Explicit graph state
 keeps the plan, inspection facts, authoritative evidence, model drafts, failures, and final
 results separate.
@@ -106,6 +111,7 @@ uv run maa-diagnostic-expert prepare --request request.json --output prepared.js
 uv run maa-diagnostic-expert inspect --request request.json --output inspection.json
 uv run maa-diagnostic-expert diagnose --request request.json --output diagnosis.json
 uv run maa-diagnostic-expert diagnose --request request.json --model-config model.json --output diagnosis.json
+uv run maa-diagnostic-expert diagnose --request request.json --fix-plan fix-plan.json --output diagnosis.json
 uv run maa-diagnostic-expert query-evidence --prepared inspection.json --request evidence-query.json --output evidence-window.json
 uv run maa-diagnostic-expert validate-result --input diagnosis.json --inspection inspection.json --evidence-window evidence-window.json
 ~~~

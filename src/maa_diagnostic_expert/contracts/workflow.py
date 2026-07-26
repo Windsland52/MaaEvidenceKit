@@ -340,6 +340,38 @@ class FixCandidate(ContractModel):
     regression_risks: list[str] = Field(default_factory=_new_strings)
     verification_steps: list[str] = Field(min_length=1)
 
+    @field_validator("evidence_ids", "regression_risks", "verification_steps")
+    @classmethod
+    def validate_unique_fix_items(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("Fix candidate list items must be unique")
+        return value
+
+
+class FixPlanningStatus(StrEnum):
+    PROPOSED = "proposed"
+    SKIP = "skip"
+
+
+class FixCandidatePlan(ContractModel):
+    """A bounded set of evidence-backed repair proposals, never an execution request."""
+
+    api_version: Literal["fix-candidate-plan/v1"] = "fix-candidate-plan/v1"
+    status: FixPlanningStatus
+    candidates: list[FixCandidate] = Field(default_factory=list[FixCandidate], max_length=3)
+    rationale: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_plan(self) -> FixCandidatePlan:
+        fix_ids = [candidate.fix_id for candidate in self.candidates]
+        if len(fix_ids) != len(set(fix_ids)):
+            raise ValueError("Fix candidate IDs must be unique")
+        if self.status is FixPlanningStatus.PROPOSED and not self.candidates:
+            raise ValueError("A proposed fix plan requires at least one candidate")
+        if self.status is FixPlanningStatus.SKIP and self.candidates:
+            raise ValueError("A skipped fix plan cannot contain candidates")
+        return self
+
 
 class VerificationMethod(StrEnum):
     OFFLINE_SCREENSHOT = "offline_screenshot"

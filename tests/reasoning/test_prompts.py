@@ -9,6 +9,7 @@ from maa_diagnostic_expert.contracts.domain import (
     AnalysisRequest,
     ArtifactInput,
     ArtifactKind,
+    Conclusion,
     ContractModel,
     DiagnosisDraft,
     DiagnosisStatus,
@@ -19,6 +20,8 @@ from maa_diagnostic_expert.contracts.domain import (
     SourceRole,
 )
 from maa_diagnostic_expert.contracts.workflow import (
+    FixCandidatePlan,
+    FixPlanningStatus,
     IncidentCandidate,
     IncidentComparison,
     IncidentComparisonFinding,
@@ -42,6 +45,7 @@ from maa_diagnostic_expert.reasoning.prompts import (
     StubReasoningBackend,
     StubReasoningSession,
     build_evidence_research_context,
+    build_fix_candidate_context,
     build_incident_correlation_context,
     build_knowledge_research_context,
     build_reasoning_context,
@@ -140,6 +144,22 @@ def test_all_reasoning_stages_receive_the_same_reported_context() -> None:
             [candidate],
             comparison,
             [("docs", SourceRole.DOCUMENTATION)],
+        ),
+        build_fix_candidate_context(
+            reported_context,
+            [candidate],
+            DiagnosisDraft(
+                status=DiagnosisStatus.COMPLETE,
+                summary="The login task timed out.",
+                conclusions=[
+                    Conclusion(
+                        statement="The login task timed out.",
+                        evidence_ids=[candidate.id],
+                        confidence=0.9,
+                    )
+                ],
+            ),
+            comparison,
         ),
         build_reasoning_context(reported_context, [candidate]),
     ]
@@ -553,6 +573,55 @@ def test_stub_backend_skips_semantic_knowledge_research() -> None:
 
     assert result.status is SourceResearchStatus.SKIP
     assert result.queries == []
+
+
+def test_fix_candidate_context_separates_proposal_from_execution() -> None:
+    failure = _evidence(
+        "failure",
+        EvidenceReliability.PRIMARY,
+        role=EvidenceRole.FAILURE,
+    )
+    diagnosis = DiagnosisDraft(
+        status=DiagnosisStatus.COMPLETE,
+        summary="OCR missed the expected label.",
+        conclusions=[
+            Conclusion(
+                statement="OCR returned an unnormalized variant.",
+                evidence_ids=[failure.id],
+                confidence=0.9,
+            )
+        ],
+    )
+
+    context = build_fix_candidate_context(
+        "Why was the label missed?",
+        [failure],
+        diagnosis,
+        IncidentComparison(status=IncidentComparisonStatus.PARTIAL),
+    )
+
+    assert context.stage == "propose_fix"
+    assert "do not claim that any change was applied" in context.instruction
+    assert "ROI/only_rec" in context.instruction
+    assert "evidence=failure" in context.instruction
+
+
+def test_stub_backend_skips_semantic_fix_planning() -> None:
+    session = StubReasoningSession(run_id="run-fix-planning")
+    context = build_fix_candidate_context(
+        "Diagnose",
+        [],
+        DiagnosisDraft(
+            status=DiagnosisStatus.INSUFFICIENT_EVIDENCE,
+            summary="No direct failure was observed.",
+        ),
+        IncidentComparison(status=IncidentComparisonStatus.UNAVAILABLE),
+    )
+
+    result = asyncio.run(session.reason(context, FixCandidatePlan))
+
+    assert result.status is FixPlanningStatus.SKIP
+    assert result.candidates == []
 
 
 def test_stub_backend_produces_complete_draft_with_direct_failure() -> None:

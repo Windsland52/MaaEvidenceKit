@@ -5,11 +5,14 @@ from collections.abc import Iterable
 from maa_diagnostic_expert.contracts.domain import (
     DiagnosisDraft,
     DiagnosisResult,
+    DiagnosisStatus,
     Evidence,
     MissingEvidence,
     PreparedAnalysis,
 )
 from maa_diagnostic_expert.contracts.workflow import (
+    FixCandidatePlan,
+    FixPlanningStatus,
     IncidentCorrelationDraft,
     IncidentSelection,
     IncidentSelectionStatus,
@@ -75,6 +78,34 @@ def validate_incident_correlation(
         if not selected_evidence.intersection(draft.evidence_ids):
             raise ValueError("Selected incident correlation must cite selected candidate evidence")
     return draft
+
+
+def validate_fix_candidate_plan(
+    plan: FixCandidatePlan,
+    draft: DiagnosisDraft,
+    evidence: Iterable[Evidence],
+) -> FixCandidatePlan:
+    """Reject repair proposals that outrun the validated diagnostic evidence."""
+    if plan.status is FixPlanningStatus.SKIP:
+        return plan
+    if draft.status is not DiagnosisStatus.COMPLETE:
+        raise ValueError("Fix candidates require a complete evidence-backed diagnosis")
+    ledger = {item.id: item for item in evidence}
+    diagnosis_ids = {
+        evidence_id for conclusion in draft.conclusions for evidence_id in conclusion.evidence_ids
+    }
+    for candidate in plan.candidates:
+        referenced_ids = set(candidate.evidence_ids)
+        unknown_ids = referenced_ids - set(ledger)
+        if unknown_ids:
+            unknown = ", ".join(sorted(unknown_ids))
+            raise ValueError(f"Fix candidate references unknown evidence IDs: {unknown}")
+        _reject_non_citable_evidence(referenced_ids, ledger)
+        if not referenced_ids.intersection(diagnosis_ids):
+            raise ValueError(
+                f"Fix candidate '{candidate.fix_id}' must cite diagnosis conclusion evidence"
+            )
+    return plan
 
 
 def collect_inspection_evidence(

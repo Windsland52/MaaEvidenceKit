@@ -6,6 +6,7 @@ from maa_diagnostic_expert.contracts.domain import (
     Conclusion,
     ContractModel,
     DiagnosisDraft,
+    DiagnosisResult,
     DiagnosisStatus,
     Evidence,
     EvidenceReliability,
@@ -16,6 +17,8 @@ from maa_diagnostic_expert.contracts.domain import (
 )
 from maa_diagnostic_expert.contracts.workflow import (
     EvidenceResearchPlan,
+    FixCandidatePlan,
+    FixPlanningStatus,
     IncidentComparison,
     IncidentCorrelationDraft,
     IncidentSelection,
@@ -447,6 +450,52 @@ def build_knowledge_research_context(
     )
 
 
+def build_fix_candidate_context(
+    reported_context: str,
+    evidence: list[Evidence],
+    diagnosis: DiagnosisDraft | DiagnosisResult,
+    incident_comparison: IncidentComparison,
+) -> ReasoningContext:
+    """Build the model request for bounded, evidence-backed repair proposals."""
+    lines = [
+        "Propose a bounded set of minimal repair candidates for the completed diagnosis.",
+        "Return repair proposals only; do not claim that any change was applied or verified.",
+        "",
+        "Reported diagnostic context:",
+        reported_context,
+        f"Diagnosis status: {diagnosis.status.value}",
+        f"Diagnosis summary: {diagnosis.summary}",
+        "Diagnosis conclusions:",
+        *(
+            f"- {conclusion.statement}; confidence={conclusion.confidence}; "
+            f"evidence={', '.join(conclusion.evidence_ids)}"
+            for conclusion in diagnosis.conclusions
+        ),
+        f"Actual/expected comparison status: {incident_comparison.status.value}",
+        "",
+        "Rules:",
+        "1. Propose at most three candidates and prefer one minimal, stable change.",
+        "2. Every candidate must cite known evidence IDs, including evidence cited by a",
+        "   diagnosis conclusion. Evidence supports a proposal; it does not prove the fix.",
+        "3. Target the first observed divergence and name a precise node, file, symbol,",
+        "   configuration field, dependency, GUI component, or framework component.",
+        "4. Record concrete regression risks and verification steps for every candidate.",
+        "5. Do not execute commands, write files, or report a repair as completed.",
+        "6. Use skip if the diagnosis is insufficient or no evidence-backed target exists.",
+        "7. For OCR configuration, prefer ROI/only_rec corrections, then expected/replace,",
+        "   then evidence-backed color_filter; avoid model changes as a default mature fix.",
+        "8. Framework-level success is not a business milestone; verification must cover",
+        "   the reported outcome and relevant adjacent regression scenarios.",
+        "9. Wiki navigation evidence cannot directly support a repair candidate.",
+    ]
+    return ReasoningContext(
+        stage="propose_fix",
+        instruction="\n".join(lines),
+        evidence=order_evidence_for_reasoning(evidence),
+        incident_comparison=incident_comparison,
+    )
+
+
 def _stub_diagnose(context: ReasoningContext) -> DiagnosisDraft:
     """Produce a deterministic diagnosis from the evidence without a model.
 
@@ -530,6 +579,13 @@ def _stub_plan_evidence_research() -> EvidenceResearchPlan:
     )
 
 
+def _stub_plan_fix_candidates() -> FixCandidatePlan:
+    return FixCandidatePlan(
+        status=FixPlanningStatus.SKIP,
+        rationale="The deterministic stub does not propose semantic repair candidates.",
+    )
+
+
 class StubReasoningSession:
     """Deterministic reasoning session for testing without a model."""
 
@@ -562,6 +618,8 @@ class StubReasoningSession:
             return cast(ResultT, _stub_plan_knowledge_research())
         if result_type is EvidenceResearchPlan:
             return cast(ResultT, _stub_plan_evidence_research())
+        if result_type is FixCandidatePlan:
+            return cast(ResultT, _stub_plan_fix_candidates())
         raise TypeError(f"Stub backend cannot produce {result_type.__name__}")
 
     async def close(self) -> None:

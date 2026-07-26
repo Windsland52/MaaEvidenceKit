@@ -126,6 +126,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Optional path to write the diagnostic event stream as JSON lines.",
     )
+    diagnose.add_argument(
+        "--fix-plan",
+        type=Path,
+        help="Optional path to write the validated FixCandidatePlan JSON.",
+    )
     _add_output_argument(diagnose)
 
     validate = commands.add_parser("validate-result")
@@ -264,6 +269,11 @@ def _run_diagnose(args: argparse.Namespace) -> None:
         result = asyncio.run(_stream_to_file(workflow, request, events_path))
     else:
         result = asyncio.run(workflow.diagnose(request))
+    fix_plan_path = cast(Path | None, args.fix_plan)
+    if fix_plan_path is not None:
+        if workflow.fix_candidate_plan is None:
+            raise RuntimeError("workflow completed without producing a fix candidate plan")
+        _emit_model(workflow.fix_candidate_plan, fix_plan_path)
     if fmt == "markdown":
         _emit_text(render_markdown_report(result), output)
     else:

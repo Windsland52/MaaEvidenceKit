@@ -24,7 +24,9 @@ from maa_diagnostic_expert.contracts.workflow import (
     BranchDisposition,
     EvidenceResearchPlan,
     FixCandidate,
+    FixCandidatePlan,
     FixMethod,
+    FixPlanningStatus,
     FixScope,
     IncidentCandidate,
     IncidentSelection,
@@ -467,6 +469,38 @@ def test_standalone_workflow_contracts_are_versioned() -> None:
 
     assert fix.api_version == "fix-candidate/v1"
     assert guidance.api_version == "source-guidance/v1"
+
+
+def test_fix_candidate_plan_requires_bounded_unique_candidates() -> None:
+    candidate = FixCandidate(
+        fix_id="fix-1",
+        target="pipeline.json:RecognizeStage.expected",
+        scope=FixScope.NODE,
+        method=FixMethod.EXPECTED_REPLACE,
+        rationale="Normalize one observed OCR variant.",
+        evidence_ids=["evidence-1"],
+        verification_steps=["Replay the captured screenshot."],
+    )
+    plan = FixCandidatePlan(
+        status=FixPlanningStatus.PROPOSED,
+        candidates=[candidate],
+        rationale="A focused configuration repair is supported.",
+    )
+
+    assert plan.api_version == "fix-candidate-plan/v1"
+
+    with pytest.raises(ValidationError, match="IDs must be unique"):
+        FixCandidatePlan(
+            status=FixPlanningStatus.PROPOSED,
+            candidates=[candidate, candidate],
+            rationale="Duplicate candidates.",
+        )
+    with pytest.raises(ValidationError, match="cannot contain candidates"):
+        FixCandidatePlan(
+            status=FixPlanningStatus.SKIP,
+            candidates=[candidate],
+            rationale="Invalid skipped plan.",
+        )
 
 
 def test_evidence_research_plan_requires_bounded_unique_queries(tmp_path: Path) -> None:

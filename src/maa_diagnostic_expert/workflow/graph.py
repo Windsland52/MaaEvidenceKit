@@ -28,6 +28,8 @@ from maa_diagnostic_expert.contracts.workflow import (
     ArtifactSourceInventory,
     BranchDisposition,
     EvidenceResearchPlan,
+    FixCandidatePlan,
+    FixPlanningStatus,
     IncidentCorrelationDraft,
     InvestigationBranch,
     InvestigationPlan,
@@ -77,6 +79,7 @@ from maa_diagnostic_expert.inspection.time_ranges import collect_time_range_miss
 from maa_diagnostic_expert.inspection.tooling import ToolCaller
 from maa_diagnostic_expert.reasoning.prompts import (
     build_evidence_research_context,
+    build_fix_candidate_context,
     build_incident_correlation_context,
     build_knowledge_research_context,
     build_reasoning_context,
@@ -90,6 +93,7 @@ from .validation import (
     collect_inspection_evidence,
     collect_missing_evidence_codes,
     finalize_diagnosis_draft,
+    validate_fix_candidate_plan,
     validate_incident_correlation,
 )
 
@@ -158,6 +162,7 @@ class DiagnosticState(TypedDict):
     source_research_plan: NotRequired[SourceResearchPlan]
     knowledge_research_plan: NotRequired[KnowledgeResearchPlan]
     draft: NotRequired[DiagnosisDraft]
+    fix_candidate_plan: NotRequired[FixCandidatePlan]
     result: NotRequired[DiagnosisResult]
     error_message: NotRequired[str]
     error_type: NotRequired[str]
@@ -175,6 +180,7 @@ class _DiagnosticStateUpdate(TypedDict, total=False):
     source_research_plan: SourceResearchPlan
     knowledge_research_plan: KnowledgeResearchPlan
     draft: DiagnosisDraft
+    fix_candidate_plan: FixCandidatePlan
     result: DiagnosisResult
     error_message: str
     error_type: str
@@ -199,6 +205,7 @@ class _WorkflowUpdate:
     stage: str
     message: str
     data: dict[str, JsonValue] = field(default_factory=dict[str, JsonValue])
+    fix_candidate_plan: FixCandidatePlan | None = None
     result: DiagnosisResult | None = None
 
 
@@ -255,6 +262,7 @@ class DiagnosticWorkflow:
     source_profiles: tuple[LogSourceProfile, ...] = ()
     run_id: str = field(default_factory=_new_run_id)
     _cancelled: set[str] = field(default_factory=set[str], init=False, repr=False)
+    _fix_candidate_plan: FixCandidatePlan | None = field(default=None, init=False, repr=False)
     _result: DiagnosisResult | None = field(default=None, init=False, repr=False)
 
     @property
@@ -262,11 +270,17 @@ class DiagnosticWorkflow:
         """Result produced by the most recent run, or None if not finished."""
         return self._result
 
+    @property
+    def fix_candidate_plan(self) -> FixCandidatePlan | None:
+        """Validated repair proposals produced by the most recent run, if reached."""
+        return self._fix_candidate_plan
+
     async def cancel(self, run_id: str) -> None:
         self._cancelled.add(run_id)
 
     async def diagnose(self, request: AnalysisRequest) -> DiagnosisResult:
         self._result = None
+        self._fix_candidate_plan = None
         async for _ in self._run(request):
             pass
         if self._result is None:
@@ -275,6 +289,7 @@ class DiagnosticWorkflow:
 
     def stream(self, request: AnalysisRequest) -> AsyncIterator[DiagnosticEvent]:
         self._result = None
+        self._fix_candidate_plan = None
         return self._run(request)
 
     def _start_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
@@ -1128,6 +1143,68 @@ class DiagnosticWorkflow:
     def _after_reason(state: DiagnosticState) -> Literal["validate", "fail"]:
         return "fail" if "error_message" in state else "validate"
 
+    async def _propose_fix_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
+        try:
+            if self.run_id in self._cancelled:
+                raise RuntimeError("workflow cancelled before fix proposal")
+            inspection = state.get("inspection")
+            draft = state.get("draft")
+            diagnosis = state.get("result")
+            if inspection is None or draft is None or diagnosis is None:
+                raise RuntimeError("fix proposal requires inspection and validated diagnosis")
+            evidence = state.get("evidence", [])
+            model_requested = draft.status is DiagnosisStatus.COMPLETE
+            if draft.status is not DiagnosisStatus.COMPLETE:
+                plan = FixCandidatePlan(
+                    status=FixPlanningStatus.SKIP,
+                    rationale="Repair proposals require a complete evidence-backed diagnosis.",
+                )
+            else:
+                context = build_fix_candidate_context(
+                    _reported_context(state["request"]),
+                    evidence,
+                    diagnosis,
+                    inspection.incident_comparison,
+                )
+                _emit(
+                    _WorkflowUpdate(
+                        kind=DiagnosticEventKind.MODEL_REQUESTED,
+                        stage="propose_fix",
+                        message="Requesting evidence-backed repair candidates",
+                        data={"evidence_count": len(context.evidence)},
+                    )
+                )
+                session = await self.reasoning_backend.start(run_id=self.run_id)
+                try:
+                    plan = await session.reason(context, FixCandidatePlan)
+                finally:
+                    await session.close()
+                validate_fix_candidate_plan(plan, draft, evidence)
+        except Exception as error:  # noqa: BLE001
+            return _failure_update("propose_fix", error)
+
+        _emit(
+            _WorkflowUpdate(
+                kind=(
+                    DiagnosticEventKind.MODEL_COMPLETED
+                    if model_requested
+                    else DiagnosticEventKind.STAGE_COMPLETED
+                ),
+                stage="propose_fix",
+                message="Repair candidate planning complete",
+                data={
+                    "status": plan.status.value,
+                    "candidates": len(plan.candidates),
+                },
+                fix_candidate_plan=plan,
+            )
+        )
+        return {"fix_candidate_plan": plan}
+
+    @staticmethod
+    def _after_propose_fix(state: DiagnosticState) -> Literal["complete", "fail"]:
+        return "fail" if "error_message" in state else "complete"
+
     def _validate_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
         _emit(
             _WorkflowUpdate(
@@ -1157,24 +1234,11 @@ class DiagnosticWorkflow:
                 data={"cited_evidence": len(result.evidence)},
             )
         )
-        _emit(
-            _WorkflowUpdate(
-                kind=DiagnosticEventKind.RUN_COMPLETED,
-                stage="workflow",
-                message="Diagnostic workflow complete",
-                data={
-                    "status": result.status.value,
-                    "conclusions": len(result.conclusions),
-                    "evidence": len(result.evidence),
-                },
-                result=result,
-            )
-        )
         return {"result": result}
 
     @staticmethod
-    def _after_validate(state: DiagnosticState) -> Literal["complete", "fail"]:
-        return "fail" if "error_message" in state else "complete"
+    def _after_validate(state: DiagnosticState) -> Literal["propose_fix", "fail"]:
+        return "fail" if "error_message" in state else "propose_fix"
 
     def _fail_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
         message = state.get("error_message", "Workflow failed")
@@ -1207,7 +1271,25 @@ class DiagnosticWorkflow:
 
     @staticmethod
     def _complete_node(state: DiagnosticState) -> _DiagnosticStateUpdate:
-        del state
+        result = state.get("result")
+        if result is None:
+            return _failure_update(
+                "complete",
+                RuntimeError("workflow completion requires a validated diagnosis"),
+            )
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.RUN_COMPLETED,
+                stage="workflow",
+                message="Diagnostic workflow complete",
+                data={
+                    "status": result.status.value,
+                    "conclusions": len(result.conclusions),
+                    "evidence": len(result.evidence),
+                },
+                result=result,
+            )
+        )
         return {}
 
     def _build_graph(
@@ -1249,6 +1331,7 @@ class DiagnosticWorkflow:
         )
         _add_graph_node(graph, "search_knowledge", self._search_knowledge_node)
         _add_graph_node(graph, "reason", self._reason_node)
+        _add_graph_node(graph, "propose_fix", self._propose_fix_node)
         _add_graph_node(graph, "validate", self._validate_node)
         _add_graph_node(graph, "fail", self._fail_node)
         _add_graph_node(graph, "complete", self._complete_node)
@@ -1285,6 +1368,7 @@ class DiagnosticWorkflow:
         graph.add_conditional_edges("search_knowledge", self._after_search_knowledge)
         graph.add_conditional_edges("reason", self._after_reason)
         graph.add_conditional_edges("validate", self._after_validate)
+        graph.add_conditional_edges("propose_fix", self._after_propose_fix)
         graph.add_edge("fail", END)
         graph.add_edge("complete", END)
         return _compile_graph(graph)
@@ -1297,6 +1381,8 @@ class DiagnosticWorkflow:
             if not isinstance(raw_update, _WorkflowUpdate):
                 raise TypeError("LangGraph returned an unexpected custom stream update")
             update = raw_update
+            if update.fix_candidate_plan is not None:
+                self._fix_candidate_plan = update.fix_candidate_plan
             if update.result is not None:
                 self._result = update.result
             yield DiagnosticEvent(
