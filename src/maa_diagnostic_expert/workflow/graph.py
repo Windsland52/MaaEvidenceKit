@@ -72,6 +72,7 @@ from maa_diagnostic_expert.reasoning.prompts import (
     build_incident_correlation_context,
     build_knowledge_research_context,
     build_reasoning_context,
+    build_reported_context,
     build_source_research_context,
 )
 from maa_diagnostic_expert.reasoning.protocol import ReasoningBackend, ReasoningContext
@@ -109,6 +110,13 @@ def _available_knowledge_sources(
 
 def _new_run_id() -> str:
     return secrets.token_hex(8)
+
+
+def _reported_context(request: AnalysisRequest) -> str:
+    return build_reported_context(
+        request.issue,
+        request.question or _DEFAULT_QUESTION,
+    )
 
 
 class DiagnosticState(TypedDict):
@@ -604,17 +612,8 @@ class DiagnosticWorkflow:
                 raise RuntimeError("incident correlation requires deterministic inspection")
             evidence = state.get("evidence", [])
             request = state["request"]
-            reported_parts = [
-                value
-                for value in (
-                    f"Issue: {request.issue}" if request.issue else None,
-                    f"Question: {request.question}" if request.question else None,
-                )
-                if value is not None
-            ]
-            reported_context = "\n".join(reported_parts) or _DEFAULT_QUESTION
             context = build_incident_correlation_context(
-                reported_context,
+                _reported_context(request),
                 evidence,
                 inspection.incident_selection,
             )
@@ -794,7 +793,7 @@ class DiagnosticWorkflow:
                 )
             )
             context = build_source_research_context(
-                state["request"].question or _DEFAULT_QUESTION,
+                _reported_context(state["request"]),
                 state.get("evidence", []),
                 inspection.incident_comparison,
                 source_ids,
@@ -903,7 +902,7 @@ class DiagnosticWorkflow:
                 raise RuntimeError("knowledge research planning requires deterministic inspection")
             sources = _available_knowledge_sources(inspection)
             context = build_knowledge_research_context(
-                state["request"].question or _DEFAULT_QUESTION,
+                _reported_context(state["request"]),
                 state.get("evidence", []),
                 inspection.incident_comparison,
                 sources,
@@ -998,9 +997,8 @@ class DiagnosticWorkflow:
             if inspection is None:
                 raise RuntimeError("reasoning requires deterministic inspection")
             evidence = state.get("evidence", [])
-            question = state["request"].question or _DEFAULT_QUESTION
             context: ReasoningContext = build_reasoning_context(
-                question,
+                _reported_context(state["request"]),
                 evidence,
                 inspection.incident_selection,
                 state.get("incident_correlation"),

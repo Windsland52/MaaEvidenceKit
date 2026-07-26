@@ -33,6 +33,7 @@ from maa_diagnostic_expert.reasoning.prompts import (
     build_incident_correlation_context,
     build_knowledge_research_context,
     build_reasoning_context,
+    build_reported_context,
     build_source_research_context,
     order_evidence_for_reasoning,
     render_evidence_block,
@@ -76,6 +77,65 @@ def _incident_selection() -> IncidentSelection:
             )
         ],
     )
+
+
+@pytest.mark.parametrize(
+    ("issue", "question", "expected"),
+    [
+        ("LoginTask stopped.", None, "Reported issue:\nLoginTask stopped."),
+        (None, "Why did it stop?", "Diagnostic question:\nWhy did it stop?"),
+        (
+            "LoginTask stopped.",
+            "Why did it stop?",
+            "Reported issue:\nLoginTask stopped.\n\nDiagnostic question:\nWhy did it stop?",
+        ),
+    ],
+)
+def test_build_reported_context_preserves_issue_and_question(
+    issue: str | None,
+    question: str | None,
+    expected: str,
+) -> None:
+    assert build_reported_context(issue, question) == expected
+
+
+def test_all_reasoning_stages_receive_the_same_reported_context() -> None:
+    reported_context = build_reported_context(
+        "LoginTask stopped after a timeout.",
+        "What directly failed?",
+    )
+    candidate = _evidence(
+        "candidate-evidence",
+        EvidenceReliability.PRIMARY,
+        kind="runtime_failure",
+        role=EvidenceRole.FAILURE,
+    )
+    comparison = IncidentComparison(status=IncidentComparisonStatus.UNAVAILABLE)
+    contexts = [
+        build_incident_correlation_context(
+            reported_context,
+            [candidate],
+            _incident_selection(),
+        ),
+        build_source_research_context(
+            reported_context,
+            [candidate],
+            comparison,
+            ["project"],
+        ),
+        build_knowledge_research_context(
+            reported_context,
+            [candidate],
+            comparison,
+            [("docs", SourceRole.DOCUMENTATION)],
+        ),
+        build_reasoning_context(reported_context, [candidate]),
+    ]
+
+    for context in contexts:
+        assert f"Reported diagnostic context:\n{reported_context}" in context.instruction
+        assert context.instruction.count("LoginTask stopped after a timeout.") == 1
+        assert context.instruction.count("What directly failed?") == 1
 
 
 def test_order_evidence_puts_failures_before_signals_and_context() -> None:

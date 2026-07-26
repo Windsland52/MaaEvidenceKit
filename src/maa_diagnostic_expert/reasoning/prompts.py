@@ -63,6 +63,18 @@ def _role_counts(evidence: list[Evidence]) -> dict[str, int]:
     return counts
 
 
+def build_reported_context(issue: str | None, question: str | None) -> str:
+    """Preserve the reported symptom and diagnostic question as distinct model inputs."""
+    parts: list[str] = []
+    if issue:
+        parts.append(f"Reported issue:\n{issue}")
+    if question:
+        parts.append(f"Diagnostic question:\n{question}")
+    if not parts:
+        raise ValueError("Reported context requires an issue or diagnostic question")
+    return "\n\n".join(parts)
+
+
 def _render_incident_candidates(selection: IncidentSelection, limit: int = 20) -> list[str]:
     lines = [
         "",
@@ -86,7 +98,7 @@ def _render_incident_candidates(selection: IncidentSelection, limit: int = 20) -
 
 
 def render_instruction(
-    question: str,
+    reported_context: str,
     evidence: list[Evidence],
     incident_selection: IncidentSelection | None = None,
     incident_correlation: IncidentCorrelationDraft | None = None,
@@ -99,7 +111,8 @@ def render_instruction(
         "You are a MaaFramework diagnostic expert. Analyze the provided runtime",
         "evidence and produce a structured diagnosis.",
         "",
-        f"Diagnostic question: {question}",
+        "Reported diagnostic context:",
+        reported_context,
         "",
         "Evidence reliability levels:",
         "- primary: a directly observed fact from an authoritative source",
@@ -201,7 +214,7 @@ def render_evidence_block(evidence: list[Evidence]) -> str:
 
 
 def build_reasoning_context(
-    question: str,
+    reported_context: str,
     evidence: list[Evidence],
     incident_selection: IncidentSelection | None = None,
     incident_correlation: IncidentCorrelationDraft | None = None,
@@ -212,7 +225,7 @@ def build_reasoning_context(
     return ReasoningContext(
         stage="diagnose",
         instruction=render_instruction(
-            question,
+            reported_context,
             ordered,
             incident_selection,
             incident_correlation,
@@ -239,7 +252,8 @@ def build_incident_correlation_context(
         "Correlate the reported Maa issue with deterministic incident candidates.",
         "Return a structured incident correlation draft.",
         "",
-        f"Reported context: {reported_context}",
+        "Reported diagnostic context:",
+        reported_context,
         "",
         "Rules:",
         "1. Select a candidate only when the reported symptom, task/time context, and candidate",
@@ -259,7 +273,7 @@ def build_incident_correlation_context(
 
 
 def build_source_research_context(
-    question: str,
+    reported_context: str,
     evidence: list[Evidence],
     incident_comparison: IncidentComparison,
     source_ids: list[str],
@@ -289,7 +303,8 @@ def build_source_research_context(
         "Plan a bounded search of version-matched Maa project source.",
         "Return a structured source research plan, not a diagnosis.",
         "",
-        f"Diagnostic question: {question}",
+        "Reported diagnostic context:",
+        reported_context,
         f"Available source IDs: {', '.join(source_ids)}",
         f"Actual/expected comparison status: {incident_comparison.status.value}",
         "",
@@ -314,7 +329,7 @@ def build_source_research_context(
 
 
 def build_knowledge_research_context(
-    question: str,
+    reported_context: str,
     evidence: list[Evidence],
     incident_comparison: IncidentComparison,
     sources: list[tuple[str, SourceRole]],
@@ -345,7 +360,8 @@ def build_knowledge_research_context(
         "Plan a bounded search of explicit version-matched Maa documentation sources.",
         "Return a structured knowledge research plan, not a diagnosis.",
         "",
-        f"Diagnostic question: {question}",
+        "Reported diagnostic context:",
+        reported_context,
         f"Available knowledge sources: {rendered_sources}",
         f"Actual/expected comparison status: {incident_comparison.status.value}",
         "",

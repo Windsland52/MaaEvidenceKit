@@ -415,6 +415,38 @@ def test_diagnose_produces_complete_result_with_failure(tmp_path: Path) -> None:
     assert "model_incident_correlation_unavailable" in result.missing_evidence
 
 
+def test_issue_only_context_reaches_correlation_and_final_reasoning(tmp_path: Path) -> None:
+    debug_path = _make_directory_with_log(tmp_path)
+    backend = StubReasoningBackend()
+    workflow = DiagnosticWorkflow(
+        _ToolCaller(runtime=_runtime_with_failure()),
+        backend,
+    )
+    request = AnalysisRequest(
+        issue="LoginTask stopped after LoginButton timed out.",
+        artifacts=[ArtifactInput(path=debug_path, kind=ArtifactKind.DIRECTORY)],
+    )
+
+    result = asyncio.run(workflow.diagnose(request))
+
+    assert result.status is DiagnosisStatus.COMPLETE
+    contexts = [session.last_context for session in backend.sessions]
+    assert all(context is not None for context in contexts)
+    resolved_contexts = [context for context in contexts if context is not None]
+    assert {context.stage for context in resolved_contexts} == {
+        "correlate_incident",
+        "diagnose",
+    }
+    for context in resolved_contexts:
+        assert "Reported issue:\nLoginTask stopped after LoginButton timed out." in (
+            context.instruction
+        )
+        assert (
+            "Diagnostic question:\nDiagnose the runtime failures and their likely causes."
+            in context.instruction
+        )
+
+
 def test_diagnose_returns_insufficient_without_failures(tmp_path: Path) -> None:
     debug_path = _make_directory_with_log(tmp_path)
     caller = _ToolCaller(runtime=_empty_runtime_inspection())
@@ -629,11 +661,18 @@ def test_workflow_runs_model_planned_versioned_source_search(
         check=True,
         capture_output=True,
     )
+    revision = subprocess.run(
+        ["git", "-C", str(project), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
     debug_path = _make_directory_with_log(tmp_path)
     caller = _SourceResearchToolCaller(project)
     backend = _SourceResearchBackend()
     workflow = DiagnosticWorkflow(caller, backend)
     request = AnalysisRequest(
+        issue="LoginTask stopped after LoginButton timed out.",
         question="Why did LoginTask time out?",
         artifacts=[ArtifactInput(path=debug_path, kind=ArtifactKind.DIRECTORY)],
         sources=[
@@ -641,6 +680,7 @@ def test_workflow_runs_model_planned_versioned_source_search(
                 source_id="project",
                 role=SourceRole.PROJECT,
                 path=project,
+                revision=revision,
             )
         ],
     )
@@ -655,6 +695,16 @@ def test_workflow_runs_model_planned_versioned_source_search(
     diagnose_context = next(context for context in backend.contexts if context.stage == "diagnose")
     assert any(evidence.kind == "source_search_match" for evidence in diagnose_context.evidence)
     assert any(name == "mse.resolve-tasks" for name, _ in caller.calls)
+    assert {context.stage for context in backend.contexts} >= {
+        "correlate_incident",
+        "plan_source_research",
+        "diagnose",
+    }
+    for context in backend.contexts:
+        assert "Reported issue:\nLoginTask stopped after LoginButton timed out." in (
+            context.instruction
+        )
+        assert "Diagnostic question:\nWhy did LoginTask time out?" in context.instruction
 
 
 def test_workflow_runs_document_search_without_runtime_incident(tmp_path: Path) -> None:
@@ -687,15 +737,23 @@ def test_workflow_runs_document_search_without_runtime_incident(tmp_path: Path) 
         check=True,
         capture_output=True,
     )
+    revision = subprocess.run(
+        ["git", "-C", str(repository), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
     backend = _KnowledgeResearchBackend()
     workflow = DiagnosticWorkflow(_ToolCaller(), backend)
     request = AnalysisRequest(
+        issue="OCR returned a known variant that did not match the expected text.",
         question="How should known OCR recognition variants be normalized?",
         sources=[
             SourceInput(
                 source_id="docs",
                 role=SourceRole.DOCUMENTATION,
                 path=repository,
+                revision=revision,
             )
         ],
     )
@@ -710,3 +768,17 @@ def test_workflow_runs_document_search_without_runtime_incident(tmp_path: Path) 
     assert any(
         evidence.kind == "knowledge_document_match" for evidence in diagnose_context.evidence
     )
+    assert {context.stage for context in backend.contexts} == {
+        "plan_knowledge_research",
+        "diagnose",
+    }
+    for context in backend.contexts:
+        assert (
+            "Reported issue:\n"
+            "OCR returned a known variant that did not match the expected text."
+            in context.instruction
+        )
+        assert (
+            "Diagnostic question:\nHow should known OCR recognition variants be normalized?"
+            in context.instruction
+        )
