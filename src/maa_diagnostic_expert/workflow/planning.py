@@ -5,7 +5,6 @@ from maa_diagnostic_expert.contracts.domain import (
     ArtifactKind,
     ArtifactMediaKind,
     PreparedAnalysis,
-    RevisionResolutionStatus,
     SourceRole,
 )
 from maa_diagnostic_expert.contracts.mse import MseSyntaxMode
@@ -73,13 +72,6 @@ def _has_available_dump(prepared: PreparedAnalysis) -> bool:
             for origin in artifact.all_origins()
         )
         for artifact in prepared.artifacts
-    )
-
-
-def _has_resolved_source(prepared: PreparedAnalysis, role: SourceRole) -> bool:
-    return any(
-        snapshot.role is role and snapshot.resolution_status is RevisionResolutionStatus.RESOLVED
-        for snapshot in prepared.source_snapshots
     )
 
 
@@ -151,7 +143,7 @@ def plan_initial_investigation(
     project_source = _has_usable_source(prepared, SourceRole.PROJECT)
     runnable_project_source = _can_run_project_source_research(prepared)
     mse_project = _has_usable_mse_project(prepared)
-    gui_source = _has_resolved_source(prepared, SourceRole.GUI)
+    gui_source = _has_usable_source(prepared, SourceRole.GUI)
     framework_source = _has_usable_source(prepared, SourceRole.MAA_FRAMEWORK)
     has_dump = _has_available_dump(prepared)
     knowledge_source = _has_usable_knowledge_source(prepared)
@@ -231,13 +223,13 @@ def plan_initial_investigation(
             ),
             BranchDecision(
                 branch=InvestigationBranch.GUI_SOURCE,
-                disposition=BranchDisposition.DEFERRED if gui_source else BranchDisposition.SKIP,
+                disposition=BranchDisposition.RUN if gui_source else BranchDisposition.SKIP,
                 relevance=(
-                    AnalysisRelevance.UNDETERMINED if gui_source else AnalysisRelevance.NOT_RELEVANT
+                    AnalysisRelevance.USEFUL if gui_source else AnalysisRelevance.NOT_RELEVANT
                 ),
                 reason=(
-                    "GUI source is resolved and may be investigated when runtime evidence "
-                    "requires it."
+                    "Version-matched GUI implementation source is available for bounded "
+                    "model-planned search."
                     if gui_source
                     else "No version-resolved GUI source is available."
                 ),

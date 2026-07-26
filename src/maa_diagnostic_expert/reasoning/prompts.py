@@ -328,7 +328,7 @@ def build_source_research_context(
         "",
         "Reported diagnostic context:",
         reported_context,
-        f"Available project/framework source IDs: {', '.join(source_ids)}",
+        f"Available project/GUI/framework source IDs: {', '.join(source_ids)}",
         f"Actual/expected comparison status: {incident_comparison.status.value}",
         "",
         "Rules:",
@@ -342,7 +342,7 @@ def build_source_research_context(
         "   plausible explanations or locate relevant project behavior.",
         "7. Use skip when focused source search is unlikely to add useful evidence.",
         "8. Applicable source_guidance evidence must be respected when choosing paths for its",
-        "   project source; MaaFramework implementation queries may search implementation files.",
+        "   project source; GUI/MaaFramework queries may search implementation files.",
     ]
     return ReasoningContext(
         stage="plan_source_research",

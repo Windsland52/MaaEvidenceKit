@@ -295,6 +295,36 @@ def test_plan_runs_version_matched_framework_implementation_search(tmp_path: Pat
     assert "implementation source" in decision.reason
 
 
+def test_plan_runs_version_matched_gui_implementation_search(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "MainWindow.ts").write_text("export class MainWindow {}", encoding="utf-8")
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True)
+    _git(tmp_path, "config", "user.email", "mde@example.invalid")
+    _git(tmp_path, "config", "user.name", "MDE Test")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "gui")
+    revision = _git(tmp_path, "rev-parse", "HEAD")
+    prepared = PreparedAnalysis(
+        request=AnalysisRequest(question="Inspect GUI behavior."),
+        source_snapshots=[
+            SourceSnapshot(
+                source_id="gui",
+                role=SourceRole.GUI,
+                path=tmp_path,
+                revision_backend=SourceRevisionBackend.GIT,
+                current_revision=revision,
+                resolution_status=RevisionResolutionStatus.NOT_REQUESTED,
+            )
+        ],
+    )
+
+    decision = _decision(prepared, InvestigationBranch.GUI_SOURCE)
+
+    assert decision.disposition is BranchDisposition.RUN
+    assert decision.relevance is AnalysisRelevance.USEFUL
+    assert "GUI implementation source" in decision.reason
+
+
 def test_plan_defers_focused_source_research_for_maa_syntax(tmp_path: Path) -> None:
     (tmp_path / "interface.json").write_text("{}", encoding="utf-8")
     (tmp_path / "src" / "MaaCore").mkdir(parents=True)

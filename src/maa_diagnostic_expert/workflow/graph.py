@@ -95,7 +95,7 @@ _KNOWLEDGE_SOURCE_ROLES = {
     SourceRole.WIKI,
 }
 
-_IMPLEMENTATION_SOURCE_ROLES = {SourceRole.MAA_FRAMEWORK}
+_IMPLEMENTATION_SOURCE_ROLES = {SourceRole.GUI, SourceRole.MAA_FRAMEWORK}
 
 
 def _available_implementation_source_ids(inspection: DeterministicInspection) -> list[str]:
