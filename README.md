@@ -206,19 +206,40 @@ provider with a custom `base_url`.
   "api_version": "model-config/v1",
   "provider": "openai",
   "model": "model-name",
-  "api_key_env": "MDE_MODEL_API_KEY",
+  "api_key": "your-api-key",
   "base_url": "https://example.invalid/v1",
   "temperature": 0,
   "timeout_seconds": 120,
   "max_retries": 2,
+  "structured_output_retries": 1,
   "structured_output_method": "auto"
 }
 ```
 
-`api_key_env` names an environment variable; credential values are never fields in `ModelConfig`
-and are not written to workflow state, events, diagnosis results, or benchmark artifacts. Omit it
-when the provider uses its standard environment variables or another credential chain, such as
+`api_key` is passed directly to the selected provider. Model configuration is not written to
+workflow state, events, diagnosis results, or benchmark artifacts. Keep credential-bearing files
+outside version control. Omit the field when the provider uses another credential chain, such as
 AWS credentials for Bedrock.
+
+Providers backed by configurable chat templates can receive explicit reasoning controls. For
+example, NVIDIA NIM models that combine reasoning with forced tool calls may require the thinking
+mode to be selected explicitly:
+
+```json
+{
+  "chat_template_kwargs": {
+    "thinking": true,
+    "reasoning_effort": "high"
+  }
+}
+```
+
+When present, these settings are sent as `extra_body.chat_template_kwargs` on every model request.
+Use them only with endpoints that document the corresponding chat-template parameters.
+
+`max_retries` controls provider transport/API retries. `structured_output_retries` separately
+controls bounded retries when a successful model response omits the required tool call or fails
+Pydantic validation; retry feedback includes the validation failure but never creates evidence.
 
 `validate-result` requires the inspection that established the evidence ledger. Pass every cited
 raw `EvidenceWindow` with a repeated `--evidence-window` option. Validation rejects invented IDs,
@@ -262,6 +283,57 @@ metadata for offline reuse. Set `MDE_WIKI_GITHUB_REPOSITORY` for another reposit
 fixed-commit GitHub links are automatically resolved against explicitly supplied,
 revision-matched Git sources; this lookup does not clone, fetch, or use a newer checkout.
 Conclusions may cite the resulting original passage, not the Wiki navigation record.
+
+## LangGraph Studio
+
+The development dependency group includes the in-memory LangGraph Agent Server. It exposes the
+same diagnostic graph to LangSmith Studio for local visualization of node transitions, state,
+errors, and model stages. The committed `langgraph.json` disables LangSmith tracing, so diagnostic
+state is not uploaded by default. The project launcher also configures UTF-8 output and disables
+CLI usage analytics, so the normal entry point is one command:
+
+```powershell
+uv run maa-studio
+```
+
+The server prints its local API URL and opens Studio in a browser. Select the `diagnostic` graph
+and submit an input shaped like the normal `AnalysisRequest`, nested under `request`:
+
+```json
+{
+  "request": {
+    "api_version": "analysis-request/v2",
+    "question": "Why did the task fail?",
+    "artifacts": [
+      {
+        "path": "C:/absolute/path/to/debug",
+        "kind": "directory"
+      }
+    ]
+  }
+}
+```
+
+The same input is available in `docs/examples/studio-request.json`. Studio uses the deterministic
+stub backend by default. To use a real model, copy the ignored local configuration template and
+edit its provider, model, endpoint, and local API key:
+
+```powershell
+Copy-Item docs/examples/model.local.json.example model.local.json
+uv run maa-studio
+```
+
+`model.local.json` is ignored by Git and uses the public `ModelConfig`, including its optional
+`api_key` field. `maa-studio` discovers the local file automatically; an existing
+`MDE_MODEL_CONFIG` takes precedence, and
+`--model-config another.json` overrides both. Use `uv run maa-studio --stub` to force a
+credential-free run. Common Agent Server options are available directly, for example `uv run
+maa-studio --no-browser --port 8123`; additional `langgraph dev` arguments can follow `--`. The
+lower-level `uv run langgraph dev` command remains available for debugging the launcher itself.
+
+The Studio graph also honors `MDE_TOOL_ADAPTER_PATH`. Its in-memory checkpoints are stored under
+the ignored `.langgraph_api/` directory. Full hosted prompt/response traces remain disabled unless
+`LANGSMITH_TRACING` is deliberately enabled in `langgraph.json`.
 
 ## Host-agent integration
 

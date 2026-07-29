@@ -5,24 +5,36 @@ import asyncio
 import pytest
 
 from maa_diagnostic_expert.contracts.domain import ContractModel, DiagnosisDraft, DiagnosisStatus
+from maa_diagnostic_expert.reasoning import langchain
 from maa_diagnostic_expert.reasoning.langchain import LangChainReasoningBackend
-from maa_diagnostic_expert.reasoning.model_config import ModelConfig, StructuredOutputMethod
+from maa_diagnostic_expert.reasoning.model_config import (
+    ChatTemplateConfig,
+    ModelConfig,
+    StructuredOutputMethod,
+)
 from maa_diagnostic_expert.reasoning.prompts import build_reasoning_context
 
 
 class _StructuredModel:
-    def __init__(self, result: object) -> None:
-        self.result = result
+    def __init__(self, *results: object) -> None:
+        self.results = list(results)
         self.input: object | None = None
+        self.inputs: list[object] = []
 
     async def ainvoke(self, input: object) -> object:
         self.input = input
-        return self.result
+        self.inputs.append(input)
+        result = self.results.pop(0)
+        return {
+            "raw": object(),
+            "parsed": result,
+            "parsing_error": None,
+        }
 
 
 class _ChatModel:
-    def __init__(self, result: object) -> None:
-        self.structured = _StructuredModel(result)
+    def __init__(self, *results: object) -> None:
+        self.structured = _StructuredModel(*results)
         self.schema: type[ContractModel] | None = None
         self.arguments: dict[str, object] = {}
 
@@ -33,7 +45,7 @@ class _ChatModel:
         include_raw: bool = False,
         **kwargs: object,
     ) -> _StructuredModel:
-        assert include_raw is False
+        assert include_raw is True
         self.schema = schema
         self.arguments = kwargs
         return self.structured
@@ -87,6 +99,36 @@ def test_langchain_backend_forwards_an_explicit_structured_output_method() -> No
     assert model.arguments == {"method": "json_schema"}
 
 
+def test_langchain_backend_retries_missing_structured_output_with_validation_feedback() -> None:
+    model = _ChatModel(
+        None,
+        {
+            "status": "insufficient_evidence",
+            "summary": "No evidence.",
+            "conclusions": [],
+            "missing_evidence": [],
+        },
+    )
+    backend = LangChainReasoningBackend(_config(), model=model)
+    session = asyncio.run(backend.start(run_id="run-retry"))
+
+    result = asyncio.run(session.reason(build_reasoning_context("Diagnose.", []), DiagnosisDraft))
+
+    assert result.status is DiagnosisStatus.INSUFFICIENT_EVIDENCE
+    assert len(model.structured.inputs) == 2
+    assert "previous structured response was invalid" in str(model.structured.inputs[1])
+
+
+def test_langchain_backend_reports_exhausted_structured_output_retries() -> None:
+    model = _ChatModel(None)
+    config = _config().model_copy(update={"structured_output_retries": 0})
+    backend = LangChainReasoningBackend(config, model=model)
+    session = asyncio.run(backend.start(run_id="run-no-retry"))
+
+    with pytest.raises(ValueError, match="no DiagnosisDraft structured tool call"):
+        asyncio.run(session.reason(build_reasoning_context("Diagnose.", []), DiagnosisDraft))
+
+
 def test_langchain_reasoning_session_rejects_use_after_close() -> None:
     model = _ChatModel({})
     backend = LangChainReasoningBackend(_config(), model=model)
@@ -95,3 +137,54 @@ def test_langchain_reasoning_session_rejects_use_after_close() -> None:
 
     with pytest.raises(RuntimeError, match="closed"):
         asyncio.run(session.reason(build_reasoning_context("Diagnose.", []), DiagnosisDraft))
+
+
+def test_langchain_backend_passes_direct_api_key_to_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _ChatModel({})
+    captured: list[tuple[str, str, dict[str, object]]] = []
+
+    def fake_init_chat_model(
+        name: str,
+        *,
+        model_provider: str,
+        **kwargs: object,
+    ) -> _ChatModel:
+        captured.append((name, model_provider, kwargs))
+        return model
+
+    monkeypatch.setattr(langchain, "init_chat_model", fake_init_chat_model)
+
+    backend = langchain.make_langchain_backend(
+        ModelConfig(
+            provider="openai",
+            model="test-model",
+            api_key="direct-secret",
+            base_url="https://example.invalid/v1",
+            chat_template_kwargs=ChatTemplateConfig(
+                thinking=True,
+                reasoning_effort="high",
+            ),
+        )
+    )
+
+    assert isinstance(backend, LangChainReasoningBackend)
+    assert captured == [
+        (
+            "test-model",
+            "openai",
+            {
+                "timeout": 120,
+                "max_retries": 2,
+                "api_key": "direct-secret",
+                "base_url": "https://example.invalid/v1",
+                "extra_body": {
+                    "chat_template_kwargs": {
+                        "thinking": True,
+                        "reasoning_effort": "high",
+                    }
+                },
+            },
+        )
+    ]

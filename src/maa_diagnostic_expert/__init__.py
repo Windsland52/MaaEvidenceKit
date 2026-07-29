@@ -209,7 +209,7 @@ from .reasoning.langchain import (
     LangChainReasoningSession,
     make_langchain_backend,
 )
-from .reasoning.model_config import ModelConfig, StructuredOutputMethod
+from .reasoning.model_config import ChatTemplateConfig, ModelConfig, StructuredOutputMethod
 from .reasoning.prompts import (
     StubReasoningBackend,
     StubReasoningSession,
@@ -278,6 +278,7 @@ __all__ = [
     "ArtifactRecord",
     "BranchDecision",
     "BranchDisposition",
+    "ChatTemplateConfig",
     "CommandApprovalDecision",
     "CommandApprovalOutcome",
     "CommandApprovalPrompt",

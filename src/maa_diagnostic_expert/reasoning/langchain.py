@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable
-from typing import Protocol, TypedDict, cast
+from collections.abc import Awaitable, Mapping
+from typing import NotRequired, Protocol, TypedDict, cast
 
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from maa_diagnostic_expert.contracts.domain import ContractModel
 
-from .model_config import ModelConfig, StructuredOutputMethod, resolve_api_key
+from .model_config import ModelConfig, StructuredOutputMethod
 from .prompts import render_evidence_block
 from .protocol import ReasoningContext
 
@@ -27,12 +27,22 @@ class _ChatModel(Protocol):
     ) -> _StructuredModel: ...
 
 
+class _ChatTemplateArguments(TypedDict):
+    thinking: bool
+    reasoning_effort: NotRequired[str]
+
+
+class _ExtraBody(TypedDict):
+    chat_template_kwargs: _ChatTemplateArguments
+
+
 class _ModelArguments(TypedDict, total=False):
     timeout: float
     max_retries: int
     api_key: str
     base_url: str
     temperature: float
+    extra_body: _ExtraBody
 
 
 def _model_arguments(config: ModelConfig) -> _ModelArguments:
@@ -40,13 +50,19 @@ def _model_arguments(config: ModelConfig) -> _ModelArguments:
         "timeout": config.timeout_seconds,
         "max_retries": config.max_retries,
     }
-    api_key = resolve_api_key(config)
-    if api_key is not None:
-        arguments["api_key"] = api_key
+    if config.api_key is not None:
+        arguments["api_key"] = config.api_key
     if config.base_url is not None:
         arguments["base_url"] = config.base_url
     if config.temperature is not None:
         arguments["temperature"] = config.temperature
+    if config.chat_template_kwargs is not None:
+        template_arguments: _ChatTemplateArguments = {
+            "thinking": config.chat_template_kwargs.thinking,
+        }
+        if config.chat_template_kwargs.reasoning_effort is not None:
+            template_arguments["reasoning_effort"] = config.chat_template_kwargs.reasoning_effort
+        arguments["extra_body"] = {"chat_template_kwargs": template_arguments}
     return arguments
 
 
@@ -64,6 +80,25 @@ def _initialize_model(config: ModelConfig) -> _ChatModel:
     return cast(_ChatModel, model)
 
 
+def _structured_output_result(
+    envelope: object,
+    result_type: type[ContractModel],
+) -> tuple[object | None, Exception | None]:
+    if not isinstance(envelope, Mapping):
+        raise TypeError(
+            f"Provider returned an invalid {result_type.__name__} structured output envelope"
+        )
+    values = cast(Mapping[str, object], envelope)
+    if "parsed" not in values or "parsing_error" not in values:
+        raise TypeError(
+            f"Provider omitted {result_type.__name__} structured output envelope fields"
+        )
+    parsing_error = values["parsing_error"]
+    if parsing_error is not None and not isinstance(parsing_error, Exception):
+        raise TypeError("Provider returned an invalid structured output parsing error")
+    return values["parsed"], parsing_error
+
+
 class LangChainReasoningSession:
     """One structured reasoning session over a configured LangChain chat model."""
 
@@ -71,9 +106,11 @@ class LangChainReasoningSession:
         self,
         model: _ChatModel,
         output_method: StructuredOutputMethod,
+        structured_output_retries: int,
     ) -> None:
         self._model = model
         self._output_method = output_method
+        self._structured_output_retries = structured_output_retries
         self._closed = False
 
     async def reason[ResultT: ContractModel](
@@ -88,17 +125,45 @@ class LangChainReasoningSession:
             output_arguments["method"] = self._output_method.value
         structured = self._model.with_structured_output(
             result_type,
-            include_raw=False,
+            include_raw=True,
             **output_arguments,
         )
-        messages = [
+        base_messages = [
             SystemMessage(content=context.instruction),
             HumanMessage(content=render_evidence_block(context.evidence)),
         ]
-        raw_result = await structured.ainvoke(messages)
-        if isinstance(raw_result, result_type):
-            return raw_result
-        return result_type.model_validate(raw_result)
+        retry_error: Exception | None = None
+        for attempt in range(self._structured_output_retries + 1):
+            messages = list(base_messages)
+            if retry_error is not None:
+                messages.append(
+                    HumanMessage(
+                        content=(
+                            "The previous structured response was invalid. Call the required "
+                            f"structured output tool again and satisfy every schema rule. "
+                            f"Validation error: {str(retry_error)[:2000]}"
+                        )
+                    )
+                )
+            envelope = await structured.ainvoke(messages)
+            parsed, parsing_error = _structured_output_result(envelope, result_type)
+            try:
+                if parsing_error is not None:
+                    raise ValueError(
+                        f"Provider {result_type.__name__} parsing failed: {parsing_error}"
+                    ) from parsing_error
+                if isinstance(parsed, result_type):
+                    return parsed
+                if parsed is None:
+                    raise ValueError(
+                        f"Provider returned no {result_type.__name__} structured tool call"
+                    )
+                return result_type.model_validate(parsed)
+            except (TypeError, ValueError) as error:
+                retry_error = error
+                if attempt == self._structured_output_retries:
+                    raise
+        raise RuntimeError("structured output retry loop ended unexpectedly")
 
     async def close(self) -> None:
         self._closed = True
@@ -121,6 +186,7 @@ class LangChainReasoningBackend:
         return LangChainReasoningSession(
             self._model,
             self._config.structured_output_method,
+            self._config.structured_output_retries,
         )
 
 

@@ -44,9 +44,11 @@ models = [
 maa-diagnostic-expert = "maa_diagnostic_expert.interfaces.cli:main"
 maa-diagnostic-benchmark = "maa_diagnostic_expert.interfaces.benchmark_cli:main"
 maa-generate-contracts = "maa_diagnostic_expert.contracts.schemas:main"
+maa-studio = "maa_diagnostic_expert.interfaces.studio_cli:main"
 
 [dependency-groups]
 dev = [
+  "langgraph-cli[inmem]>=0.4.31,<1",
   "pyright>=1.1.400",
   "pytest>=8,<10",
   "ruff>=0.12,<1",

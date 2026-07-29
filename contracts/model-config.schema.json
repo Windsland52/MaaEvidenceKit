@@ -1,5 +1,36 @@
 {
   "$defs": {
+    "ChatTemplateConfig": {
+      "additionalProperties": false,
+      "description": "Provider chat-template controls passed with each model request.",
+      "properties": {
+        "thinking": {
+          "title": "Thinking",
+          "type": "boolean"
+        },
+        "reasoning_effort": {
+          "anyOf": [
+            {
+              "enum": [
+                "high",
+                "max"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reasoning Effort"
+        }
+      },
+      "required": [
+        "thinking"
+      ],
+      "title": "ChatTemplateConfig",
+      "type": "object"
+    },
     "StructuredOutputMethod": {
       "enum": [
         "auto",
@@ -12,7 +43,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "Serializable model selection without credential values.",
+  "description": "Serializable model selection and provider connection settings.",
   "properties": {
     "api_version": {
       "const": "model-config/v1",
@@ -30,10 +61,10 @@
       "title": "Model",
       "type": "string"
     },
-    "api_key_env": {
+    "api_key": {
       "anyOf": [
         {
-          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "minLength": 1,
           "type": "string"
         },
         {
@@ -41,7 +72,7 @@
         }
       ],
       "default": null,
-      "title": "Api Key Env"
+      "title": "Api Key"
     },
     "base_url": {
       "anyOf": [
@@ -83,9 +114,27 @@
       "title": "Max Retries",
       "type": "integer"
     },
+    "structured_output_retries": {
+      "default": 1,
+      "maximum": 3,
+      "minimum": 0,
+      "title": "Structured Output Retries",
+      "type": "integer"
+    },
     "structured_output_method": {
       "$ref": "#/$defs/StructuredOutputMethod",
       "default": "auto"
+    },
+    "chat_template_kwargs": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ChatTemplateConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "required": [

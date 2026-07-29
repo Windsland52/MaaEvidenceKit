@@ -175,6 +175,7 @@ class DiagnosticState(TypedDict):
 
 
 class _DiagnosticStateUpdate(TypedDict, total=False):
+    request: AnalysisRequest
     prepared: PreparedAnalysis
     artifact_sources: ArtifactSourceInventory
     log_overviews: LogOverviewCollection
@@ -312,7 +313,7 @@ class DiagnosticWorkflow:
         return self._run(request)
 
     def _start_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
-        del state
+        request = AnalysisRequest.model_validate(state["request"])
         _emit(
             _WorkflowUpdate(
                 kind=DiagnosticEventKind.RUN_STARTED,
@@ -321,7 +322,7 @@ class DiagnosticWorkflow:
                 data={"run_id": self.run_id},
             )
         )
-        return {}
+        return {"request": request}
 
     def _prepare_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
         try:
@@ -1376,9 +1377,10 @@ class DiagnosticWorkflow:
         )
         return {}
 
-    def _build_graph(
+    def compile_graph(
         self,
     ) -> _CompiledDiagnosticGraph:
+        """Compile a fresh graph for CLI execution or an external LangGraph runtime."""
         graph = StateGraph(DiagnosticState)
         _add_graph_node(graph, "start", self._start_node)
         _add_graph_node(graph, "prepare", self._prepare_node)
@@ -1462,7 +1464,7 @@ class DiagnosticWorkflow:
     async def _run(self, request: AnalysisRequest) -> AsyncIterator[DiagnosticEvent]:
         sequence = 0
         initial_state: DiagnosticState = {"request": request}
-        graph = self._build_graph()
+        graph = self.compile_graph()
         async for raw_update in _stream_graph(graph, initial_state):
             if not isinstance(raw_update, _WorkflowUpdate):
                 raise TypeError("LangGraph returned an unexpected custom stream update")

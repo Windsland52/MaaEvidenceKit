@@ -1,0 +1,7 @@
+{
+  "api_version": "model-config/v1",
+  "provider": "openai",
+  "model": "your-model-name",
+  "api_key": "your-api-key",
+  "structured_output_method": "json_schema"
+}

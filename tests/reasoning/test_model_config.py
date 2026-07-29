@@ -1,19 +1,19 @@
 import pytest
 from pydantic import ValidationError
 
-from maa_diagnostic_expert.reasoning.model_config import ModelConfig, resolve_api_key
+from maa_diagnostic_expert.reasoning.model_config import ChatTemplateConfig, ModelConfig
 
 
-def test_model_config_normalizes_base_url_without_serializing_a_key() -> None:
+def test_model_config_normalizes_base_url_with_a_direct_key() -> None:
     config = ModelConfig(
         provider="openai",
         model="test-model",
-        api_key_env="MDE_TEST_API_KEY",
+        api_key="secret",
         base_url="http://localhost:8000/v1/",
     )
 
     assert config.base_url == "http://localhost:8000/v1"
-    assert "api_key" not in config.model_dump()
+    assert config.api_key == "secret"
 
 
 def test_model_config_rejects_credentials_in_base_url() -> None:
@@ -30,22 +30,36 @@ def test_model_config_rejects_a_base_url_without_a_host() -> None:
         ModelConfig(provider="openai", model="test-model", base_url="http://")
 
 
-def test_resolve_api_key_reads_only_the_named_environment_variable() -> None:
-    config = ModelConfig(
-        provider="anthropic",
-        model="test-model",
-        api_key_env="EXPECTED_KEY",
-    )
-
-    assert resolve_api_key(config, {"EXPECTED_KEY": "secret", "OTHER_KEY": "ignored"}) == "secret"
+def test_model_config_rejects_a_blank_api_key() -> None:
+    with pytest.raises(ValidationError):
+        ModelConfig(provider="openai", model="test-model", api_key="")
 
 
-def test_resolve_api_key_reports_a_missing_environment_variable() -> None:
+def test_chat_template_config_accepts_explicit_reasoning() -> None:
     config = ModelConfig(
         provider="openai",
         model="test-model",
-        api_key_env="MISSING_KEY",
+        chat_template_kwargs=ChatTemplateConfig(
+            thinking=True,
+            reasoning_effort="high",
+        ),
     )
 
-    with pytest.raises(ValueError, match="MISSING_KEY"):
-        resolve_api_key(config, {})
+    assert config.model_dump()["chat_template_kwargs"] == {
+        "thinking": True,
+        "reasoning_effort": "high",
+    }
+
+
+def test_chat_template_config_rejects_effort_when_thinking_is_disabled() -> None:
+    with pytest.raises(ValidationError, match="requires thinking"):
+        ChatTemplateConfig(thinking=False, reasoning_effort="high")
+
+
+def test_model_config_bounds_structured_output_retries() -> None:
+    with pytest.raises(ValidationError):
+        ModelConfig(
+            provider="openai",
+            model="test-model",
+            structured_output_retries=4,
+        )

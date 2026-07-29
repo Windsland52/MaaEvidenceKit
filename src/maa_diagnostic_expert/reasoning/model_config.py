@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import os
-from collections.abc import Mapping
 from enum import StrEnum
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from maa_diagnostic_expert.contracts.domain import ContractModel
 
@@ -18,21 +16,33 @@ class StructuredOutputMethod(StrEnum):
     JSON_MODE = "json_mode"
 
 
+class ChatTemplateConfig(ContractModel):
+    """Provider chat-template controls passed with each model request."""
+
+    thinking: bool
+    reasoning_effort: Literal["high", "max"] | None = None
+
+    @model_validator(mode="after")
+    def require_effort_only_with_thinking(self) -> ChatTemplateConfig:
+        if not self.thinking and self.reasoning_effort is not None:
+            raise ValueError("reasoning_effort requires thinking to be enabled")
+        return self
+
+
 class ModelConfig(ContractModel):
-    """Serializable model selection without credential values."""
+    """Serializable model selection and provider connection settings."""
 
     api_version: Literal["model-config/v1"] = "model-config/v1"
     provider: str = Field(pattern=r"^[a-z][a-z0-9_-]*$")
     model: str = Field(min_length=1)
-    api_key_env: str | None = Field(
-        default=None,
-        pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
-    )
+    api_key: str | None = Field(default=None, min_length=1)
     base_url: str | None = None
     temperature: float | None = Field(default=None, ge=0, le=2)
     timeout_seconds: float = Field(default=120, gt=0, le=600)
     max_retries: int = Field(default=2, ge=0, le=10)
+    structured_output_retries: int = Field(default=1, ge=0, le=3)
     structured_output_method: StructuredOutputMethod = StructuredOutputMethod.AUTO
+    chat_template_kwargs: ChatTemplateConfig | None = None
 
     @field_validator("model")
     @classmethod
@@ -61,17 +71,3 @@ class ModelConfig(ContractModel):
         if parsed.query or parsed.fragment:
             raise ValueError("Model base_url must not contain a query or fragment")
         return normalized
-
-
-def resolve_api_key(
-    config: ModelConfig,
-    environ: Mapping[str, str] | None = None,
-) -> str | None:
-    """Resolve a configured credential without adding it to serialized state."""
-    if config.api_key_env is None:
-        return None
-    values = os.environ if environ is None else environ
-    value = values.get(config.api_key_env)
-    if value is None or not value.strip():
-        raise ValueError(f"Model API key environment variable is missing: {config.api_key_env}")
-    return value
