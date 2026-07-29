@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
+from langchain_core.messages import AIMessage
 
-from maa_diagnostic_expert.contracts.domain import ContractModel, DiagnosisDraft, DiagnosisStatus
+from maa_diagnostic_expert.contracts.domain import (
+    ContractModel,
+    DiagnosisDraft,
+    DiagnosisStatus,
+    EvidenceQuery,
+)
+from maa_diagnostic_expert.contracts.workflow import EvidenceResearchPlan, SourceResearchStatus
 from maa_diagnostic_expert.reasoning import langchain
 from maa_diagnostic_expert.reasoning.langchain import LangChainReasoningBackend
 from maa_diagnostic_expert.reasoning.model_config import (
@@ -13,6 +23,13 @@ from maa_diagnostic_expert.reasoning.model_config import (
     StructuredOutputMethod,
 )
 from maa_diagnostic_expert.reasoning.prompts import build_reasoning_context
+
+
+@dataclass(frozen=True)
+class _ProviderEnvelope:
+    raw: object
+    parsed: object | None
+    parsing_error: Exception | None
 
 
 class _StructuredModel:
@@ -25,6 +42,12 @@ class _StructuredModel:
         self.input = input
         self.inputs.append(input)
         result = self.results.pop(0)
+        if isinstance(result, _ProviderEnvelope):
+            return {
+                "raw": result.raw,
+                "parsed": result.parsed,
+                "parsing_error": result.parsing_error,
+            }
         return {
             "raw": object(),
             "parsed": result,
@@ -117,6 +140,52 @@ def test_langchain_backend_retries_missing_structured_output_with_validation_fee
     assert result.status is DiagnosisStatus.INSUFFICIENT_EVIDENCE
     assert len(model.structured.inputs) == 2
     assert "previous structured response was invalid" in str(model.structured.inputs[1])
+
+
+def test_langchain_backend_recovers_raw_tool_arguments_after_parser_error(
+    tmp_path: Path,
+) -> None:
+    query = EvidenceQuery(
+        source_path=tmp_path / "settings.json",
+        line_start=1,
+        line_end=100,
+        reason="Inspect the effective controller.",
+    )
+    raw_arguments = {
+        "status": "run",
+        "queries": json.dumps([query.model_dump(mode="json")]),
+        "rationale": "The provider JSON-encoded one array argument.",
+    }
+    parsing_error = ValueError("queries must be a valid list")
+    model = _ChatModel(
+        _ProviderEnvelope(
+            raw=AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "EvidenceResearchPlan",
+                        "args": raw_arguments,
+                        "id": "call-1",
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            parsed=None,
+            parsing_error=parsing_error,
+        )
+    )
+    backend = LangChainReasoningBackend(
+        _config().model_copy(update={"structured_output_retries": 0}),
+        model=model,
+    )
+    session = asyncio.run(backend.start(run_id="run-raw-recovery"))
+
+    result = asyncio.run(
+        session.reason(build_reasoning_context("Plan focused evidence.", []), EvidenceResearchPlan)
+    )
+
+    assert result.status is SourceResearchStatus.RUN
+    assert result.queries == [query]
 
 
 def test_langchain_backend_reports_exhausted_structured_output_retries() -> None:

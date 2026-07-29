@@ -12,6 +12,7 @@ from maa_diagnostic_expert.contracts.workflow import (
 )
 from maa_diagnostic_expert.discovery.preparation import prepare_analysis
 from maa_diagnostic_expert.inspection.adaptive_evidence import (
+    available_configuration_query_paths,
     available_evidence_query_paths,
     execute_evidence_research,
 )
@@ -54,6 +55,24 @@ def test_execute_evidence_research_adds_authorized_window_to_ledger(
     assert window.kind == "text_line_window"
     assert window.content == "retry exhausted\nfailed"
     assert window in synthesized.synthesized_evidence
+
+
+def test_available_configuration_query_paths_classifies_discovered_files(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "settings.json"
+    config.write_text('{"controllerName": "ADB"}\n', encoding="utf-8")
+    log = tmp_path / "agent.log"
+    log.write_text("started\n", encoding="utf-8")
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="Inspect the effective controller.",
+            artifacts=[ArtifactInput(path=tmp_path, kind=ArtifactKind.DIRECTORY)],
+        )
+    )
+
+    assert available_configuration_query_paths(prepared) == {config.resolve()}
+    assert available_evidence_query_paths(prepared) == [log.resolve(), config.resolve()]
 
 
 def test_execute_evidence_research_records_rejected_query_as_missing_evidence(

@@ -183,6 +183,98 @@ def test_source_search_reads_requested_revision_not_dirty_worktree(
     assert evidence[0].reliability is EvidenceReliability.SECONDARY
 
 
+def test_source_search_matches_identifiers_case_insensitively(tmp_path: Path) -> None:
+    repository, revision = _repository(tmp_path)
+
+    inspection = execute_source_research(
+        _inspection(repository, revision),
+        _plan("loginbutton"),
+    )
+
+    [match] = inspection.source_search_matches
+    assert "LoginButton" in match.content
+    assert match.matched_terms == ["loginbutton"]
+
+
+def test_source_search_prioritizes_rarer_terms_before_result_truncation(
+    tmp_path: Path,
+) -> None:
+    repository, _ = _repository(tmp_path)
+    (repository / "src" / "a_noise.py").write_text(
+        "\n".join(f"screen_state_{index}" for index in range(8)) + "\n",
+        encoding="utf-8",
+    )
+    (repository / "src" / "z_relevant.py").write_text(
+        "def isWorkstationLocked(): pass\n",
+        encoding="utf-8",
+    )
+    _git(repository, "add", ".")
+    _git(repository, "commit", "-m", "search ranking")
+    revision = _git(repository, "rev-parse", "HEAD")
+    query = SourceSearchQuery(
+        query_id="rank-specific-term",
+        source_id="project",
+        terms=["screen", "workstationlocked"],
+        paths=["src"],
+        reason="Prefer the distinctive implementation identifier.",
+        context_lines=0,
+        max_results=2,
+    )
+
+    inspection = execute_source_research(
+        _inspection(repository, revision),
+        SourceResearchPlan(
+            status=SourceResearchStatus.RUN,
+            rationale="Exercise relevance ranking before truncation.",
+            queries=[query],
+        ),
+    )
+
+    assert inspection.source_search_matches[0].relative_path == "src/z_relevant.py"
+    assert inspection.source_search_matches[0].matched_terms == ["workstationlocked"]
+
+
+def test_source_search_follows_concrete_identifiers_to_call_sites(tmp_path: Path) -> None:
+    repository, _ = _repository(tmp_path)
+    (repository / "src" / "service.py").write_text(
+        "def is_workstation_locked():\n    return True\n",
+        encoding="utf-8",
+    )
+    (repository / "src" / "toolbar.py").write_text(
+        "if isWorkstationLocked():\n    cancel_start()\n",
+        encoding="utf-8",
+    )
+    _git(repository, "add", ".")
+    _git(repository, "commit", "-m", "identifier references")
+    revision = _git(repository, "rev-parse", "HEAD")
+    query = SourceSearchQuery(
+        query_id="follow-lock-symbol",
+        source_id="project",
+        terms=["lock"],
+        paths=["src/service.py"],
+        reason="Find the lock check and its callers.",
+        context_lines=0,
+        max_results=5,
+    )
+
+    inspection = execute_source_research(
+        _inspection(repository, revision),
+        SourceResearchPlan(
+            status=SourceResearchStatus.RUN,
+            rationale="Follow the concrete lock-check identifier.",
+            queries=[query],
+        ),
+    )
+
+    assert {match.relative_path for match in inspection.source_search_matches} >= {
+        "src/service.py",
+        "src/toolbar.py",
+    }
+    assert "source_search_identifier_followup" in {
+        item.code for item in inspection.prepared.missing_evidence
+    }
+
+
 def test_source_search_reads_requested_revision_when_head_has_advanced(
     tmp_path: Path,
 ) -> None:
@@ -244,6 +336,31 @@ def test_source_search_records_query_truncation(tmp_path: Path) -> None:
     }
 
 
+def test_source_search_deduplicates_overlapping_context_windows(tmp_path: Path) -> None:
+    repository, _ = _repository(tmp_path)
+    (repository / "src" / "login.py").write_text(
+        "LoginButton first\nLoginButton adjacent\n\n\n\nLoginButton distant\n",
+        encoding="utf-8",
+    )
+    _git(repository, "add", ".")
+    _git(repository, "commit", "-m", "overlapping matches")
+    revision = _git(repository, "rev-parse", "HEAD")
+    query = (
+        _plan("LoginButton").queries[0].model_copy(update={"context_lines": 1, "max_results": 5})
+    )
+
+    inspection = execute_source_research(
+        _inspection(repository, revision),
+        SourceResearchPlan(
+            status=SourceResearchStatus.RUN,
+            rationale="Deduplicate overlapping source windows.",
+            queries=[query],
+        ),
+    )
+
+    assert [match.line for match in inspection.source_search_matches] == [1, 6]
+
+
 def test_source_search_treats_paths_as_literal(tmp_path: Path) -> None:
     repository, revision = _repository(tmp_path)
     literal_directory = repository / "src[a]"
@@ -275,6 +392,51 @@ def test_source_search_treats_paths_as_literal(tmp_path: Path) -> None:
     assert [match.relative_path for match in inspection.source_search_matches] == [
         "src[a]/expected.py"
     ]
+
+
+def test_implementation_source_search_relaxes_zero_match_path_hints(
+    tmp_path: Path,
+) -> None:
+    repository, revision = _repository(tmp_path)
+    plan = _plan("LoginButton").model_copy(
+        update={
+            "queries": [
+                _plan("LoginButton")
+                .queries[0]
+                .model_copy(update={"paths": ["invented/source/directory"]})
+            ]
+        }
+    )
+
+    inspection = execute_source_research(
+        _inspection(repository, revision),
+        plan,
+    )
+
+    assert [match.relative_path for match in inspection.source_search_matches] == ["src/login.py"]
+    assert "source_search_paths_relaxed" in {
+        item.code for item in inspection.prepared.missing_evidence
+    }
+
+
+def test_knowledge_search_does_not_relax_document_path_hints(tmp_path: Path) -> None:
+    repository, revision = _repository(tmp_path)
+    query = _plan("LoginButton").queries[0].model_copy(update={"paths": ["invented/docs"]})
+    plan = KnowledgeResearchPlan(
+        status=SourceResearchStatus.RUN,
+        rationale="Keep knowledge search within the planned documentation path.",
+        queries=[query],
+    )
+
+    inspection = execute_knowledge_research(
+        _inspection(repository, revision, SourceRole.DOCUMENTATION),
+        plan,
+    )
+
+    assert inspection.knowledge_search_matches == []
+    assert "source_search_paths_relaxed" not in {
+        item.code for item in inspection.prepared.missing_evidence
+    }
 
 
 def test_source_search_records_total_truncation(tmp_path: Path) -> None:
@@ -358,6 +520,57 @@ def test_knowledge_search_classifies_document_and_wiki_evidence(
     assert inspection.source_search_matches == []
     assert evidence[0].kind == expected_kind
     assert evidence[0].reliability is EvidenceReliability.CONTEXT
+
+
+def test_source_and_knowledge_searches_namespace_the_same_window(
+    tmp_path: Path,
+) -> None:
+    repository, _ = _repository(tmp_path)
+    docs = repository / "docs"
+    docs.mkdir()
+    (docs / "locking.md").write_text(
+        "LockScreen prevents scheduled task startup.\n",
+        encoding="utf-8",
+    )
+    _git(repository, "add", ".")
+    _git(repository, "commit", "-m", "documentation")
+    revision = _git(repository, "rev-parse", "HEAD")
+    query = SourceSearchQuery(
+        query_id="lock-screen",
+        source_id="project",
+        terms=["LockScreen"],
+        paths=["docs"],
+        reason="Inspect the lock-screen behavior.",
+        context_lines=0,
+    )
+    inspection = _inspection(repository, revision, SourceRole.MAA_FRAMEWORK)
+    inspection = execute_source_research(
+        inspection,
+        SourceResearchPlan(
+            status=SourceResearchStatus.RUN,
+            queries=[query],
+            rationale="Search implementation source.",
+        ),
+    )
+    inspection = execute_knowledge_research(
+        inspection,
+        KnowledgeResearchPlan(
+            status=SourceResearchStatus.RUN,
+            queries=[query],
+            rationale="Search documentation.",
+        ),
+    )
+
+    [source_match] = inspection.source_search_matches
+    [knowledge_match] = inspection.knowledge_search_matches
+    assert source_match.source_locator == knowledge_match.source_locator
+    assert source_match.content == knowledge_match.content
+    assert source_match.evidence_id != knowledge_match.evidence_id
+    assert synthesize_source_search_evidence([source_match])[0].kind == "source_search_match"
+    assert (
+        synthesize_knowledge_search_evidence([knowledge_match])[0].kind
+        == "knowledge_document_match"
+    )
 
 
 def test_wiki_navigation_resolves_revision_matched_original_source(tmp_path: Path) -> None:

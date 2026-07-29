@@ -99,6 +99,30 @@ def _structured_output_result(
     return values["parsed"], parsing_error
 
 
+def _raw_structured_payload(
+    envelope: object,
+    result_type: type[ContractModel],
+) -> object | None:
+    """Recover decoded tool arguments when LangChain's Pydantic parser rejects them."""
+    if not isinstance(envelope, Mapping):
+        return None
+    values = cast(Mapping[str, object], envelope)
+    raw = values.get("raw")
+    if raw is None:
+        return None
+    tool_calls_value = getattr(raw, "tool_calls", None)
+    if not isinstance(tool_calls_value, list):
+        return None
+    tool_calls = cast(list[object], tool_calls_value)
+    for tool_call in tool_calls:
+        if not isinstance(tool_call, Mapping):
+            continue
+        call = cast(Mapping[str, object], tool_call)
+        if call.get("name") == result_type.__name__ and "args" in call:
+            return call["args"]
+    return None
+
+
 class LangChainReasoningSession:
     """One structured reasoning session over a configured LangChain chat model."""
 
@@ -149,9 +173,17 @@ class LangChainReasoningSession:
             parsed, parsing_error = _structured_output_result(envelope, result_type)
             try:
                 if parsing_error is not None:
-                    raise ValueError(
-                        f"Provider {result_type.__name__} parsing failed: {parsing_error}"
-                    ) from parsing_error
+                    raw_payload = _raw_structured_payload(envelope, result_type)
+                    if raw_payload is None:
+                        raise ValueError(
+                            f"Provider {result_type.__name__} parsing failed: {parsing_error}"
+                        ) from parsing_error
+                    try:
+                        return result_type.model_validate(raw_payload)
+                    except (TypeError, ValueError) as raw_error:
+                        raise ValueError(
+                            f"Provider {result_type.__name__} parsing failed: {raw_error}"
+                        ) from raw_error
                 if isinstance(parsed, result_type):
                     return parsed
                 if parsed is None:

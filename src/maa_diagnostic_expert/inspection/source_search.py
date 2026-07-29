@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 import re
 import subprocess
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import Literal
 from urllib.parse import unquote
 
 from maa_diagnostic_expert.contracts.domain import (
@@ -32,6 +34,27 @@ from .evidence_query import query_evidence
 from .models import DeterministicInspection, SourceSearchMatch
 
 _MAX_TOTAL_MATCHES = 50
+_MAX_QUERY_CANDIDATES = 5_000
+_MAX_FOLLOWUP_IDENTIFIERS = 4
+_MAX_FOLLOWUP_MATCHES = 20
+_IMPLEMENTATION_SUFFIXES = {
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cs",
+    ".go",
+    ".h",
+    ".hpp",
+    ".java",
+    ".js",
+    ".jsx",
+    ".kt",
+    ".py",
+    ".rs",
+    ".swift",
+    ".ts",
+    ".tsx",
+}
 _FRAMEWORK_DOCUMENTATION_DIRECTORIES = {"doc", "docs", "documentation"}
 _DEFAULT_FRAMEWORK_DOCUMENTATION_PATHS = [
     "docs",
@@ -42,6 +65,8 @@ _DEFAULT_FRAMEWORK_DOCUMENTATION_PATHS = [
 _MAX_WIKI_ORIGINAL_QUERIES = 5
 _MARKDOWN_GITHUB_LINK = re.compile(r"\]\((https://github\.com/[^\s)]+)\)")
 _COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+
+type _SearchEvidenceMode = Literal["source", "knowledge"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +86,22 @@ def _is_framework_documentation_path(path: str) -> bool:
         ".rst",
         ".txt",
     }
+
+
+def _search_evidence_id(
+    window_evidence_id: str,
+    *,
+    mode: _SearchEvidenceMode,
+    role: SourceRole,
+) -> str:
+    if mode == "source":
+        kind = "source_search_match"
+    elif role is SourceRole.WIKI:
+        kind = "wiki_navigation_match"
+    else:
+        kind = "knowledge_document_match"
+    digest = hashlib.sha256(f"{kind}|{window_evidence_id}".encode()).hexdigest()[:20]
+    return f"ev:{digest}"
 
 
 def _git(repository: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -111,7 +152,7 @@ def _grep_lines(
     if snapshot.revision_backend is SourceRevisionBackend.WIKI_CATALOG:
         return _grep_snapshot_files(snapshot, query)
     repository_root = _repository_root(snapshot)
-    arguments = ["grep", "-n", "-I", "-F"]
+    arguments = ["grep", "-n", "-I", "-F", "-i"]
     for term in query.terms:
         arguments.extend(["-e", term])
     revision = source_snapshot_object_revision(
@@ -128,8 +169,8 @@ def _grep_lines(
         message = result.stderr.strip() or "git grep failed"
         raise ValueError(message)
 
-    matches: list[tuple[Path, int, str]] = []
-    truncated = False
+    candidates: list[tuple[Path, int, str]] = []
+    candidate_limit_reached = False
     for raw_line in result.stdout.splitlines():
         line = raw_line
         if line.startswith(f"{revision}:"):
@@ -145,11 +186,107 @@ def _grep_lines(
         source_path = (repository_root / Path(relative_path)).resolve()
         if not source_path.is_relative_to(snapshot.path.resolve()):
             continue
-        if len(matches) >= query.max_results:
-            truncated = True
+        if len(candidates) >= _MAX_QUERY_CANDIDATES:
+            candidate_limit_reached = True
             break
-        matches.append((source_path, line_number, matched_line))
-    return matches, truncated
+        candidates.append((source_path, line_number, matched_line))
+
+    folded_terms = [term.casefold() for term in query.terms]
+    term_frequencies: Counter[str] = Counter()
+    file_term_frequencies: Counter[tuple[Path, str]] = Counter()
+    for source_path, _, matched_line in candidates:
+        folded_line = matched_line.casefold()
+        for term in folded_terms:
+            if term not in folded_line:
+                continue
+            term_frequencies[term] += 1
+            file_term_frequencies[(source_path, term)] += 1
+
+    def identifier_span(matched_line: str, term: str) -> int:
+        identifiers = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", matched_line)
+        return max(
+            (len(identifier) for identifier in identifiers if term in identifier.casefold()),
+            default=0,
+        )
+
+    def term_relevance_key(
+        match: tuple[Path, int, str],
+        term: str,
+    ) -> tuple[int, int, int, str, int]:
+        source_path, line_number, matched_line = match
+        return (
+            0 if source_path.suffix.casefold() in _IMPLEMENTATION_SUFFIXES else 1,
+            -identifier_span(matched_line, term),
+            file_term_frequencies[(source_path, term)],
+            str(source_path).casefold(),
+            line_number,
+        )
+
+    term_order = sorted(
+        (term for term in folded_terms if term_frequencies[term]),
+        key=lambda term: (term_frequencies[term], -len(term), folded_terms.index(term)),
+    )
+    matches_by_term = {
+        term: sorted(
+            (match for match in candidates if term in match[2].casefold()),
+            key=lambda match, term=term: term_relevance_key(match, term),
+        )
+        for term in term_order
+    }
+    selected: list[tuple[Path, int, str]] = []
+    selected_keys: set[tuple[Path, int]] = set()
+
+    def overlaps_selected_window(match: tuple[Path, int, str]) -> bool:
+        source_path, line_number, _ = match
+        return any(
+            selected_path == source_path
+            and abs(selected_line - line_number) <= query.context_lines * 2
+            for selected_path, selected_line, _ in selected
+        )
+
+    def add_match(match: tuple[Path, int, str]) -> bool:
+        key = (match[0], match[1])
+        if key in selected_keys or overlaps_selected_window(match):
+            return False
+        selected.append(match)
+        selected_keys.add(key)
+        return True
+
+    for term in term_order:
+        for match in matches_by_term[term]:
+            if add_match(match):
+                break
+        if len(selected) >= query.max_results:
+            break
+
+    def overall_relevance_key(
+        match: tuple[Path, int, str],
+    ) -> tuple[int, int, int, int, str, int]:
+        source_path, line_number, matched_line = match
+        folded_line = matched_line.casefold()
+        matched_terms = [term for term in folded_terms if term in folded_line]
+        return (
+            0 if source_path.suffix.casefold() in _IMPLEMENTATION_SUFFIXES else 1,
+            -max((identifier_span(matched_line, term) for term in matched_terms), default=0),
+            min(
+                (file_term_frequencies[(source_path, term)] for term in matched_terms),
+                default=len(candidates),
+            ),
+            min(
+                (term_frequencies[term] for term in matched_terms),
+                default=len(candidates),
+            ),
+            str(source_path).casefold(),
+            line_number,
+        )
+
+    for match in sorted(candidates, key=overall_relevance_key):
+        if len(selected) >= query.max_results:
+            break
+        add_match(match)
+
+    truncated = candidate_limit_reached or len(candidates) > len(selected)
+    return selected, truncated
 
 
 def _grep_snapshot_files(
@@ -184,7 +321,8 @@ def _grep_snapshot_files(
         except OSError:
             continue
         for line_number, line in enumerate(lines, start=1):
-            if not any(term in line for term in query.terms):
+            folded_line = line.casefold()
+            if not any(term.casefold() in folded_line for term in query.terms):
                 continue
             if len(matches) >= query.max_results:
                 return matches, True
@@ -195,6 +333,8 @@ def _grep_snapshot_files(
 def execute_source_research(
     inspection: DeterministicInspection,
     plan: SourceResearchPlan,
+    *,
+    evidence_mode: _SearchEvidenceMode = "source",
 ) -> DeterministicInspection:
     """Execute bounded model-planned searches against authorized source snapshots."""
     snapshots = {snapshot.source_id: snapshot for snapshot in inspection.prepared.source_snapshots}
@@ -242,6 +382,106 @@ def execute_source_research(
                 )
             )
             continue
+        if not grep_matches and query.paths and evidence_mode == "source":
+            relaxed_query = query.model_copy(update={"paths": []})
+            try:
+                grep_matches, relaxed_truncated = _grep_lines(snapshot, relaxed_query)
+            except ValueError as error:
+                missing.append(
+                    MissingEvidence(
+                        code="source_search_failed",
+                        message=str(error),
+                        source_id=snapshot.source_id,
+                        source_path=snapshot.path,
+                    )
+                )
+                continue
+            query_truncated = query_truncated or relaxed_truncated
+            missing.append(
+                MissingEvidence(
+                    code="source_search_paths_relaxed",
+                    message=(
+                        f"Source search query '{query.query_id}' found no matches within its "
+                        "path hints, so the same terms were retried across the authorized source."
+                    ),
+                    source_id=snapshot.source_id,
+                    source_path=snapshot.path,
+                    required=False,
+                )
+            )
+        if grep_matches and evidence_mode == "source":
+            folded_terms = [term.casefold() for term in query.terms]
+            base_identifiers = sorted(
+                {
+                    identifier
+                    for _, _, matched_line in grep_matches
+                    for identifier in re.findall(
+                        r"[A-Za-z_][A-Za-z0-9_]*",
+                        matched_line,
+                    )
+                    if len(identifier) >= 6
+                    and identifier.casefold() not in folded_terms
+                    and any(term in identifier.casefold() for term in folded_terms)
+                },
+                key=lambda identifier: (-len(identifier), identifier.casefold()),
+            )[:_MAX_FOLLOWUP_IDENTIFIERS]
+            identifiers = list(base_identifiers)
+            for identifier in base_identifiers:
+                if "_" in identifier:
+                    parts = [part for part in identifier.split("_") if part]
+                    variant = (
+                        parts[0].casefold()
+                        + "".join(part[:1].upper() + part[1:].casefold() for part in parts[1:])
+                        if parts
+                        else ""
+                    )
+                else:
+                    variant = re.sub(r"(?<!^)(?=[A-Z])", "_", identifier).casefold()
+                if variant and variant.casefold() not in {item.casefold() for item in identifiers}:
+                    identifiers.append(variant)
+            identifiers = identifiers[:8]
+            if identifiers:
+                followup_query = query.model_copy(
+                    update={
+                        "terms": identifiers,
+                        "paths": [],
+                        "context_lines": query.context_lines,
+                        "max_results": _MAX_FOLLOWUP_MATCHES,
+                    }
+                )
+                try:
+                    followup_matches, followup_truncated = _grep_lines(
+                        snapshot,
+                        followup_query,
+                    )
+                except ValueError:
+                    followup_matches = []
+                    followup_truncated = False
+                if followup_matches:
+                    combined_matches: list[tuple[Path, int, str]] = []
+                    seen_match_keys: set[tuple[Path, int]] = set()
+                    for match in [*followup_matches, *grep_matches]:
+                        key = (match[0], match[1])
+                        if key in seen_match_keys:
+                            continue
+                        combined_matches.append(match)
+                        seen_match_keys.add(key)
+                        if len(combined_matches) >= query.max_results:
+                            break
+                    grep_matches = combined_matches
+                    query_truncated = query_truncated or followup_truncated
+                    missing.append(
+                        MissingEvidence(
+                            code="source_search_identifier_followup",
+                            message=(
+                                f"Source search query '{query.query_id}' followed concrete "
+                                "identifiers found by its literal terms."
+                            ),
+                            source_id=snapshot.source_id,
+                            source_path=snapshot.path,
+                            required=False,
+                        )
+                    )
         if query_truncated:
             missing.append(
                 MissingEvidence(
@@ -284,7 +524,8 @@ def execute_source_research(
                 break
             line_start = max(1, line_number - query.context_lines)
             line_end = line_number + query.context_lines
-            matched_terms = [term for term in query.terms if term in matched_line]
+            folded_line = matched_line.casefold()
+            matched_terms = [term for term in query.terms if term.casefold() in folded_line]
             if not matched_terms:
                 matched_terms = list(query.terms)
 
@@ -321,7 +562,11 @@ def execute_source_research(
                     content=window.evidence.content,
                     line_start=window.evidence.line_start or line_start,
                     line_end=window.evidence.line_end or line_end,
-                    evidence_id=window.evidence.id,
+                    evidence_id=_search_evidence_id(
+                        window.evidence.id,
+                        mode=evidence_mode,
+                        role=snapshot.role,
+                    ),
                 )
             )
 
@@ -389,7 +634,11 @@ def execute_knowledge_research(
         queries=eligible_queries,
         rationale=plan.rationale,
     )
-    searched = execute_source_research(inspection_with_missing, source_plan)
+    searched = execute_source_research(
+        inspection_with_missing,
+        source_plan,
+        evidence_mode="knowledge",
+    )
     knowledge = searched.model_copy(
         update={
             "source_search_matches": inspection.source_search_matches,
@@ -536,6 +785,7 @@ def resolve_wiki_original_sources(
             queries=queries,
             rationale="Resolve pinned Wiki navigation matches to original sources.",
         ),
+        evidence_mode="knowledge",
     )
     combined: dict[str, SourceSearchMatch] = {
         match.evidence_id: match for match in inspection.knowledge_search_matches

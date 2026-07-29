@@ -300,7 +300,12 @@ class PreparedAnalysis(ContractModel):
 
 
 class EvidenceQuery(ContractModel):
-    source_path: Path
+    source_path: Path = Field(
+        description=(
+            "Copy one complete authorized artifact path exactly as provided by the evidence "
+            "research prompt; do not infer, reconstruct, or normalize a path."
+        )
+    )
     line_start: int = Field(ge=1)
     line_end: int = Field(ge=1)
     reason: str = Field(min_length=1)
@@ -326,7 +331,13 @@ class EvidenceWindow(ContractModel):
 
 class Conclusion(ContractModel):
     statement: str = Field(min_length=1)
-    evidence_ids: list[str] = Field(min_length=1)
+    evidence_ids: list[str] = Field(
+        min_length=1,
+        description=(
+            "Copy complete evidence_id values exactly from the supplied evidence, preserving "
+            "every prefix and colon."
+        ),
+    )
     confidence: float = Field(ge=0, le=1)
 
 

@@ -4,6 +4,7 @@
       "additionalProperties": false,
       "properties": {
         "source_path": {
+          "description": "Copy one complete authorized artifact path exactly as provided by the evidence research prompt; do not infer, reconstruct, or normalize a path.",
           "format": "path",
           "title": "Source Path",
           "type": "string"

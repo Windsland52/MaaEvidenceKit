@@ -35,6 +35,21 @@ def available_evidence_query_paths(prepared: PreparedAnalysis) -> list[Path]:
     return sorted(paths.values(), key=lambda path: (os.path.normcase(str(path)), str(path)))
 
 
+def available_configuration_query_paths(prepared: PreparedAnalysis) -> set[Path]:
+    """Return the authorized artifact paths classified as configuration snapshots."""
+    paths: set[Path] = set()
+    for artifact in prepared.artifacts:
+        if artifact.availability is not ArtifactAvailability.AVAILABLE:
+            continue
+        for origin in artifact.all_origins():
+            if (
+                origin.kind is not ArtifactKind.DIRECTORY
+                and origin.media_kind is ArtifactMediaKind.CONFIGURATION
+            ):
+                paths.add(origin.path.resolve())
+    return paths
+
+
 def execute_evidence_research(
     inspection: DeterministicInspection,
     plan: EvidenceResearchPlan,

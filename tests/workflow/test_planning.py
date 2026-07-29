@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -32,8 +33,11 @@ from maa_diagnostic_expert.contracts.workflow import (
     IncidentSelection,
     IncidentSelectionStatus,
     InvestigationBranch,
+    KnowledgeResearchPlan,
     SourceGuidance,
+    SourceResearchPlan,
     SourceResearchStatus,
+    SourceSearchQuery,
     VerificationMethod,
     VerificationPlan,
     VerificationPlanningStatus,
@@ -493,6 +497,34 @@ def test_fix_candidate_plan_requires_bounded_unique_candidates() -> None:
 
     assert plan.api_version == "fix-candidate-plan/v1"
 
+    flattened = FixCandidatePlan.model_validate(
+        {
+            "api_version": "fix-candidate/v1",
+            "candidates": "",
+            "fix_id": "fix-flat",
+            "target": "src/components/Toolbar.tsx",
+            "scope": "gui",
+            "method": "gui_code",
+            "rationale": "The provider flattened one candidate into the plan call.",
+            "evidence_id": "evidence-1",
+            "regression_risks": json.dumps(["Desktop capture must remain guarded."]),
+            "verification_steps": json.dumps(["Test desktop and ADB controllers."]),
+        }
+    )
+    assert flattened.status is FixPlanningStatus.PROPOSED
+    [flattened_candidate] = flattened.candidates
+    assert flattened_candidate.fix_id == "fix-flat"
+    assert flattened_candidate.evidence_ids == ["evidence-1"]
+    assert flattened_candidate.regression_risks == ["Desktop capture must remain guarded."]
+
+    with pytest.raises(ValidationError):
+        FixCandidatePlan.model_validate(
+            {
+                **flattened.model_dump(mode="json"),
+                "unexpected_provider_field": "must remain forbidden",
+            }
+        )
+
     with pytest.raises(ValidationError, match="IDs must be unique"):
         FixCandidatePlan(
             status=FixPlanningStatus.PROPOSED,
@@ -504,6 +536,37 @@ def test_fix_candidate_plan_requires_bounded_unique_candidates() -> None:
             status=FixPlanningStatus.SKIP,
             candidates=[candidate],
             rationale="Invalid skipped plan.",
+        )
+
+    with pytest.raises(ValidationError, match="requires scope 'gui'"):
+        FixCandidate.model_validate(
+            {
+                **candidate.model_dump(mode="json"),
+                "scope": FixScope.FRAMEWORK,
+                "method": FixMethod.GUI_CODE,
+            }
+        )
+
+    with pytest.raises(ValidationError, match="not a source code path"):
+        FixCandidate(
+            fix_id="invalid-config-code-target",
+            target="src/components/Toolbar.tsx",
+            scope=FixScope.GUI,
+            method=FixMethod.CONFIGURATION,
+            rationale="A source file is not a configuration-only target.",
+            evidence_ids=["evidence-1"],
+            verification_steps=["Test the target."],
+        )
+
+    with pytest.raises(ValidationError, match="cannot use scope 'framework'"):
+        FixCandidate(
+            fix_id="invalid-pipeline-scope",
+            target="src-tauri/src/commands/system.rs",
+            scope=FixScope.FRAMEWORK,
+            method=FixMethod.EXPECTED_REPLACE,
+            rationale="Pipeline replacement is not a framework source edit.",
+            evidence_ids=["evidence-1"],
+            verification_steps=["Test the target."],
         )
 
 
@@ -523,6 +586,28 @@ def test_verification_plan_set_requires_unique_fix_plans() -> None:
 
     assert verification.api_version == "verification-plan/v2"
     assert plans.api_version == "verification-plan-set/v1"
+
+    flattened = VerificationPlanSet.model_validate(
+        {
+            "api_version": "verification-plan/v2",
+            "plans": "",
+            "fix_id": "fix-1",
+            "methods": json.dumps(["runtime_execution"]),
+            "steps": json.dumps(["Run the scheduled task while Windows is locked."]),
+            "business_milestones": json.dumps(["The ADB task starts on schedule."]),
+            "regression_checks": json.dumps(
+                ["The desktop controller remains blocked while locked."]
+            ),
+            "rationale": "The provider flattened one verification plan into the set call.",
+        }
+    )
+    assert flattened.status is VerificationPlanningStatus.PLANNED
+    [flattened_plan] = flattened.plans
+    assert flattened_plan.fix_id == "fix-1"
+    assert flattened_plan.methods == [VerificationMethod.RUNTIME_EXECUTION]
+    assert flattened_plan.regression_checks == [
+        "The desktop controller remains blocked while locked."
+    ]
 
     with pytest.raises(ValidationError, match="fix IDs must be unique"):
         VerificationPlanSet(
@@ -560,6 +645,35 @@ def test_evidence_research_plan_requires_bounded_unique_queries(tmp_path: Path) 
 
     assert plan.api_version == "evidence-research-plan/v1"
 
+    provider_typo = EvidenceResearchPlan.model_validate(
+        {
+            "status": "skip",
+            "queries": [],
+            "rational": "The provider used a known rationale field spelling variant.",
+        }
+    )
+    assert provider_typo.rationale.startswith("The provider")
+    assert provider_typo.model_dump()["rationale"] == provider_typo.rationale
+    assert "rational" not in provider_typo.model_dump()
+
+    encoded_queries = EvidenceResearchPlan.model_validate(
+        {
+            "status": "run",
+            "queries": json.dumps([query.model_dump(mode="json")]),
+            "rationale": "The provider JSON-encoded the array argument once.",
+        }
+    )
+    assert encoded_queries.queries == [query]
+
+    with pytest.raises(ValidationError, match="valid list"):
+        EvidenceResearchPlan.model_validate(
+            {
+                "status": "run",
+                "queries": json.dumps({"query": query.model_dump(mode="json")}),
+                "rationale": "An object must not be accepted as an array.",
+            }
+        )
+
     with pytest.raises(ValidationError, match="must be unique"):
         EvidenceResearchPlan(
             status=SourceResearchStatus.RUN,
@@ -572,3 +686,25 @@ def test_evidence_research_plan_requires_bounded_unique_queries(tmp_path: Path) 
             queries=[query],
             rationale="Invalid skipped plan.",
         )
+
+
+@pytest.mark.parametrize("plan_type", [SourceResearchPlan, KnowledgeResearchPlan])
+def test_source_plan_accepts_json_encoded_query_array(
+    plan_type: type[SourceResearchPlan] | type[KnowledgeResearchPlan],
+) -> None:
+    query = SourceSearchQuery(
+        query_id="lock-warning",
+        source_id="gui",
+        terms=["检测到电脑处于锁屏状态，取消启动"],
+        reason="Locate the observed warning.",
+    )
+
+    plan = plan_type.model_validate(
+        {
+            "status": "run",
+            "queries": json.dumps([query.model_dump(mode="json")]),
+            "rationale": "The provider JSON-encoded the array argument once.",
+        }
+    )
+
+    assert plan.queries == [query]

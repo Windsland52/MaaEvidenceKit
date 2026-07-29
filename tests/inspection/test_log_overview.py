@@ -10,6 +10,7 @@ from maa_diagnostic_expert.contracts.domain import (
     ArtifactKind,
     EvidenceRole,
 )
+from maa_diagnostic_expert.contracts.workflow import ArtifactSourceKind
 from maa_diagnostic_expert.discovery.artifact_classification import classify_artifact_sources
 from maa_diagnostic_expert.discovery.preparation import prepare_analysis
 from maa_diagnostic_expert.inspection import log_overview
@@ -58,6 +59,24 @@ def test_overview_records_time_levels_and_traceable_occurrences(tmp_path: Path) 
     assert counts[LogSeverity.ERROR] == 1
     assert [item.line_number for item in overview.notable_occurrences] == [2, 3]
     assert overview.notable_occurrences[1].byte_offset > 0
+
+
+def test_overview_scans_unknown_log_formats_for_generic_warning_evidence(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "2026-07-26-2.log"
+    path.write_text(
+        "2026-07-27 08:00:16 INFO [Task] scheduled task triggered\n"
+        "2026-07-27 08:00:16 WARN [Task] lock screen detected, cancelling startup\n",
+        encoding="utf-8",
+    )
+
+    overview = _overview(path)
+
+    assert overview.source_kind is ArtifactSourceKind.UNKNOWN
+    assert [item.line_number for item in overview.notable_occurrences] == [2]
+    assert overview.notable_occurrences[0].severity is LogSeverity.WARNING
+    assert "lock screen detected" in overview.notable_occurrences[0].excerpt
 
 
 def test_overview_bounds_long_lines_and_keeps_first_and_last_errors(tmp_path: Path) -> None:

@@ -131,6 +131,9 @@ def test_statused_plan_schemas_expose_collection_requirements(
 ) -> None:
     schema = model_type.model_json_schema()
 
+    assert "rationale" in schema["properties"]
+    assert "rational" not in schema["properties"]
+
     assert schema["allOf"] == [
         {
             "if": {

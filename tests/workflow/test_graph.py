@@ -19,8 +19,10 @@ from maa_diagnostic_expert.contracts.domain import (
     DiagnosisStatus,
     DiagnosticEvent,
     DiagnosticEventKind,
+    Evidence,
     EvidenceQuery,
     EvidenceReliability,
+    EvidenceRole,
     SourceInput,
     SourceRole,
 )
@@ -46,6 +48,11 @@ from maa_diagnostic_expert.inspection import log_overview
 from maa_diagnostic_expert.reasoning.prompts import StubReasoningBackend
 from maa_diagnostic_expert.reasoning.protocol import ReasoningContext
 from maa_diagnostic_expert.workflow.graph import DiagnosticWorkflow
+from maa_diagnostic_expert.workflow.validation import (
+    requires_configuration_evidence,
+    validate_configuration_bridge_citation,
+    validate_fix_configuration_bridge,
+)
 
 
 def _skip_fix_candidate_plan() -> FixCandidatePlan:
@@ -283,29 +290,41 @@ class _SourceResearchToolCaller:
 
 
 class _SourceResearchSession:
-    def __init__(self, contexts: list[ReasoningContext]) -> None:
-        self.contexts = contexts
+    def __init__(self, backend: _SourceResearchBackend) -> None:
+        self.backend = backend
 
     async def reason[ResultT: ContractModel](
         self, context: ReasoningContext, result_type: type[ResultT]
     ) -> ResultT:
-        self.contexts.append(context)
+        self.backend.contexts.append(context)
         if result_type is IncidentCorrelationDraft:
             selection = context.incident_selection
             if selection is None or not selection.candidates:
                 raise AssertionError("correlation requires candidates")
             candidate = selection.candidates[0]
+            self.backend.correlation_calls += 1
+            candidate_id = (
+                candidate.candidate_id.removeprefix("incident:")
+                if self.backend.strip_candidate_prefix_once and self.backend.correlation_calls == 1
+                else candidate.candidate_id
+            )
             return cast(
                 ResultT,
                 IncidentCorrelationDraft(
                     status=IncidentSelectionStatus.SELECTED,
-                    selected_candidate_id=candidate.candidate_id,
-                    relevant_candidate_ids=[candidate.candidate_id],
+                    selected_candidate_id=candidate_id,
+                    relevant_candidate_ids=[candidate_id],
                     evidence_ids=[candidate.evidence_ids[0]],
                     rationale="The reported login task matches.",
                 ),
             )
         if result_type is SourceResearchPlan:
+            self.backend.source_plan_calls += 1
+            term = (
+                "MissingLoginSymbol"
+                if self.backend.miss_source_term_once and self.backend.source_plan_calls == 1
+                else "LoginButton"
+            )
             return cast(
                 ResultT,
                 SourceResearchPlan(
@@ -315,7 +334,7 @@ class _SourceResearchSession:
                         SourceSearchQuery(
                             query_id="login-node",
                             source_id="project",
-                            terms=["LoginButton"],
+                            terms=[term],
                             paths=["assets"],
                             reason="Inspect the focused pipeline definition.",
                             context_lines=2,
@@ -335,6 +354,12 @@ class _SourceResearchSession:
             primary = next(
                 item for item in context.evidence if item.reliability is EvidenceReliability.PRIMARY
             )
+            self.backend.diagnosis_calls += 1
+            evidence_id = (
+                primary.id.split(":", maxsplit=1)[-1]
+                if self.backend.strip_evidence_prefix_once and self.backend.diagnosis_calls == 1
+                else primary.id
+            )
             return cast(
                 ResultT,
                 DiagnosisDraft(
@@ -343,7 +368,7 @@ class _SourceResearchSession:
                     conclusions=[
                         Conclusion(
                             statement="The login task timed out.",
-                            evidence_ids=[primary.id],
+                            evidence_ids=[evidence_id],
                             confidence=0.9,
                         )
                     ],
@@ -358,23 +383,41 @@ class _SourceResearchSession:
 
 
 class _SourceResearchBackend:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        strip_candidate_prefix_once: bool = False,
+        strip_evidence_prefix_once: bool = False,
+        miss_source_term_once: bool = False,
+    ) -> None:
         self.contexts: list[ReasoningContext] = []
+        self.strip_candidate_prefix_once = strip_candidate_prefix_once
+        self.correlation_calls = 0
+        self.strip_evidence_prefix_once = strip_evidence_prefix_once
+        self.diagnosis_calls = 0
+        self.miss_source_term_once = miss_source_term_once
+        self.source_plan_calls = 0
 
     async def start(self, *, run_id: str) -> _SourceResearchSession:
         del run_id
-        return _SourceResearchSession(self.contexts)
+        return _SourceResearchSession(self)
 
 
 class _KnowledgeResearchSession:
-    def __init__(self, contexts: list[ReasoningContext]) -> None:
-        self.contexts = contexts
+    def __init__(self, backend: _KnowledgeResearchBackend) -> None:
+        self.backend = backend
 
     async def reason[ResultT: ContractModel](
         self, context: ReasoningContext, result_type: type[ResultT]
     ) -> ResultT:
-        self.contexts.append(context)
+        self.backend.contexts.append(context)
         if result_type is KnowledgeResearchPlan:
+            self.backend.plan_calls += 1
+            source_id = (
+                "documentation"
+                if self.backend.misidentify_source_once and self.backend.plan_calls == 1
+                else "docs"
+            )
             return cast(
                 ResultT,
                 KnowledgeResearchPlan(
@@ -383,7 +426,7 @@ class _KnowledgeResearchSession:
                     queries=[
                         SourceSearchQuery(
                             query_id="ocr-replace",
-                            source_id="docs",
+                            source_id=source_id,
                             terms=["replace"],
                             paths=["docs"],
                             reason="Read the documented OCR normalization behavior.",
@@ -427,12 +470,14 @@ class _KnowledgeResearchSession:
 
 
 class _KnowledgeResearchBackend:
-    def __init__(self) -> None:
+    def __init__(self, *, misidentify_source_once: bool = False) -> None:
         self.contexts: list[ReasoningContext] = []
+        self.misidentify_source_once = misidentify_source_once
+        self.plan_calls = 0
 
     async def start(self, *, run_id: str) -> _KnowledgeResearchSession:
         del run_id
-        return _KnowledgeResearchSession(self.contexts)
+        return _KnowledgeResearchSession(self)
 
 
 class _AdaptiveEvidenceSession:
@@ -444,7 +489,15 @@ class _AdaptiveEvidenceSession:
     ) -> ResultT:
         if result_type is EvidenceResearchPlan:
             self.backend.plan_calls += 1
-            if self.backend.plan_calls == 1:
+            should_query = self.backend.plan_calls == 1 or (
+                self.backend.invent_evidence_path_once and self.backend.plan_calls == 2
+            )
+            if should_query:
+                source_path = (
+                    self.backend.log_path.with_name("invented.log")
+                    if self.backend.invent_evidence_path_once and self.backend.plan_calls == 1
+                    else self.backend.log_path
+                )
                 return cast(
                     ResultT,
                     EvidenceResearchPlan(
@@ -452,7 +505,7 @@ class _AdaptiveEvidenceSession:
                         rationale="Read the focused failure detail.",
                         queries=[
                             EvidenceQuery(
-                                source_path=self.backend.log_path,
+                                source_path=source_path,
                                 line_start=2,
                                 line_end=3,
                                 reason="Inspect the reported failure detail.",
@@ -484,8 +537,12 @@ class _AdaptiveEvidenceSession:
                 ),
             )
         if result_type is FixCandidatePlan:
+            self.backend.fix_calls += 1
             window = next(item for item in context.evidence if item.kind == "text_line_window")
             evidence_id = "ev:invented" if self.backend.invent_fix_evidence else window.id
+            invent_code_target = (
+                self.backend.invent_code_target_once and self.backend.fix_calls == 1
+            )
             return cast(
                 ResultT,
                 FixCandidatePlan(
@@ -494,9 +551,17 @@ class _AdaptiveEvidenceSession:
                     candidates=[
                         FixCandidate(
                             fix_id="fix-retry-policy",
-                            target="custom-agent retry policy",
-                            scope=FixScope.PROJECT,
-                            method=FixMethod.CONFIGURATION,
+                            target=(
+                                "invented/gui_scheduler.cpp:pre_execution_check"
+                                if invent_code_target
+                                else "custom-agent retry policy"
+                            ),
+                            scope=FixScope.GUI if invent_code_target else FixScope.PROJECT,
+                            method=(
+                                FixMethod.GUI_CODE
+                                if invent_code_target
+                                else FixMethod.CONFIGURATION
+                            ),
                             rationale="Adjust only the exhausted retry policy.",
                             evidence_ids=[evidence_id],
                             regression_risks=["Transient failures may take longer to surface."],
@@ -543,11 +608,16 @@ class _AdaptiveEvidenceBackend:
         *,
         invent_fix_evidence: bool = False,
         omit_regression_checks: bool = False,
+        invent_evidence_path_once: bool = False,
+        invent_code_target_once: bool = False,
     ) -> None:
         self.log_path = log_path
         self.invent_fix_evidence = invent_fix_evidence
         self.omit_regression_checks = omit_regression_checks
+        self.invent_evidence_path_once = invent_evidence_path_once
+        self.invent_code_target_once = invent_code_target_once
         self.plan_calls = 0
+        self.fix_calls = 0
 
     async def start(self, *, run_id: str) -> _AdaptiveEvidenceSession:
         del run_id
@@ -650,7 +720,7 @@ def test_workflow_rejects_model_invented_evidence_ids(tmp_path: Path) -> None:
     events = _collect_events(workflow, _request(debug_path))
 
     assert events[-1].kind is DiagnosticEventKind.RUN_FAILED
-    assert events[-1].stage == "validate"
+    assert events[-1].stage == "reason"
     assert workflow.result is not None
     assert workflow.result.status is DiagnosisStatus.FAILED
     assert "unknown evidence IDs" in workflow.result.summary
@@ -893,8 +963,150 @@ def test_workflow_adaptively_queries_focused_raw_evidence(tmp_path: Path) -> Non
     assert verification.fix_id == candidate.fix_id
     assert verification.business_milestones
     assert any(event.stage == "query_evidence" for event in events)
+    completed_plans = [
+        event
+        for event in events
+        if event.stage == "plan_evidence_research"
+        and event.message == "Focused evidence window plan complete"
+    ]
+    assert len(completed_plans) == 2
+    assert completed_plans[0].data["query_details"] == [
+        {
+            "source_path": str(log.resolve()),
+            "line_start": 2,
+            "line_end": 3,
+            "reason": "Inspect the reported failure detail.",
+        }
+    ]
+    assert completed_plans[1].data["status"] == "skip"
     assert any(event.stage == "propose_fix" for event in events)
     assert any(event.stage == "plan_verification" for event in events)
+
+
+def test_configuration_dependent_source_requires_artifact_evidence(tmp_path: Path) -> None:
+    config = (tmp_path / "settings.json").resolve()
+    source = Evidence(
+        id="ev:source",
+        kind="source_search_match",
+        source_component="source:gui",
+        source_path="git:gui@revision:Toolbar.tsx",
+        content="const controller = settings.controllerName;",
+        role=EvidenceRole.CONTEXT,
+    )
+
+    assert requires_configuration_evidence([source], {config}) is True
+
+    queried = Evidence(
+        id="ev:configuration",
+        kind="text_line_window",
+        source_component="diagnostic-artifact",
+        source_path=str(config),
+        content='{"controllerName": "ADB"}',
+        line_start=1,
+        line_end=1,
+        role=EvidenceRole.CONTEXT,
+    )
+    assert requires_configuration_evidence([source, queried], {config}) is False
+
+    source_only_draft = DiagnosisDraft(
+        status=DiagnosisStatus.COMPLETE,
+        summary="The guard depends on a configured controller.",
+        conclusions=[
+            Conclusion(
+                statement="The source reads the configured controller.",
+                evidence_ids=[source.id],
+                confidence=0.8,
+            )
+        ],
+    )
+    with pytest.raises(ValueError, match="both version-matched source evidence"):
+        validate_configuration_bridge_citation(
+            source_only_draft,
+            [source, queried],
+            {config},
+        )
+
+    bridged_draft = source_only_draft.model_copy(
+        update={
+            "conclusions": [
+                Conclusion(
+                    statement="The configured ADB controller reaches the unconditional guard.",
+                    evidence_ids=[source.id, queried.id],
+                    confidence=0.9,
+                )
+            ]
+        }
+    )
+    validate_configuration_bridge_citation(bridged_draft, [source, queried], {config})
+
+    source_only_fix = FixCandidatePlan(
+        status=FixPlanningStatus.PROPOSED,
+        rationale="Narrow the controller-dependent guard.",
+        candidates=[
+            FixCandidate(
+                fix_id="narrow-guard",
+                target="Toolbar.tsx:startTask",
+                scope=FixScope.GUI,
+                method=FixMethod.GUI_CODE,
+                rationale="Apply the guard only where the desktop is required.",
+                evidence_ids=[source.id],
+                verification_steps=["Exercise ADB and desktop controllers while locked."],
+            )
+        ],
+    )
+    with pytest.raises(ValueError, match="must cite configuration evidence"):
+        validate_fix_configuration_bridge(
+            source_only_fix,
+            bridged_draft,
+            [source, queried],
+            {config},
+        )
+
+    bridged_fix = source_only_fix.model_copy(
+        update={
+            "candidates": [
+                source_only_fix.candidates[0].model_copy(
+                    update={"evidence_ids": [source.id, queried.id]}
+                )
+            ]
+        }
+    )
+    validate_fix_configuration_bridge(
+        bridged_fix,
+        bridged_draft,
+        [source, queried],
+        {config},
+    )
+
+
+def test_workflow_retries_evidence_plan_with_an_exact_authorized_path(
+    tmp_path: Path,
+) -> None:
+    log = tmp_path / "agent.log"
+    log.write_text(
+        "operation started\nretry exhausted\noperation failed\n",
+        encoding="utf-8",
+    )
+    backend = _AdaptiveEvidenceBackend(
+        log.resolve(),
+        invent_evidence_path_once=True,
+    )
+    workflow = DiagnosticWorkflow(_ToolCaller(), backend)
+    request = AnalysisRequest(
+        question="Why did the custom operation fail?",
+        artifacts=[ArtifactInput(path=log, kind=ArtifactKind.FILE)],
+    )
+
+    events = _collect_events(workflow, request)
+
+    assert backend.plan_calls == 3
+    assert workflow.result is not None
+    assert workflow.result.status is DiagnosisStatus.COMPLETE
+    assert any(
+        event.stage == "plan_evidence_research"
+        and event.message == "Retrying evidence research plan with authorized paths"
+        for event in events
+    )
 
 
 def test_workflow_rejects_fix_candidate_with_invented_evidence(tmp_path: Path) -> None:
@@ -920,6 +1132,39 @@ def test_workflow_rejects_fix_candidate_with_invented_evidence(tmp_path: Path) -
     assert workflow.result.status is DiagnosisStatus.FAILED
     assert "unknown evidence IDs" in workflow.result.summary
     assert workflow.fix_candidate_plan is None
+
+
+def test_workflow_retries_code_fix_without_versioned_source_evidence(
+    tmp_path: Path,
+) -> None:
+    log = tmp_path / "agent.log"
+    log.write_text(
+        "operation started\nretry exhausted\noperation failed\n",
+        encoding="utf-8",
+    )
+    backend = _AdaptiveEvidenceBackend(
+        log.resolve(),
+        invent_code_target_once=True,
+    )
+    workflow = DiagnosticWorkflow(_ToolCaller(), backend)
+    request = AnalysisRequest(
+        question="Why did the custom operation fail?",
+        artifacts=[ArtifactInput(path=log, kind=ArtifactKind.FILE)],
+    )
+
+    events = _collect_events(workflow, request)
+
+    assert backend.fix_calls == 2
+    assert workflow.result is not None
+    assert workflow.result.status is DiagnosisStatus.COMPLETE
+    assert workflow.fix_candidate_plan is not None
+    [candidate] = workflow.fix_candidate_plan.candidates
+    assert candidate.method is FixMethod.CONFIGURATION
+    assert any(
+        event.stage == "propose_fix"
+        and event.message == "Retrying repair candidates with source ownership constraints"
+        for event in events
+    )
 
 
 def test_workflow_rejects_verification_without_regression_coverage(
@@ -995,7 +1240,11 @@ def test_workflow_runs_model_planned_versioned_source_search(
     ).stdout.strip()
     debug_path = _make_directory_with_log(tmp_path)
     caller = _SourceResearchToolCaller(project)
-    backend = _SourceResearchBackend()
+    backend = _SourceResearchBackend(
+        strip_candidate_prefix_once=True,
+        strip_evidence_prefix_once=True,
+        miss_source_term_once=True,
+    )
     workflow = DiagnosticWorkflow(caller, backend)
     request = AnalysisRequest(
         issue="LoginTask stopped after LoginButton timed out.",
@@ -1016,7 +1265,19 @@ def test_workflow_runs_model_planned_versioned_source_search(
     assert workflow.result is not None
     assert workflow.result.status is DiagnosisStatus.COMPLETE
     assert any(event.stage == "inspect_source_guidance" for event in events)
+    assert any(
+        event.message == "Retrying incident correlation with exact candidate IDs"
+        for event in events
+    )
+    assert any(
+        event.message == "Retrying diagnostic reasoning with exact evidence IDs" for event in events
+    )
     assert any(event.stage == "plan_source_research" for event in events)
+    source_plan_contexts = [
+        context for context in backend.contexts if context.stage == "plan_source_research"
+    ]
+    assert len(source_plan_contexts) == 2
+    assert "Previous source queries returned no matches" in source_plan_contexts[1].instruction
     assert any(event.stage == "search_source" for event in events)
     diagnose_context = next(context for context in backend.contexts if context.stage == "diagnose")
     assert any(evidence.kind == "source_search_match" for evidence in diagnose_context.evidence)
@@ -1026,6 +1287,14 @@ def test_workflow_runs_model_planned_versioned_source_search(
         "plan_source_research",
         "diagnose",
     }
+    correlation_contexts = [
+        context for context in backend.contexts if context.stage == "correlate_incident"
+    ]
+    assert len(correlation_contexts) == 2
+    assert "Preserve every prefix, including 'incident:'" in correlation_contexts[1].instruction
+    reason_contexts = [context for context in backend.contexts if context.stage == "diagnose"]
+    assert len(reason_contexts) == 2
+    assert "Preserve every prefix and colon" in reason_contexts[1].instruction
     for context in backend.contexts:
         assert "Reported issue:\nLoginTask stopped after LoginButton timed out." in (
             context.instruction
@@ -1069,7 +1338,7 @@ def test_workflow_runs_document_search_without_runtime_incident(tmp_path: Path) 
         capture_output=True,
         text=True,
     ).stdout.strip()
-    backend = _KnowledgeResearchBackend()
+    backend = _KnowledgeResearchBackend(misidentify_source_once=True)
     workflow = DiagnosticWorkflow(_ToolCaller(), backend)
     request = AnalysisRequest(
         issue="OCR returned a known variant that did not match the expected text.",
@@ -1089,7 +1358,17 @@ def test_workflow_runs_document_search_without_runtime_incident(tmp_path: Path) 
     assert workflow.result is not None
     assert workflow.result.status is DiagnosisStatus.COMPLETE
     assert any(event.stage == "plan_knowledge_research" for event in events)
+    assert any(
+        event.message == "Retrying knowledge research plan with valid source IDs"
+        for event in events
+    )
     assert any(event.stage == "search_knowledge" for event in events)
+    plan_contexts = [
+        context for context in backend.contexts if context.stage == "plan_knowledge_research"
+    ]
+    assert len(plan_contexts) == 2
+    assert 'unknown query.source_id values ["documentation"]' in plan_contexts[1].instruction
+    assert 'exact source_id strings: ["docs"]' in plan_contexts[1].instruction
     diagnose_context = next(context for context in backend.contexts if context.stage == "diagnose")
     assert any(
         evidence.kind == "knowledge_document_match" for evidence in diagnose_context.evidence

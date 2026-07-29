@@ -17,6 +17,7 @@
           "type": "string"
         },
         "source_id": {
+          "description": "Copy an available source_id exactly; do not substitute a source role such as 'maa_framework', 'documentation', or 'wiki'.",
           "minLength": 1,
           "title": "Source Id",
           "type": "string"

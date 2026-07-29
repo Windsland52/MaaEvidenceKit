@@ -37,6 +37,7 @@ from maa_diagnostic_expert.contracts.workflow import (
     KnowledgeResearchPlan,
     SourceResearchPlan,
     SourceResearchStatus,
+    SourceSearchQuery,
     VerificationPlanningStatus,
     VerificationPlanSet,
 )
@@ -60,6 +61,7 @@ from maa_diagnostic_expert.reasoning.prompts import (
     order_evidence_for_reasoning,
     render_evidence_block,
     render_instruction,
+    source_search_anchor_terms,
 )
 
 
@@ -199,6 +201,7 @@ def test_render_instruction_includes_question_rules_and_counts() -> None:
     assert "primary=1" in instruction
     assert "context=1" in instruction
     assert "evidence ID" in instruction
+    assert "preserving every prefix and colon" in instruction
 
 
 def test_render_evidence_block_includes_ids_and_content() -> None:
@@ -213,7 +216,7 @@ def test_render_evidence_block_includes_ids_and_content() -> None:
     ]
     block = render_evidence_block(evidence)
 
-    assert "[ev-1]" in block
+    assert "[evidence_id='ev-1']" in block
     assert "primary/failure/runtime_failure" in block
     assert "boom" in block
     assert "line 42" in block
@@ -251,9 +254,24 @@ def test_evidence_research_context_lists_only_queryable_text_artifacts(tmp_path:
         )
     )
 
+    evidence = [
+        *[
+            _evidence(
+                f"failure-{index:03d}",
+                EvidenceReliability.PRIMARY,
+                role=EvidenceRole.FAILURE,
+            )
+            for index in range(MODEL_EVIDENCE_MAX_ITEMS + 5)
+        ],
+        _evidence(
+            "versioned-source",
+            EvidenceReliability.SECONDARY,
+            kind="source_search_match",
+        ),
+    ]
     context = build_evidence_research_context(
         "Inspect the failure.",
-        [],
+        evidence,
         prepared,
         round_number=1,
         max_rounds=2,
@@ -261,9 +279,36 @@ def test_evidence_research_context_lists_only_queryable_text_artifacts(tmp_path:
 
     assert context.stage == "plan_evidence_research"
     assert str(log.resolve()) in context.instruction
+    assert f"[text/log] {log.resolve()}" in context.instruction
     assert str(image.resolve()) not in context.instruction
     assert "Adaptive evidence round: 1 of 2" in context.instruction
     assert "at most three windows" in context.instruction
+    assert "Never infer a filename" in context.instruction
+    assert "controller, resource" in context.instruction
+    assert "controllerName" in context.instruction
+    assert context.evidence[0].id == "versioned-source"
+
+
+def test_evidence_research_context_labels_configuration_paths(tmp_path: Path) -> None:
+    config = tmp_path / "settings.json"
+    config.write_text('{"controllerName": "ADB"}\n', encoding="utf-8")
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            question="Inspect the effective controller.",
+            artifacts=[ArtifactInput(path=config, kind=ArtifactKind.FILE)],
+        )
+    )
+
+    context = build_evidence_research_context(
+        "Inspect the controller-dependent guard.",
+        [],
+        prepared,
+        round_number=1,
+        max_rounds=2,
+    )
+
+    assert f"[configuration] {config.resolve()}" in context.instruction
+    assert "bracketed media kind is not part of the path" in context.instruction
 
 
 def test_reasoning_context_bounds_model_evidence_count_and_reports_omissions() -> None:
@@ -340,6 +385,9 @@ def test_incident_correlation_context_focuses_candidate_evidence() -> None:
     assert context.stage == "correlate_incident"
     assert [item.id for item in context.evidence] == ["candidate-evidence"]
     assert "runtime failure alone does not prove" in context.instruction
+    assert 'candidate_id="incident-1"' in context.instruction
+    assert 'evidence_ids=["candidate-evidence"]' in context.instruction
+    assert 'prefixes such as "incident:"' in context.instruction
     assert context.incident_selection == _incident_selection()
 
 
@@ -361,6 +409,53 @@ def test_diagnosis_context_includes_validated_incident_correlation() -> None:
 
     assert "Model incident correlation: selected" in context.instruction
     assert "interpretation" in context.instruction
+
+
+def test_diagnosis_context_reserves_correlated_raw_and_source_evidence() -> None:
+    correlation = IncidentCorrelationDraft(
+        status=IncidentSelectionStatus.SELECTED,
+        selected_candidate_id="incident-1",
+        relevant_candidate_ids=["incident-1"],
+        evidence_ids=["candidate-evidence"],
+        rationale="The reported task and candidate match.",
+    )
+    evidence = [
+        _evidence("candidate-evidence", EvidenceReliability.PRIMARY),
+        *[
+            _evidence(
+                f"unrelated-failure-{index:03d}",
+                EvidenceReliability.PRIMARY,
+                role=EvidenceRole.FAILURE,
+            )
+            for index in range(MODEL_EVIDENCE_MAX_ITEMS + 5)
+        ],
+        _evidence(
+            "focused-window",
+            EvidenceReliability.PRIMARY,
+            kind="text_line_window",
+        ),
+        _evidence(
+            "versioned-source",
+            EvidenceReliability.SECONDARY,
+            kind="source_search_match",
+        ),
+    ]
+
+    context = build_reasoning_context(
+        "Diagnose",
+        evidence,
+        _incident_selection(),
+        correlation,
+    )
+
+    selected_ids = [item.id for item in context.evidence]
+    assert selected_ids[:3] == [
+        "candidate-evidence",
+        "focused-window",
+        "versioned-source",
+    ]
+    assert len(selected_ids) == MODEL_EVIDENCE_MAX_ITEMS
+    assert "Version coincidence alone is not a trigger" in context.instruction
 
 
 def test_missing_evidence_prompt_sections_use_codes_and_messages() -> None:
@@ -522,10 +617,93 @@ def test_source_research_context_focuses_comparison_and_guidance() -> None:
         "pipeline",
         "guidance",
     ]
-    assert "Available project/GUI/framework source IDs: project" in context.instruction
+    assert (
+        "Available project/GUI/framework source IDs "
+        '(copy exactly into query.source_id): ["project"]' in context.instruction
+    )
     assert "not a diagnosis" in context.instruction
     assert "status to run only with one to five concrete queries" in context.instruction
+    assert "case-insensitive strings" in context.instruction
     assert "queries=[]" in context.instruction
+
+
+def test_source_research_context_requires_exact_observed_message_suffix() -> None:
+    warning = _evidence(
+        "warning",
+        EvidenceReliability.PRIMARY,
+        kind="log_occurrence:warning",
+        role=EvidenceRole.SIGNAL,
+        content=(
+            "byte_offset=87923; timestamp=2026-07-27 08:00:16\n"
+            "2026-07-27 08:00:16 WARN [Task] 实例 日常-活动: "
+            "检测到电脑处于锁屏状态，取消启动"
+        ),
+    )
+    wrapper_warning = _evidence(
+        "wrapper-warning",
+        EvidenceReliability.PRIMARY,
+        kind="log_occurrence:warning",
+        role=EvidenceRole.SIGNAL,
+        content=('2026-07-27 08:00:16 WARN [Task] 定时任务启动失败或跳过: 实例 "日常-活动"'),
+    )
+    comparison = IncidentComparison(
+        status=IncidentComparisonStatus.PARTIAL,
+        findings=[
+            IncidentComparisonFinding(
+                kind=IncidentComparisonFindingKind.ACTUAL_EXECUTION_ONLY,
+                statement="The scheduled start was cancelled.",
+                observed_evidence_ids=[warning.id],
+            )
+        ],
+    )
+
+    context = build_source_research_context(
+        "A scheduled task was cancelled while locked.",
+        [warning],
+        comparison,
+        ["framework", "gui"],
+    )
+
+    assert source_search_anchor_terms([wrapper_warning, warning], limit=2) == [
+        "检测到电脑处于锁屏状态，取消启动",
+        "定时任务启动失败或跳过",
+    ]
+    assert (
+        'Required exact observed-message suffixes: ["检测到电脑处于锁屏状态，取消启动"]'
+        in context.instruction
+    )
+    assert "for every available implementation source" in context.instruction
+
+
+def test_source_research_context_reports_zero_match_queries_for_replanning() -> None:
+    previous = SourceResearchPlan(
+        status=SourceResearchStatus.RUN,
+        queries=[
+            SourceSearchQuery(
+                query_id="localized-lock",
+                source_id="framework",
+                terms=["检测到电脑处于锁屏状态，取消启动"],
+                paths=["src/components"],
+                reason="Locate the lock-screen guard.",
+            )
+        ],
+        rationale="Search the reported message.",
+    )
+
+    context = build_source_research_context(
+        "A scheduled task was cancelled while locked.",
+        [],
+        IncidentComparison(status=IncidentComparisonStatus.PARTIAL),
+        ["framework", "gui"],
+        previous_plan=previous,
+    )
+
+    assert "Previous source queries returned no matches" in context.instruction
+    assert "localized-lock" in context.instruction
+    assert "Do not repeat them unchanged" in context.instruction
+    assert "translation-aware terms" in context.instruction
+    assert "strong distinctive" in context.instruction
+    assert 'Unsearched available source IDs: ["gui"]' in context.instruction
 
 
 def test_stub_backend_skips_semantic_source_research() -> None:
@@ -564,8 +742,9 @@ def test_knowledge_research_context_focuses_diagnostic_evidence() -> None:
 
     assert context.stage == "plan_knowledge_research"
     assert [item.id for item in context.evidence] == ["pipeline"]
-    assert "maafw-docs (documentation)" in context.instruction
-    assert "wiki results are navigation only" in context.instruction
+    assert 'source_id="maafw-docs"; role="documentation"' in context.instruction
+    assert "category label and is not a source ID" in context.instruction
+    assert 'role is "wiki" are navigation only' in context.instruction
     assert "status to run only with one to five concrete queries" in context.instruction
 
 
@@ -601,10 +780,23 @@ def test_fix_candidate_context_separates_proposal_from_execution() -> None:
             )
         ],
     )
+    source = _evidence(
+        "gui-source",
+        EvidenceReliability.SECONDARY,
+        kind="source_search_match",
+    )
+    unrelated = [
+        _evidence(
+            f"unrelated-{index:03d}",
+            EvidenceReliability.PRIMARY,
+            role=EvidenceRole.SIGNAL,
+        )
+        for index in range(MODEL_EVIDENCE_MAX_ITEMS + 5)
+    ]
 
     context = build_fix_candidate_context(
         "Why was the label missed?",
-        [failure],
+        [*unrelated, source, failure],
         diagnosis,
         IncidentComparison(status=IncidentComparisonStatus.PARTIAL),
     )
@@ -614,6 +806,10 @@ def test_fix_candidate_context_separates_proposal_from_execution() -> None:
     assert "ROI/only_rec" in context.instruction
     assert "evidence=failure" in context.instruction
     assert "status to proposed only with one to three candidates" in context.instruction
+    assert "GUI source" in context.instruction
+    assert "Do not flatten one candidate" in context.instruction
+    assert "Do not invent a configuration field" in context.instruction
+    assert [item.id for item in context.evidence[:2]] == ["failure", "gui-source"]
 
 
 def test_stub_backend_skips_semantic_fix_planning() -> None:

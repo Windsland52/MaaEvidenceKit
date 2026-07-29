@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 from typing import cast
 
@@ -33,7 +35,10 @@ from maa_diagnostic_expert.contracts.workflow import (
     VerificationPlanningStatus,
     VerificationPlanSet,
 )
-from maa_diagnostic_expert.inspection.adaptive_evidence import available_evidence_query_paths
+from maa_diagnostic_expert.inspection.adaptive_evidence import (
+    available_configuration_query_paths,
+    available_evidence_query_paths,
+)
 
 from .evidence_budget import render_model_evidence_item
 from .protocol import ReasoningContext
@@ -50,12 +55,85 @@ _REASONING_ROLE_ORDER: dict[EvidenceRole, int] = {
     EvidenceRole.CONTEXT: 2,
 }
 
+_LOG_MESSAGE_PREFIX = re.compile(
+    r"^(?:\d{4}[-/.]\d{2}[-/.]\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?\s+)?"
+    r"(?:TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|CRITICAL)\s+(?:\[[^]]+\]\s+)?",
+    re.IGNORECASE,
+)
+_DYNAMIC_LOG_FRAGMENT = re.compile(
+    r"(?:实例|instance|\b(?:task|index|id|name)\s*=|[\"']|\d{2,})",
+    re.IGNORECASE,
+)
+
 
 def order_evidence_for_reasoning(evidence: list[Evidence]) -> list[Evidence]:
     """Order direct failures before signals and context, then by provenance quality."""
     return sorted(
         evidence,
         key=lambda item: (
+            _REASONING_ROLE_ORDER[item.role],
+            _REASONING_RELIABILITY_ORDER[item.reliability],
+            item.id,
+        ),
+    )
+
+
+def source_search_anchor_terms(evidence: list[Evidence], *, limit: int = 3) -> list[str]:
+    """Extract stable message suffixes from observed log occurrences for source lookup."""
+    candidates: dict[str, int] = {}
+    for item in evidence:
+        if not item.kind.startswith("log_occurrence:"):
+            continue
+        for raw_line in reversed(item.content.splitlines()):
+            message = _LOG_MESSAGE_PREFIX.sub("", raw_line.strip())
+            if " | " in message:
+                message = message.rsplit(" | ", 1)[1]
+            fragments = [fragment.strip().strip("\"'") for fragment in message.split(": ")]
+            stable = [fragment for fragment in fragments if 8 <= len(fragment) <= 160]
+            if stable:
+                best = max(
+                    stable,
+                    key=lambda fragment: (
+                        len(fragment) - 30 * len(_DYNAMIC_LOG_FRAGMENT.findall(fragment)),
+                        len(fragment),
+                    ),
+                )
+                score = len(best) - 30 * len(_DYNAMIC_LOG_FRAGMENT.findall(best))
+                candidates[best] = max(candidates.get(best, score), score)
+                break
+    ranked = sorted(candidates, key=lambda candidate: (-candidates[candidate], -len(candidate)))
+    return ranked[:limit]
+
+
+def _order_evidence_for_diagnosis(
+    evidence: list[Evidence],
+    incident_selection: IncidentSelection | None,
+    incident_correlation: IncidentCorrelationDraft | None,
+) -> list[Evidence]:
+    """Keep the correlated incident and its focused research inside the model budget."""
+    if incident_selection is None or incident_correlation is None:
+        return order_evidence_for_reasoning(evidence)
+
+    relevant_candidate_ids = set(incident_correlation.relevant_candidate_ids)
+    focus_ids = set(incident_correlation.evidence_ids)
+    focus_ids.update(
+        evidence_id
+        for candidate in incident_selection.candidates
+        if candidate.candidate_id in relevant_candidate_ids
+        for evidence_id in candidate.evidence_ids
+    )
+    if not focus_ids:
+        return order_evidence_for_reasoning(evidence)
+
+    focused_kind_order = {
+        "text_line_window": 1,
+        "source_search_match": 2,
+        "knowledge_document_match": 3,
+    }
+    return sorted(
+        evidence,
+        key=lambda item: (
+            0 if item.id in focus_ids else focused_kind_order.get(item.kind, 4),
             _REASONING_ROLE_ORDER[item.role],
             _REASONING_RELIABILITY_ORDER[item.reliability],
             item.id,
@@ -98,9 +176,10 @@ def _render_incident_candidates(selection: IncidentSelection, limit: int = 20) -
     for candidate in selection.candidates[:limit]:
         scope = candidate.task_name or candidate.session_id or "unscoped log occurrence"
         lines.append(
-            f"- {candidate.candidate_id}: {scope}; confidence={candidate.confidence}; "
+            f"- candidate_id={json.dumps(candidate.candidate_id)}; scope={scope}; "
+            f"confidence={candidate.confidence}; "
             f"time={candidate.started_at or 'unknown'}..{candidate.ended_at or 'unknown'}; "
-            f"evidence={', '.join(candidate.evidence_ids)}; "
+            f"evidence_ids={json.dumps(candidate.evidence_ids, ensure_ascii=False)}; "
             f"reasons={'; '.join(candidate.reasons)}"
         )
     if len(selection.candidates) > limit:
@@ -163,13 +242,15 @@ def render_instruction(
         f"diagnostic_context={role_counts[EvidenceRole.CONTEXT.value]}).",
         "",
         "Rules:",
-        "1. Every conclusion MUST cite at least one evidence ID from the evidence list.",
+        "1. Every conclusion MUST cite at least one evidence_id from the evidence list. Copy",
+        "   the complete string exactly, preserving every prefix and colon.",
         "2. Separate the reported symptom, the observed failure mechanism,",
         "   and the suspected trigger.",
         "3. A framework-level success event does not prove business success.",
         "4. If primary evidence is insufficient to form a confident diagnosis,",
         "   set status to 'insufficient_evidence'.",
-        "5. Do not invent evidence IDs; only reference IDs present in the evidence list.",
+        "5. Do not invent, shorten, or reconstruct evidence IDs; only reference complete IDs",
+        "   present in the evidence list.",
         "6. Incident candidates are leads, not proof that they match the reported symptom.",
         "7. Respect the validated incident correlation: prioritize a selected candidate, keep",
         "   ambiguous candidates separate, and do not present not-found candidates as the",
@@ -178,6 +259,18 @@ def render_instruction(
         "   not as proof of a runtime failure or root cause.",
         "9. Wiki navigation matches may guide investigation but MUST NOT be cited by a",
         "   conclusion; cite the original documentation or source passage instead.",
+        "10. When version-matched source_search_match evidence explains how the observed",
+        "    mechanism is initiated, state the suspected initiating trigger separately and",
+        "    cite that source evidence. Version coincidence alone is not a trigger.",
+        "11. Do not stop at restating an application warning when source evidence can explain",
+        "    which condition, component, or control path caused that warning to be emitted.",
+        "12. Attribute implementation behavior to the exact source_component and source",
+        "    locator. Code under a GUI source is not MaaFramework behavior unless separate",
+        "    framework source evidence proves the divergence occurs in the framework.",
+        "13. Check the order of guards relative to controller/resource resolution. If artifact",
+        "    configuration identifies a non-desktop controller such as ADB, do not assume a",
+        "    workstation-lock guard is applicable to it; explain an unconditional pre-controller",
+        "    guard as a suspected trigger when the evidence supports that sequence.",
     ]
     lines.extend(
         _render_missing_evidence(
@@ -255,7 +348,11 @@ def build_reasoning_context(
     prepared_missing_evidence: list[MissingEvidence] | None = None,
 ) -> ReasoningContext:
     """Build a reasoning context with evidence ordered for model consumption."""
-    ordered = order_evidence_for_reasoning(evidence)
+    ordered = _order_evidence_for_diagnosis(
+        evidence,
+        incident_selection,
+        incident_correlation,
+    )
     return ReasoningContext(
         stage="diagnose",
         instruction=render_instruction(
@@ -281,6 +378,12 @@ def build_evidence_research_context(
     max_rounds: int,
 ) -> ReasoningContext:
     paths = available_evidence_query_paths(prepared)
+    configuration_paths = available_configuration_query_paths(prepared)
+
+    def render_path(path: Path) -> str:
+        media_kind = "configuration" if path in configuration_paths else "text/log"
+        return f"- [{media_kind}] {path}"
+
     lines = [
         "Decide whether focused raw artifact windows are needed before diagnosis.",
         "Return a bounded evidence research plan, not a diagnosis.",
@@ -288,22 +391,41 @@ def build_evidence_research_context(
         "Reported diagnostic context:",
         reported_context,
         f"Adaptive evidence round: {round_number} of {max_rounds}.",
-        "Available text artifact paths:",
-        *(f"- {path}" for path in paths),
+        "Available text artifact paths (the bracketed media kind is not part of the path):",
+        *(render_path(path) for path in paths),
         "",
         "Rules:",
-        "1. Use only an exact path listed above.",
+        "1. Copy one complete path exactly as listed above. Never infer a filename from dates,",
+        "   log contents, or neighboring paths, and never reconstruct or normalize a path.",
         "2. Request at most three windows and at most 400 lines per window.",
         "3. Use focused line ranges supported by current evidence; do not request whole logs.",
         "4. Set status to run only with one to three concrete queries. Set status to skip",
         "   only with queries=[].",
         "5. Use skip when current evidence is sufficient or no focused window is justified.",
         "6. Query results are evidence, not automatic root-cause conclusions.",
+        "7. When version-matched source shows behavior depending on a controller, resource,",
+        "   device, task, or configuration value that is not established by current evidence,",
+        "   request a focused window from the listed configuration artifacts before diagnosis.",
+        "8. A filename or warning does not establish the effective controller. If source uses",
+        "   a concrete field such as controllerName, resourceName, deviceName, or their",
+        "   snake_case variants, query a configuration snapshot containing that exact field.",
     ]
     return ReasoningContext(
         stage="plan_evidence_research",
         instruction="\n".join(lines),
-        evidence=order_evidence_for_reasoning(evidence),
+        evidence=sorted(
+            evidence,
+            key=lambda item: (
+                0
+                if item.kind == "text_line_window"
+                else 1
+                if item.kind == "source_search_match"
+                else 2,
+                _REASONING_ROLE_ORDER[item.role],
+                _REASONING_RELIABILITY_ORDER[item.reliability],
+                item.id,
+            ),
+        ),
     )
 
 
@@ -330,7 +452,8 @@ def build_incident_correlation_context(
         "   evidence align; a runtime failure alone does not prove it is the reported problem.",
         "2. Use ambiguous when multiple candidates remain plausible or the report is too vague.",
         "3. Use not_found when none of the candidates plausibly matches the report.",
-        "4. Reference only candidate IDs and evidence IDs listed below.",
+        "4. Copy complete candidate_id and evidence_ids strings exactly as listed below. Keep",
+        '   prefixes such as "incident:"; never shorten, reformat, or reconstruct an ID.',
         "5. Candidate confidence is evidence-strength ranking, not diagnosis correctness.",
     ]
     lines.extend(_render_incident_candidates(selection, limit=len(selection.candidates)))
@@ -347,6 +470,7 @@ def build_source_research_context(
     evidence: list[Evidence],
     incident_comparison: IncidentComparison,
     source_ids: list[str],
+    previous_plan: SourceResearchPlan | None = None,
 ) -> ReasoningContext:
     comparison_evidence_ids = {
         evidence_id
@@ -369,20 +493,22 @@ def build_source_research_context(
             }
         ]
     )
+    anchor_terms = source_search_anchor_terms(focused, limit=1)
     lines = [
         "Plan a bounded search of version-matched Maa implementation source.",
         "Return a structured source research plan, not a diagnosis.",
         "",
         "Reported diagnostic context:",
         reported_context,
-        f"Available project/GUI/framework source IDs: {', '.join(source_ids)}",
+        "Available project/GUI/framework source IDs (copy exactly into query.source_id): "
+        f"{json.dumps(source_ids, ensure_ascii=False)}",
         f"Actual/expected comparison status: {incident_comparison.status.value}",
         "",
         "Rules:",
-        "1. Use only the listed source IDs.",
+        "1. Copy query.source_id exactly from the listed source ID strings.",
         "2. Search for concrete task/node names, configuration fields, custom log terms,",
         "   implementation symbols, or documentation concepts supported by current evidence.",
-        "3. Terms are literal case-sensitive strings; use separate queries for alternatives.",
+        "3. Terms are literal case-insensitive strings; use separate queries for alternatives.",
         "4. Paths are optional relative file or directory hints, not glob patterns.",
         "5. Do not use absolute paths, parent traversal, or .git paths.",
         "6. Keep the plan small: at most five queries and only searches that could distinguish",
@@ -392,7 +518,37 @@ def build_source_research_context(
         "8. Use skip when focused source search is unlikely to add useful evidence.",
         "9. Applicable source_guidance evidence must be respected when choosing paths for its",
         "   project source; GUI/MaaFramework queries may search implementation files.",
+        "10. For localized user-facing messages, search both short distinctive message",
+        "   fragments and likely English identifiers or translation keys. The stable observed",
+        "   message suffixes listed below are evidence-derived, not guessed: include each exact",
+        "   suffix as a term for every available implementation source so ownership is tested,",
+        "   then use identifiers such as lock, workstation, controller, schedule, or cancel.",
+        f"Required exact observed-message suffixes: {json.dumps(anchor_terms, ensure_ascii=False)}",
     ]
+    if previous_plan is not None and previous_plan.status is SourceResearchStatus.RUN:
+        searched_source_ids = {query.source_id for query in previous_plan.queries}
+        unsearched_source_ids = [
+            source_id for source_id in source_ids if source_id not in searched_source_ids
+        ]
+        lines.extend(
+            [
+                "",
+                "Previous source queries returned no matches. Do not repeat them unchanged:",
+                *(
+                    f"- query_id={query.query_id!r}; source_id={query.source_id!r}; "
+                    f"terms={json.dumps(query.terms, ensure_ascii=False)}; "
+                    f"paths={json.dumps(query.paths, ensure_ascii=False)}"
+                    for query in previous_plan.queries
+                ),
+                "Use different, shorter, or translation-aware terms and relax unjustified path",
+                "hints; otherwise return skip with queries=[]. Reusing a strong distinctive",
+                "term with a different source_id is allowed and is not an unchanged query.",
+                "Unsearched available source IDs: "
+                f"{json.dumps(unsearched_source_ids, ensure_ascii=False)}. When ownership is",
+                "uncertain, prioritize plausible unsearched GUI/project/framework sources",
+                "before abandoning a distinctive term that had no match in the first source.",
+            ]
+        )
     return ReasoningContext(
         stage="plan_source_research",
         instruction="\n".join(lines),
@@ -428,18 +584,23 @@ def build_knowledge_research_context(
             }
         ]
     )
-    rendered_sources = ", ".join(f"{source_id} ({role.value})" for source_id, role in sources)
+    rendered_sources = "\n".join(
+        f"- source_id={json.dumps(source_id, ensure_ascii=False)}; role={json.dumps(role.value)}"
+        for source_id, role in sources
+    )
     lines = [
         "Plan a bounded search of explicit version-matched Maa documentation sources.",
         "Return a structured knowledge research plan, not a diagnosis.",
         "",
         "Reported diagnostic context:",
         reported_context,
-        f"Available knowledge sources: {rendered_sources}",
+        "Available knowledge sources (copy source_id exactly into query.source_id):",
+        rendered_sources,
         f"Actual/expected comparison status: {incident_comparison.status.value}",
         "",
         "Rules:",
-        "1. Use only the listed source IDs.",
+        "1. Copy query.source_id exactly from a listed source_id value. The role value is a",
+        "   category label and is not a source ID unless the two listed strings are identical.",
         "2. Search for concrete MaaFramework concepts, pipeline fields, lifecycle semantics,",
         "   or diagnostic guidance needed to interpret the current evidence.",
         "3. Terms are literal case-sensitive strings; use separate queries for alternatives.",
@@ -449,9 +610,12 @@ def build_knowledge_research_context(
         "   only with queries=[].",
         "7. Keep the plan small; use skip when documents are unlikely to change the diagnosis",
         "   or repair choice.",
-        "8. documentation and maa_framework results are original context that may be cited.",
-        "9. wiki results are navigation only; they cannot support a conclusion directly.",
-        "10. maa_framework searches are limited to docs/doc/documentation directories and",
+        '8. Results whose role is "documentation" or "maa_framework" are original context',
+        "   that may be cited.",
+        '9. Results whose role is "wiki" are navigation only; they cannot support a conclusion',
+        "   directly.",
+        '10. Sources whose role is "maa_framework" are limited to docs/doc/documentation',
+        "   directories and",
         "   README files; framework implementation requires a separate source branch.",
     ]
     return ReasoningContext(
@@ -501,11 +665,47 @@ def build_fix_candidate_context(
         "9. Framework-level success is not a business milestone; verification must cover",
         "   the reported outcome and relevant adjacent regression scenarios.",
         "10. Wiki navigation evidence cannot directly support a repair candidate.",
+        "11. Attribute code to its exact source_component and source locator. GUI source",
+        "    evidence supports a GUI fix, not a MaaFramework fix, unless separate framework",
+        "    source evidence identifies the first divergence there.",
+        "12. Return the plan wrapper at the top level: status, candidates as a JSON array,",
+        "    and rationale. Do not flatten one candidate into the plan object.",
+        "13. Do not invent a configuration field, environment variable, file, or symbol.",
+        "    A configuration fix must cite artifact evidence containing the exact field; adding",
+        "    a new option is a code change and must use the matching code method and scope.",
+        "14. Prefer narrowing an existing guard to the controller types that require it over",
+        "    disabling the guard globally or adding a speculative bypass setting.",
+        "15. When configuration evidence identifies the affected controller type, use that",
+        "    exact value. Do not replace it with a guessed category such as Dummy, headless,",
+        "    interactive, or scheduled. Keep a desktop-only guard for controller types that",
+        "    actually depend on the desktop instead of removing or bypassing it globally.",
+        "16. Propose one candidate unless the evidence independently supports genuinely",
+        "    distinct alternatives; do not fill the maximum candidate count speculatively.",
     ]
+    diagnosis_evidence_ids = {
+        evidence_id
+        for conclusion in diagnosis.conclusions
+        for evidence_id in conclusion.evidence_ids
+    }
+    ordered_evidence = sorted(
+        evidence,
+        key=lambda item: (
+            0
+            if item.id in diagnosis_evidence_ids
+            else 1
+            if item.kind == "source_search_match"
+            else 2
+            if item.kind == "text_line_window"
+            else 3,
+            _REASONING_ROLE_ORDER[item.role],
+            _REASONING_RELIABILITY_ORDER[item.reliability],
+            item.id,
+        ),
+    )
     return ReasoningContext(
         stage="propose_fix",
         instruction="\n".join(lines),
-        evidence=order_evidence_for_reasoning(evidence),
+        evidence=ordered_evidence,
         incident_comparison=incident_comparison,
     )
 

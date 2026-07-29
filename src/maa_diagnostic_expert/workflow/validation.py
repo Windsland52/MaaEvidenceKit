@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+import re
+from collections.abc import Iterable, Mapping
+from pathlib import Path
 
 from maa_diagnostic_expert.contracts.domain import (
     DiagnosisDraft,
@@ -9,9 +11,11 @@ from maa_diagnostic_expert.contracts.domain import (
     Evidence,
     MissingEvidence,
     PreparedAnalysis,
+    SourceRole,
 )
 from maa_diagnostic_expert.contracts.workflow import (
     FixCandidatePlan,
+    FixMethod,
     FixPlanningStatus,
     IncidentCorrelationDraft,
     IncidentSelection,
@@ -26,6 +30,116 @@ from maa_diagnostic_expert.inspection.log_overview import (
 from maa_diagnostic_expert.inspection.models import DeterministicInspection
 
 _NON_CITABLE_EVIDENCE_KINDS = {"wiki_navigation_match"}
+_CODE_FIX_SOURCE_ROLES = {
+    FixMethod.PROJECT_CODE: SourceRole.PROJECT,
+    FixMethod.GUI_CODE: SourceRole.GUI,
+    FixMethod.FRAMEWORK_CODE: SourceRole.MAA_FRAMEWORK,
+}
+
+_CONFIGURATION_DEPENDENT_SOURCE_PATTERN = re.compile(
+    r"\b(?:controller(?:Name|Type|Id)|controller_(?:name|type|id)|"
+    r"resource(?:Name|Type|Id)|resource_(?:name|type|id)|"
+    r"device(?:Name|Type|Id)|device_(?:name|type|id)|"
+    r"taskConfig|task_config)\b"
+)
+
+
+def configuration_bridge_evidence_ids(
+    evidence: Iterable[Evidence],
+    configuration_paths: set[Path],
+) -> tuple[set[str], set[str]]:
+    """Find source and artifact evidence that establish one configuration dependency."""
+    items = list(evidence)
+    source_ids = {
+        item.id
+        for item in items
+        if item.kind == "source_search_match"
+        and _CONFIGURATION_DEPENDENT_SOURCE_PATTERN.search(item.content) is not None
+    }
+    configuration_ids = {
+        item.id
+        for item in items
+        if item.kind == "text_line_window"
+        and Path(item.source_path).resolve() in configuration_paths
+        and _CONFIGURATION_DEPENDENT_SOURCE_PATTERN.search(item.content) is not None
+    }
+    return source_ids, configuration_ids
+
+
+def requires_configuration_evidence(
+    evidence: Iterable[Evidence],
+    configuration_paths: set[Path],
+) -> bool:
+    """Return whether source behavior depends on an uninspected configuration value."""
+    if not configuration_paths:
+        return False
+    source_ids, configuration_ids = configuration_bridge_evidence_ids(
+        evidence,
+        configuration_paths,
+    )
+    return bool(source_ids and not configuration_ids)
+
+
+def validate_configuration_bridge_citation(
+    draft: DiagnosisDraft,
+    evidence: Iterable[Evidence],
+    configuration_paths: set[Path],
+) -> None:
+    """Require one conclusion to connect dependent source to effective configuration."""
+    if draft.status is not DiagnosisStatus.COMPLETE:
+        return
+    source_ids, configuration_ids = configuration_bridge_evidence_ids(
+        evidence,
+        configuration_paths,
+    )
+    if not source_ids or not configuration_ids:
+        return
+    if any(
+        set(conclusion.evidence_ids).intersection(source_ids)
+        and set(conclusion.evidence_ids).intersection(configuration_ids)
+        for conclusion in draft.conclusions
+    ):
+        return
+    raise ValueError(
+        "A complete diagnosis of configuration-dependent source behavior must include one "
+        "conclusion citing both version-matched source evidence and the queried configuration "
+        "artifact evidence"
+    )
+
+
+def validate_fix_configuration_bridge(
+    plan: FixCandidatePlan,
+    draft: DiagnosisDraft,
+    evidence: Iterable[Evidence],
+    configuration_paths: set[Path],
+) -> None:
+    """Keep code repairs tied to configuration evidence used by the diagnosed trigger."""
+    source_ids, configuration_ids = configuration_bridge_evidence_ids(
+        evidence,
+        configuration_paths,
+    )
+    required_configuration_ids = {
+        evidence_id
+        for conclusion in draft.conclusions
+        if set(conclusion.evidence_ids).intersection(source_ids)
+        for evidence_id in conclusion.evidence_ids
+        if evidence_id in configuration_ids
+    }
+    if not required_configuration_ids:
+        return
+    code_methods = {
+        FixMethod.PROJECT_CODE,
+        FixMethod.GUI_CODE,
+        FixMethod.FRAMEWORK_CODE,
+    }
+    for candidate in plan.candidates:
+        if candidate.method in code_methods and not set(candidate.evidence_ids).intersection(
+            required_configuration_ids
+        ):
+            raise ValueError(
+                f"Code fix candidate '{candidate.fix_id}' must cite configuration evidence "
+                "used by the diagnosed source/configuration trigger"
+            )
 
 
 def _reject_non_citable_evidence(
@@ -86,6 +200,7 @@ def validate_fix_candidate_plan(
     plan: FixCandidatePlan,
     draft: DiagnosisDraft,
     evidence: Iterable[Evidence],
+    source_roles: Mapping[str, SourceRole] | None = None,
 ) -> FixCandidatePlan:
     """Reject repair proposals that outrun the validated diagnostic evidence."""
     if plan.status is FixPlanningStatus.SKIP:
@@ -106,6 +221,31 @@ def validate_fix_candidate_plan(
         if not referenced_ids.intersection(diagnosis_ids):
             raise ValueError(
                 f"Fix candidate '{candidate.fix_id}' must cite diagnosis conclusion evidence"
+            )
+        expected_source_role = _CODE_FIX_SOURCE_ROLES.get(candidate.method)
+        if expected_source_role is None:
+            continue
+        source_evidence = [
+            ledger[evidence_id]
+            for evidence_id in referenced_ids
+            if ledger[evidence_id].kind == "source_search_match"
+        ]
+        if not source_evidence:
+            raise ValueError(
+                f"Code fix candidate '{candidate.fix_id}' must cite version-matched source evidence"
+            )
+        if source_roles is None:
+            continue
+        matching_role = any(
+            item.source_component.startswith("source:")
+            and source_roles.get(item.source_component.removeprefix("source:"))
+            is expected_source_role
+            for item in source_evidence
+        )
+        if not matching_role:
+            raise ValueError(
+                f"Code fix candidate '{candidate.fix_id}' must cite source evidence from "
+                f"role '{expected_source_role.value}'"
             )
     return plan
 

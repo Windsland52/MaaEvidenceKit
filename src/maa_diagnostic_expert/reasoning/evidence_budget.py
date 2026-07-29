@@ -23,7 +23,7 @@ class ModelEvidenceSelection:
 
 def render_model_evidence_item(item: Evidence) -> str:
     """Render one evidence record using the stable model-facing text format."""
-    header = f"[{item.id}] ({item.reliability.value}/{item.role.value}/{item.kind})"
+    header = f"[evidence_id={item.id!r}] ({item.reliability.value}/{item.role.value}/{item.kind})"
     body = item.content
     if item.line_start is not None:
         if item.line_end is not None and item.line_end != item.line_start:

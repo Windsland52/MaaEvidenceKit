@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import secrets
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Literal, NotRequired, TypedDict
+from pathlib import Path
+from typing import Literal, NotRequired, TypedDict, cast
 
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph  # pyright: ignore[reportMissingTypeStubs]
@@ -31,6 +33,7 @@ from maa_diagnostic_expert.contracts.workflow import (
     FixCandidatePlan,
     FixPlanningStatus,
     IncidentCorrelationDraft,
+    IncidentSelection,
     InvestigationBranch,
     InvestigationPlan,
     KnowledgeResearchPlan,
@@ -48,6 +51,7 @@ from maa_diagnostic_expert.discovery.source_preparation import (
     source_snapshot_supports_object_read,
 )
 from maa_diagnostic_expert.inspection.adaptive_evidence import (
+    available_configuration_query_paths,
     available_evidence_query_paths,
     execute_evidence_research,
 )
@@ -88,21 +92,30 @@ from maa_diagnostic_expert.reasoning.prompts import (
     build_reported_context,
     build_source_research_context,
     build_verification_plan_context,
+    source_search_anchor_terms,
 )
-from maa_diagnostic_expert.reasoning.protocol import ReasoningBackend, ReasoningContext
+from maa_diagnostic_expert.reasoning.protocol import (
+    ReasoningBackend,
+    ReasoningContext,
+    ReasoningSession,
+)
 
 from .planning import plan_initial_investigation
 from .validation import (
     collect_inspection_evidence,
     collect_missing_evidence_codes,
     finalize_diagnosis_draft,
+    requires_configuration_evidence,
+    validate_configuration_bridge_citation,
     validate_fix_candidate_plan,
+    validate_fix_configuration_bridge,
     validate_incident_correlation,
     validate_verification_plan_set,
 )
 
 _DEFAULT_QUESTION = "Diagnose the runtime failures and their likely causes."
 _MAX_ADAPTIVE_EVIDENCE_ROUNDS = 2
+_MAX_SOURCE_RESEARCH_ROUNDS = 2
 
 _KNOWLEDGE_SOURCE_ROLES = {
     SourceRole.MAA_FRAMEWORK,
@@ -111,6 +124,348 @@ _KNOWLEDGE_SOURCE_ROLES = {
 }
 
 _IMPLEMENTATION_SOURCE_ROLES = {SourceRole.GUI, SourceRole.MAA_FRAMEWORK}
+
+
+async def _reason_diagnosis_draft(
+    session: ReasoningSession,
+    context: ReasoningContext,
+    inspection: DeterministicInspection,
+    incident_correlation: IncidentCorrelationDraft | None,
+    configuration_paths: set[Path],
+) -> DiagnosisDraft:
+    draft = await session.reason(context, DiagnosisDraft)
+    try:
+        validate_configuration_bridge_citation(draft, context.evidence, configuration_paths)
+        finalize_diagnosis_draft(draft, inspection, incident_correlation)
+        return draft
+    except ValueError as error:
+        citable_ids = sorted(
+            item.id for item in context.evidence if item.kind != "wiki_navigation_match"
+        )
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.MODEL_REQUESTED,
+                stage="reason",
+                message="Retrying diagnostic reasoning with exact evidence IDs",
+                data={"validation_error": str(error)[:2000]},
+            )
+        )
+        correction = ReasoningContext(
+            stage=context.stage,
+            instruction=(
+                f"{context.instruction}\n\n"
+                f"Correction required: the previous diagnosis draft was invalid: "
+                f"{str(error)[:2000]}. Return the complete diagnosis draft again. Every "
+                "conclusion must copy complete evidence_id strings exactly from this citable "
+                f"list: {json.dumps(citable_ids, ensure_ascii=False)}. Preserve every prefix "
+                "and colon. If the validation error identifies a configuration/source bridge, "
+                "the suspected-trigger conclusion must cite both the version-matched source "
+                "evidence and the artifact configuration window, state the exact observed "
+                "configuration value, and explain why that value changes guard applicability."
+            ),
+            evidence=context.evidence,
+            incident_selection=context.incident_selection,
+            incident_comparison=context.incident_comparison,
+        )
+        draft = await session.reason(correction, DiagnosisDraft)
+        validate_configuration_bridge_citation(draft, context.evidence, configuration_paths)
+        finalize_diagnosis_draft(draft, inspection, incident_correlation)
+        return draft
+
+
+async def _reason_incident_correlation(
+    session: ReasoningSession,
+    context: ReasoningContext,
+    selection: IncidentSelection,
+) -> IncidentCorrelationDraft:
+    draft = await session.reason(context, IncidentCorrelationDraft)
+    try:
+        return validate_incident_correlation(draft, selection)
+    except ValueError as error:
+        candidate_ids = sorted(candidate.candidate_id for candidate in selection.candidates)
+        evidence_ids = sorted(
+            {
+                evidence_id
+                for candidate in selection.candidates
+                for evidence_id in candidate.evidence_ids
+            }
+        )
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.MODEL_REQUESTED,
+                stage=context.stage,
+                message="Retrying incident correlation with exact candidate IDs",
+                data={"validation_error": str(error)[:2000]},
+            )
+        )
+        correction = ReasoningContext(
+            stage=context.stage,
+            instruction=(
+                f"{context.instruction}\n\n"
+                f"Correction required: the previous draft was invalid: {str(error)[:2000]}. "
+                "Return the complete draft again. Copy candidate IDs exactly from "
+                f"{json.dumps(candidate_ids, ensure_ascii=False)} and evidence IDs exactly from "
+                f"{json.dumps(evidence_ids, ensure_ascii=False)}. Preserve every prefix, "
+                "including 'incident:'."
+            ),
+            evidence=context.evidence,
+            incident_selection=context.incident_selection,
+            incident_comparison=context.incident_comparison,
+        )
+        draft = await session.reason(correction, IncidentCorrelationDraft)
+        return validate_incident_correlation(draft, selection)
+
+
+async def _reason_research_plan[
+    PlanT: SourceResearchPlan | KnowledgeResearchPlan,
+](
+    session: ReasoningSession,
+    context: ReasoningContext,
+    result_type: type[PlanT],
+    source_ids: set[str],
+    plan_name: str,
+    required_terms_by_source: dict[str, set[str]] | None = None,
+) -> PlanT:
+    plan = await session.reason(context, result_type)
+    unknown_sources = {query.source_id for query in plan.queries} - source_ids
+    requirements = required_terms_by_source or {}
+
+    def missing_required_queries(candidate: PlanT) -> dict[str, list[str]]:
+        return {
+            source_id: sorted(
+                term
+                for term in terms
+                if not any(
+                    query.source_id == source_id and term in query.terms
+                    for query in candidate.queries
+                )
+            )
+            for source_id, terms in requirements.items()
+            if any(
+                not any(
+                    query.source_id == source_id and term in query.terms
+                    for query in candidate.queries
+                )
+                for term in terms
+            )
+        }
+
+    missing_queries = missing_required_queries(plan)
+    if unknown_sources or missing_queries:
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.MODEL_REQUESTED,
+                stage=context.stage,
+                message=(
+                    f"Retrying {plan_name.lower()} with required source queries"
+                    if missing_queries
+                    else f"Retrying {plan_name.lower()} with valid source IDs"
+                ),
+                data={
+                    "unknown_source_ids": [
+                        cast(JsonValue, source_id) for source_id in sorted(unknown_sources)
+                    ],
+                    "available_source_ids": [
+                        cast(JsonValue, source_id) for source_id in sorted(source_ids)
+                    ],
+                    "missing_required_queries": cast(JsonValue, missing_queries),
+                },
+            )
+        )
+        correction = ReasoningContext(
+            stage=context.stage,
+            instruction=(
+                f"{context.instruction}\n\n"
+                "Correction required: the previous plan used unknown query.source_id values "
+                f"{json.dumps(sorted(unknown_sources), ensure_ascii=False)} or omitted required "
+                "exact observed-message queries "
+                f"{json.dumps(missing_queries, ensure_ascii=False)}. Return the complete plan "
+                "again using only these exact source_id strings: "
+                f"{json.dumps(sorted(source_ids), ensure_ascii=False)}. Do not use source role "
+                "labels as IDs. For every source_id/term pair in the missing query map, include "
+                "a query with that exact source_id and exact term; combine terms only when the "
+                "five-query plan bound remains satisfied."
+            ),
+            evidence=context.evidence,
+            incident_selection=context.incident_selection,
+            incident_comparison=context.incident_comparison,
+        )
+        plan = await session.reason(correction, result_type)
+        unknown_sources = {query.source_id for query in plan.queries} - source_ids
+        missing_queries = missing_required_queries(plan)
+    if unknown_sources:
+        raise ValueError(
+            f"{plan_name} references unknown source IDs after correction: "
+            + ", ".join(sorted(unknown_sources))
+        )
+    if missing_queries:
+        raise ValueError(
+            f"{plan_name} omitted required exact observed-message queries after correction: "
+            + json.dumps(missing_queries, ensure_ascii=False)
+        )
+    return plan
+
+
+async def _reason_evidence_research_plan(
+    session: ReasoningSession,
+    context: ReasoningContext,
+    authorized_paths: set[Path],
+    configuration_paths: set[Path],
+    *,
+    require_configuration: bool,
+) -> EvidenceResearchPlan:
+    plan = await session.reason(context, EvidenceResearchPlan)
+    unknown_paths = {
+        query.source_path.resolve()
+        for query in plan.queries
+        if query.source_path.resolve() not in authorized_paths
+    }
+    missing_configuration = require_configuration and not any(
+        query.source_path.resolve() in configuration_paths for query in plan.queries
+    )
+    if unknown_paths or missing_configuration:
+        unknown_path_strings = [str(path) for path in sorted(unknown_paths, key=str)]
+        authorized_path_strings = [str(path) for path in sorted(authorized_paths, key=str)]
+        configuration_path_strings = [str(path) for path in sorted(configuration_paths, key=str)]
+        configuration_correction = (
+            " Version-matched source in the evidence uses a controller/resource/device "
+            "configuration field whose effective value is not established yet, so include at "
+            "least one focused query using one of these exact configuration paths: "
+            f"{json.dumps(configuration_path_strings, ensure_ascii=False)}."
+            if missing_configuration
+            else " If no authorized path is justified, use status='skip' and queries=[]."
+        )
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.MODEL_REQUESTED,
+                stage=context.stage,
+                message="Retrying evidence research plan with authorized paths",
+                data={
+                    "unauthorized_paths": [cast(JsonValue, path) for path in unknown_path_strings],
+                    "authorized_paths": [cast(JsonValue, path) for path in authorized_path_strings],
+                    "configuration_required": require_configuration,
+                },
+            )
+        )
+        correction = ReasoningContext(
+            stage=context.stage,
+            instruction=(
+                f"{context.instruction}\n\n"
+                "Correction required: the previous plan either used unauthorized source_path "
+                f"values {json.dumps(unknown_path_strings, ensure_ascii=False)} or omitted a "
+                "required configuration snapshot. "
+                "Return the complete plan again. Copy source_path exactly from this authorized "
+                f"list: {json.dumps(authorized_path_strings, ensure_ascii=False)}. "
+                "Do not infer a path from dates or log contents."
+                f"{configuration_correction}"
+            ),
+            evidence=context.evidence,
+            incident_selection=context.incident_selection,
+            incident_comparison=context.incident_comparison,
+        )
+        plan = await session.reason(correction, EvidenceResearchPlan)
+        unknown_paths = {
+            query.source_path.resolve()
+            for query in plan.queries
+            if query.source_path.resolve() not in authorized_paths
+        }
+        missing_configuration = require_configuration and not any(
+            query.source_path.resolve() in configuration_paths for query in plan.queries
+        )
+    if unknown_paths:
+        raise ValueError(
+            "Evidence research plan references unauthorized paths after correction: "
+            + ", ".join(str(path) for path in sorted(unknown_paths, key=str))
+        )
+    if missing_configuration:
+        raise ValueError("Evidence research plan omitted required configuration evidence")
+    return plan
+
+
+async def _reason_fix_candidate_plan(
+    session: ReasoningSession,
+    context: ReasoningContext,
+    draft: DiagnosisDraft,
+    evidence: list[Evidence],
+    source_roles: dict[str, SourceRole],
+    configuration_paths: set[Path],
+) -> FixCandidatePlan:
+    plan = await session.reason(context, FixCandidatePlan)
+    try:
+        validated = validate_fix_candidate_plan(
+            plan,
+            draft,
+            evidence,
+            source_roles,
+        )
+        validate_fix_configuration_bridge(
+            validated,
+            draft,
+            evidence,
+            configuration_paths,
+        )
+        return validated
+    except ValueError as error:
+        source_evidence = [
+            {
+                "evidence_id": item.id,
+                "source_component": item.source_component,
+                "source_path": item.source_path,
+            }
+            for item in context.evidence
+            if item.kind == "source_search_match"
+        ]
+        configuration_evidence = [
+            {
+                "evidence_id": item.id,
+                "source_path": item.source_path,
+                "content": item.content[:2000],
+            }
+            for item in context.evidence
+            if item.kind == "text_line_window"
+            and Path(item.source_path).resolve() in configuration_paths
+        ]
+        _emit(
+            _WorkflowUpdate(
+                kind=DiagnosticEventKind.MODEL_REQUESTED,
+                stage=context.stage,
+                message="Retrying repair candidates with source ownership constraints",
+                data={"validation_error": str(error)[:2000]},
+            )
+        )
+        correction = ReasoningContext(
+            stage=context.stage,
+            instruction=(
+                f"{context.instruction}\n\n"
+                f"Correction required: the previous repair plan was invalid: "
+                f"{str(error)[:2000]}. Return the complete plan again. For any code fix, copy "
+                "the exact component, file, and symbol from cited version-matched source "
+                "evidence and cite that evidence ID. Do not invent a scheduler class, file, "
+                "configuration field, environment variable, or framework ownership. Adding a "
+                "new option is a code change, not a configuration-only fix. Available source "
+                "locators: "
+                f"{json.dumps(source_evidence, ensure_ascii=False)}. Configuration evidence "
+                "used by the diagnosed trigger must also be cited by each related code fix: "
+                f"{json.dumps(configuration_evidence, ensure_ascii=False)}"
+            ),
+            evidence=context.evidence,
+            incident_selection=context.incident_selection,
+            incident_comparison=context.incident_comparison,
+        )
+        plan = await session.reason(correction, FixCandidatePlan)
+        validated = validate_fix_candidate_plan(
+            plan,
+            draft,
+            evidence,
+            source_roles,
+        )
+        validate_fix_configuration_bridge(
+            validated,
+            draft,
+            evidence,
+            configuration_paths,
+        )
+        return validated
 
 
 def _available_implementation_source_ids(inspection: DeterministicInspection) -> list[str]:
@@ -164,6 +519,7 @@ class DiagnosticState(TypedDict):
     evidence: NotRequired[list[Evidence]]
     incident_correlation: NotRequired[IncidentCorrelationDraft]
     source_research_plan: NotRequired[SourceResearchPlan]
+    source_research_round: NotRequired[int]
     knowledge_research_plan: NotRequired[KnowledgeResearchPlan]
     draft: NotRequired[DiagnosisDraft]
     fix_candidate_plan: NotRequired[FixCandidatePlan]
@@ -184,6 +540,7 @@ class _DiagnosticStateUpdate(TypedDict, total=False):
     evidence: list[Evidence]
     incident_correlation: IncidentCorrelationDraft
     source_research_plan: SourceResearchPlan
+    source_research_round: int
     knowledge_research_plan: KnowledgeResearchPlan
     draft: DiagnosisDraft
     fix_candidate_plan: FixCandidatePlan
@@ -696,10 +1053,13 @@ class DiagnosticWorkflow:
             )
             session = await self.reasoning_backend.start(run_id=self.run_id)
             try:
-                draft = await session.reason(context, IncidentCorrelationDraft)
+                draft = await _reason_incident_correlation(
+                    session,
+                    context,
+                    inspection.incident_selection,
+                )
             finally:
                 await session.close()
-            draft = validate_incident_correlation(draft, inspection.incident_selection)
         except Exception as error:  # noqa: BLE001
             return _failure_update("correlate_incident", error)
 
@@ -866,34 +1226,44 @@ class DiagnosticWorkflow:
                     ]
                 )
             )
+            round_number = state.get("source_research_round", 0) + 1
+            previous_plan = state.get("source_research_plan")
             context = build_source_research_context(
                 _reported_context(state["request"]),
                 state.get("evidence", []),
                 inspection.incident_comparison,
                 source_ids,
+                previous_plan=previous_plan,
             )
+            anchor_terms = source_search_anchor_terms(context.evidence, limit=1)
+            required_terms_by_source = {
+                source_id: set(anchor_terms) for source_id in source_ids[:5] if anchor_terms
+            }
             _emit(
                 _WorkflowUpdate(
                     kind=DiagnosticEventKind.MODEL_REQUESTED,
                     stage="plan_source_research",
                     message="Requesting bounded source research plan",
                     data={
+                        "round": round_number,
                         "sources": len(source_ids),
                         "evidence_count": len(context.evidence),
+                        "required_anchor_terms": cast(JsonValue, anchor_terms),
                     },
                 )
             )
             session = await self.reasoning_backend.start(run_id=self.run_id)
             try:
-                plan = await session.reason(context, SourceResearchPlan)
+                plan = await _reason_research_plan(
+                    session,
+                    context,
+                    SourceResearchPlan,
+                    set(source_ids),
+                    "Source research plan",
+                    required_terms_by_source,
+                )
             finally:
                 await session.close()
-            unknown_sources = {query.source_id for query in plan.queries} - set(source_ids)
-            if unknown_sources:
-                raise ValueError(
-                    "Source research plan references unknown source IDs: "
-                    + ", ".join(sorted(unknown_sources))
-                )
         except Exception as error:  # noqa: BLE001
             return _failure_update("plan_source_research", error)
 
@@ -905,10 +1275,25 @@ class DiagnosticWorkflow:
                 data={
                     "status": plan.status.value,
                     "queries": len(plan.queries),
+                    "source_ids": cast(
+                        JsonValue,
+                        list(dict.fromkeys(query.source_id for query in plan.queries)),
+                    ),
+                    "terms": cast(
+                        JsonValue,
+                        list(dict.fromkeys(term for query in plan.queries for term in query.terms)),
+                    ),
+                    "query_details": cast(
+                        JsonValue,
+                        [query.model_dump(mode="json") for query in plan.queries],
+                    ),
                 },
             )
         )
-        return {"source_research_plan": plan}
+        return {
+            "source_research_plan": plan,
+            "source_research_round": round_number,
+        }
 
     @staticmethod
     def _after_plan_source_research(
@@ -947,6 +1332,27 @@ class DiagnosticWorkflow:
                 data={
                     "queries": len(plan.queries),
                     "matches": len(inspection.source_search_matches),
+                    "matches_by_source": cast(
+                        JsonValue,
+                        {
+                            source_id: sum(
+                                match.source_id == source_id
+                                for match in inspection.source_search_matches
+                            )
+                            for source_id in dict.fromkeys(
+                                match.source_id for match in inspection.source_search_matches
+                            )
+                        },
+                    ),
+                    "matched_files": cast(
+                        JsonValue,
+                        list(
+                            dict.fromkeys(
+                                f"{match.source_id}:{match.relative_path}"
+                                for match in inspection.source_search_matches
+                            )
+                        ),
+                    ),
                     "evidence": len(evidence),
                 },
             )
@@ -956,10 +1362,19 @@ class DiagnosticWorkflow:
     @staticmethod
     def _after_search_source(
         state: DiagnosticState,
-    ) -> Literal["plan_knowledge_research", "reason", "fail"]:
+    ) -> Literal["plan_source_research", "plan_knowledge_research", "reason", "fail"]:
         if "error_message" in state:
             return "fail"
         inspection = state.get("inspection")
+        plan = state.get("source_research_plan")
+        if (
+            inspection is not None
+            and plan is not None
+            and plan.status is SourceResearchStatus.RUN
+            and not inspection.source_search_matches
+            and state.get("source_research_round", 0) < _MAX_SOURCE_RESEARCH_ROUNDS
+        ):
+            return "plan_source_research"
         if inspection is not None and _available_knowledge_sources(inspection):
             return "plan_knowledge_research"
         return "reason"
@@ -994,16 +1409,16 @@ class DiagnosticWorkflow:
             )
             session = await self.reasoning_backend.start(run_id=self.run_id)
             try:
-                plan = await session.reason(context, KnowledgeResearchPlan)
+                source_ids = {source_id for source_id, _ in sources}
+                plan = await _reason_research_plan(
+                    session,
+                    context,
+                    KnowledgeResearchPlan,
+                    source_ids,
+                    "Knowledge research plan",
+                )
             finally:
                 await session.close()
-            source_ids = {source_id for source_id, _ in sources}
-            unknown_sources = {query.source_id for query in plan.queries} - source_ids
-            if unknown_sources:
-                raise ValueError(
-                    "Knowledge research plan references unknown source IDs: "
-                    + ", ".join(sorted(unknown_sources))
-                )
         except Exception as error:  # noqa: BLE001
             return _failure_update("plan_knowledge_research", error)
 
@@ -1012,7 +1427,18 @@ class DiagnosticWorkflow:
                 kind=DiagnosticEventKind.MODEL_COMPLETED,
                 stage="plan_knowledge_research",
                 message="Knowledge research plan complete",
-                data={"status": plan.status.value, "queries": len(plan.queries)},
+                data={
+                    "status": plan.status.value,
+                    "queries": len(plan.queries),
+                    "source_ids": cast(
+                        JsonValue,
+                        list(dict.fromkeys(query.source_id for query in plan.queries)),
+                    ),
+                    "terms": cast(
+                        JsonValue,
+                        list(dict.fromkeys(term for query in plan.queries for term in query.terms)),
+                    ),
+                },
             )
         )
         return {"knowledge_research_plan": plan}
@@ -1075,6 +1501,7 @@ class DiagnosticWorkflow:
                 evidence = state.get("evidence", [])
                 available_paths = available_evidence_query_paths(inspection.prepared)
                 authorized_paths = {path.resolve() for path in available_paths}
+                configuration_paths = available_configuration_query_paths(inspection.prepared)
                 for round_number in range(1, _MAX_ADAPTIVE_EVIDENCE_ROUNDS + 1):
                     if not available_paths:
                         break
@@ -1096,22 +1523,37 @@ class DiagnosticWorkflow:
                             },
                         )
                     )
-                    research_plan = await session.reason(
+                    research_plan = await _reason_evidence_research_plan(
+                        session,
                         research_context,
-                        EvidenceResearchPlan,
+                        authorized_paths,
+                        configuration_paths,
+                        require_configuration=requires_configuration_evidence(
+                            evidence,
+                            configuration_paths,
+                        ),
+                    )
+                    _emit(
+                        _WorkflowUpdate(
+                            kind=DiagnosticEventKind.MODEL_COMPLETED,
+                            stage="plan_evidence_research",
+                            message="Focused evidence window plan complete",
+                            data={
+                                "round": round_number,
+                                "status": research_plan.status.value,
+                                "queries": len(research_plan.queries),
+                                "query_details": cast(
+                                    JsonValue,
+                                    [
+                                        query.model_dump(mode="json")
+                                        for query in research_plan.queries
+                                    ],
+                                ),
+                            },
+                        )
                     )
                     if research_plan.status is SourceResearchStatus.SKIP:
                         break
-                    unknown_paths = {
-                        query.source_path.resolve()
-                        for query in research_plan.queries
-                        if query.source_path.resolve() not in authorized_paths
-                    }
-                    if unknown_paths:
-                        raise ValueError(
-                            "Evidence research plan references unauthorized paths: "
-                            + ", ".join(str(path) for path in sorted(unknown_paths, key=str))
-                        )
                     inspection = execute_evidence_research(inspection, research_plan)
                     inspection = synthesize_inspection_evidence(inspection)
                     evidence = collect_inspection_evidence(inspection)
@@ -1143,7 +1585,13 @@ class DiagnosticWorkflow:
                         data={"evidence_count": len(evidence)},
                     )
                 )
-                draft = await session.reason(context, DiagnosisDraft)
+                draft = await _reason_diagnosis_draft(
+                    session,
+                    context,
+                    inspection,
+                    state.get("incident_correlation"),
+                    configuration_paths,
+                )
             finally:
                 await session.close()
         except Exception as error:  # noqa: BLE001
@@ -1196,10 +1644,20 @@ class DiagnosticWorkflow:
                 )
                 session = await self.reasoning_backend.start(run_id=self.run_id)
                 try:
-                    plan = await session.reason(context, FixCandidatePlan)
+                    source_roles = {
+                        snapshot.source_id: snapshot.role
+                        for snapshot in inspection.prepared.source_snapshots
+                    }
+                    plan = await _reason_fix_candidate_plan(
+                        session,
+                        context,
+                        draft,
+                        evidence,
+                        source_roles,
+                        available_configuration_query_paths(inspection.prepared),
+                    )
                 finally:
                     await session.close()
-                validate_fix_candidate_plan(plan, draft, evidence)
         except Exception as error:  # noqa: BLE001
             return _failure_update("propose_fix", error)
 

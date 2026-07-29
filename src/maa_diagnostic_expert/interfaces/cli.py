@@ -13,6 +13,7 @@ from pydantic import BaseModel, ValidationError
 from maa_diagnostic_expert.contracts.domain import (
     AnalysisRequest,
     DiagnosisResult,
+    DiagnosisStatus,
     EvidenceQuery,
     EvidenceWindow,
     PreparedAnalysis,
@@ -271,26 +272,30 @@ def _run_diagnose(args: argparse.Namespace) -> None:
     fmt = cast(str, args.format)
     if events_path is not None:
         events_path.parent.mkdir(parents=True, exist_ok=True)
-        result = asyncio.run(_stream_to_file(workflow, request, events_path))
+        result = asyncio.run(stream_to_file(workflow, request, events_path))
     else:
         result = asyncio.run(workflow.diagnose(request))
     fix_plan_path = cast(Path | None, args.fix_plan)
     if fix_plan_path is not None:
         if workflow.fix_candidate_plan is None:
-            raise RuntimeError("workflow completed without producing a fix candidate plan")
-        _emit_model(workflow.fix_candidate_plan, fix_plan_path)
+            if result.status is not DiagnosisStatus.FAILED:
+                raise RuntimeError("workflow completed without producing a fix candidate plan")
+        else:
+            _emit_model(workflow.fix_candidate_plan, fix_plan_path)
     verification_plan_path = cast(Path | None, args.verification_plan)
     if verification_plan_path is not None:
         if workflow.verification_plan_set is None:
-            raise RuntimeError("workflow completed without producing a verification plan set")
-        _emit_model(workflow.verification_plan_set, verification_plan_path)
+            if result.status is not DiagnosisStatus.FAILED:
+                raise RuntimeError("workflow completed without producing a verification plan set")
+        else:
+            _emit_model(workflow.verification_plan_set, verification_plan_path)
     if fmt == "markdown":
         _emit_text(render_markdown_report(result), output)
     else:
         _emit_model(result, output)
 
 
-async def _stream_to_file(
+async def stream_to_file(
     workflow: DiagnosticWorkflow,
     request: AnalysisRequest,
     events_path: Path,
@@ -300,6 +305,7 @@ async def _stream_to_file(
             handle.write(
                 json.dumps(event.model_dump(mode="json"), ensure_ascii=False) + "\n",
             )
+            handle.flush()
     if workflow.result is None:
         raise RuntimeError("workflow completed without producing a result")
     return workflow.result

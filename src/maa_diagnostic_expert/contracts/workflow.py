@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal, cast
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, ConfigDict, Field, field_validator, model_validator
 
 from .command import (
     CommandApprovalOutcome,
@@ -13,7 +15,48 @@ from .command import (
     CommandExecutionStatus,
     CommandRequest,
 )
-from .domain import ContractModel, Evidence, EvidenceQuery, JsonValue, MissingEvidence, SourceRole
+from .domain import (
+    ContractModel,
+    Evidence,
+    EvidenceQuery,
+    JsonValue,
+    MissingEvidence,
+    SourceRole,
+)
+
+_Rationale = Annotated[
+    str,
+    Field(
+        min_length=1,
+        validation_alias=AliasChoices("rationale", "rational"),
+        serialization_alias="rationale",
+    ),
+]
+_SOURCE_CODE_SUFFIXES = (
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cs",
+    ".go",
+    ".h",
+    ".hpp",
+    ".js",
+    ".jsx",
+    ".py",
+    ".rs",
+    ".ts",
+    ".tsx",
+)
+
+
+def _parse_json_array(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    try:
+        decoded = cast(object, json.loads(value))
+    except json.JSONDecodeError:
+        return value
+    return cast(list[object], decoded) if isinstance(decoded, list) else value
 
 
 def _status_collection_json_schema(
@@ -186,10 +229,24 @@ class IncidentCorrelationDraft(ContractModel):
 
     api_version: Literal["incident-correlation-draft/v1"] = "incident-correlation-draft/v1"
     status: IncidentSelectionStatus
-    selected_candidate_id: str | None = None
-    relevant_candidate_ids: list[str] = Field(default_factory=_new_strings)
-    evidence_ids: list[str] = Field(default_factory=_new_strings)
-    rationale: str = Field(min_length=1)
+    selected_candidate_id: str | None = Field(
+        default=None,
+        description=(
+            "Copy the complete selected candidate_id exactly, including prefixes such as "
+            "'incident:'."
+        ),
+    )
+    relevant_candidate_ids: list[str] = Field(
+        default_factory=_new_strings,
+        description=(
+            "Copy complete candidate_id values exactly, including prefixes such as 'incident:'."
+        ),
+    )
+    evidence_ids: list[str] = Field(
+        default_factory=_new_strings,
+        description="Copy only complete evidence_ids listed for the referenced candidates.",
+    )
+    rationale: _Rationale
     missing_evidence: list[str] = Field(default_factory=_new_strings)
 
     @model_validator(mode="after")
@@ -373,10 +430,25 @@ class FixCandidate(ContractModel):
     target: str = Field(min_length=1)
     scope: FixScope
     method: FixMethod
-    rationale: str = Field(min_length=1)
-    evidence_ids: list[str] = Field(min_length=1)
+    rationale: _Rationale
+    evidence_ids: list[str] = Field(
+        min_length=1,
+        validation_alias=AliasChoices("evidence_ids", "evidence_id"),
+        serialization_alias="evidence_ids",
+    )
     regression_risks: list[str] = Field(default_factory=_new_strings)
     verification_steps: list[str] = Field(min_length=1)
+
+    @field_validator("evidence_ids", mode="before")
+    @classmethod
+    def normalize_evidence_ids(cls, value: object) -> object:
+        parsed = _parse_json_array(value)
+        return [parsed] if isinstance(parsed, str) and parsed else parsed
+
+    @field_validator("regression_risks", "verification_steps", mode="before")
+    @classmethod
+    def parse_json_encoded_fix_lists(cls, value: object) -> object:
+        return _parse_json_array(value)
 
     @field_validator("evidence_ids", "regression_risks", "verification_steps")
     @classmethod
@@ -384,6 +456,41 @@ class FixCandidate(ContractModel):
         if len(value) != len(set(value)):
             raise ValueError("Fix candidate list items must be unique")
         return value
+
+    @model_validator(mode="after")
+    def validate_code_method_scope(self) -> FixCandidate:
+        expected_scopes = {
+            FixMethod.PROJECT_CODE: FixScope.PROJECT,
+            FixMethod.GUI_CODE: FixScope.GUI,
+            FixMethod.FRAMEWORK_CODE: FixScope.FRAMEWORK,
+        }
+        expected_scope = expected_scopes.get(self.method)
+        if expected_scope is not None and self.scope is not expected_scope:
+            raise ValueError(
+                f"Fix method '{self.method.value}' requires scope '{expected_scope.value}'"
+            )
+        pipeline_methods = {
+            FixMethod.ROI,
+            FixMethod.ONLY_REC,
+            FixMethod.EXPECTED_REPLACE,
+            FixMethod.COLOR_FILTER,
+        }
+        if self.method in pipeline_methods and self.scope in {
+            FixScope.GUI,
+            FixScope.FRAMEWORK,
+            FixScope.DEPENDENCY,
+        }:
+            raise ValueError(
+                f"Pipeline fix method '{self.method.value}' cannot use scope '{self.scope.value}'"
+            )
+        if self.method is FixMethod.CONFIGURATION and any(
+            suffix in self.target.casefold() for suffix in _SOURCE_CODE_SUFFIXES
+        ):
+            raise ValueError(
+                "Configuration fixes must target a configuration field or file, not a source "
+                "code path"
+            )
+        return self
 
 
 class FixPlanningStatus(StrEnum):
@@ -413,7 +520,39 @@ class FixCandidatePlan(ContractModel):
             "status is 'skip'."
         ),
     )
-    rationale: str = Field(min_length=1)
+    rationale: _Rationale
+
+    @model_validator(mode="before")
+    @classmethod
+    def wrap_flattened_candidate(cls, value: object) -> object:
+        """Repair one candidate emitted at the plan tool-call level."""
+        if not isinstance(value, Mapping):
+            return value
+        data = cast(Mapping[str, object], value)
+        candidate_keys = {
+            "fix_id",
+            "target",
+            "scope",
+            "method",
+            "rationale",
+            "rational",
+            "evidence_ids",
+            "evidence_id",
+            "regression_risks",
+            "verification_steps",
+        }
+        allowed_keys = candidate_keys | {"api_version", "candidates"}
+        required_keys = {"fix_id", "target", "scope", "method", "verification_steps"}
+        if "status" in data or not required_keys.issubset(data) or set(data) - allowed_keys:
+            return data
+        candidate = {key: item for key, item in data.items() if key in candidate_keys}
+        rationale = data.get("rationale", data.get("rational"))
+        return {
+            "api_version": "fix-candidate-plan/v1",
+            "status": "proposed",
+            "candidates": [candidate],
+            "rationale": rationale,
+        }
 
     @model_validator(mode="after")
     def validate_plan(self) -> FixCandidatePlan:
@@ -448,6 +587,17 @@ class VerificationPlan(ContractModel):
     steps: list[str] = Field(min_length=1)
     business_milestones: list[str] = Field(min_length=1)
     regression_checks: list[str] = Field(default_factory=_new_strings)
+
+    @field_validator(
+        "methods",
+        "steps",
+        "business_milestones",
+        "regression_checks",
+        mode="before",
+    )
+    @classmethod
+    def parse_json_encoded_verification_lists(cls, value: object) -> object:
+        return _parse_json_array(value)
 
     @field_validator("methods")
     @classmethod
@@ -495,7 +645,39 @@ class VerificationPlanSet(ContractModel):
             "is 'skip'."
         ),
     )
-    rationale: str = Field(min_length=1)
+    rationale: _Rationale
+
+    @model_validator(mode="before")
+    @classmethod
+    def wrap_flattened_verification_plan(cls, value: object) -> object:
+        """Repair one verification plan emitted at the plan-set tool-call level."""
+        if not isinstance(value, Mapping):
+            return value
+        data = cast(Mapping[str, object], value)
+        plan_keys = {
+            "fix_id",
+            "methods",
+            "steps",
+            "business_milestones",
+            "regression_checks",
+        }
+        allowed_keys = plan_keys | {
+            "api_version",
+            "plans",
+            "rationale",
+            "rational",
+        }
+        required_keys = {"fix_id", "methods", "steps", "business_milestones"}
+        if "status" in data or not required_keys.issubset(data) or set(data) - allowed_keys:
+            return data
+        plan = {key: item for key, item in data.items() if key in plan_keys}
+        rationale = data.get("rationale", data.get("rational"))
+        return {
+            "api_version": "verification-plan-set/v1",
+            "status": "planned",
+            "plans": [plan],
+            "rationale": rationale,
+        }
 
     @model_validator(mode="after")
     def validate_plan_set(self) -> VerificationPlanSet:
@@ -515,7 +697,7 @@ class FixExecutionRequest(ContractModel):
     api_version: Literal["fix-execution-request/v1"] = "fix-execution-request/v1"
     fix_id: str = Field(min_length=1)
     command: CommandRequest
-    rationale: str = Field(min_length=1)
+    rationale: _Rationale
     expected_changed_paths: list[str] = Field(min_length=1, max_length=20)
 
     @field_validator("expected_changed_paths")
@@ -753,7 +935,13 @@ class SourceResearchStatus(StrEnum):
 
 class SourceSearchQuery(ContractModel):
     query_id: str = Field(min_length=1)
-    source_id: str = Field(min_length=1)
+    source_id: str = Field(
+        min_length=1,
+        description=(
+            "Copy an available source_id exactly; do not substitute a source role such as "
+            "'maa_framework', 'documentation', or 'wiki'."
+        ),
+    )
     terms: list[str] = Field(min_length=1, max_length=8)
     paths: list[str] = Field(default_factory=_new_strings, max_length=8)
     reason: str = Field(min_length=1)
@@ -819,7 +1007,13 @@ class SourceResearchPlan(ContractModel):
             "Use one to five queries when status is 'run'; use an empty list when status is 'skip'."
         ),
     )
-    rationale: str = Field(min_length=1)
+    rationale: _Rationale
+
+    @field_validator("queries", mode="before")
+    @classmethod
+    def parse_json_encoded_queries(cls, value: object) -> object:
+        """Accept a provider tool call that JSON-encodes its array argument once."""
+        return _parse_json_array(value)
 
     @model_validator(mode="after")
     def validate_plan(self) -> SourceResearchPlan:
@@ -845,7 +1039,13 @@ class KnowledgeResearchPlan(ContractModel):
             "Use one to five queries when status is 'run'; use an empty list when status is 'skip'."
         ),
     )
-    rationale: str = Field(min_length=1)
+    rationale: _Rationale
+
+    @field_validator("queries", mode="before")
+    @classmethod
+    def parse_json_encoded_queries(cls, value: object) -> object:
+        """Accept a provider tool call that JSON-encodes its array argument once."""
+        return _parse_json_array(value)
 
     @model_validator(mode="after")
     def validate_plan(self) -> KnowledgeResearchPlan:
@@ -874,7 +1074,13 @@ class EvidenceResearchPlan(ContractModel):
             "'skip'."
         ),
     )
-    rationale: str = Field(min_length=1)
+    rationale: _Rationale
+
+    @field_validator("queries", mode="before")
+    @classmethod
+    def parse_json_encoded_queries(cls, value: object) -> object:
+        """Accept a provider tool call that JSON-encodes its array argument once."""
+        return _parse_json_array(value)
 
     @model_validator(mode="after")
     def validate_plan(self) -> EvidenceResearchPlan:

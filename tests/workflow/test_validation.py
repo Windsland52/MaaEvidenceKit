@@ -15,6 +15,7 @@ from maa_diagnostic_expert.contracts.domain import (
     EvidenceRole,
     MissingEvidence,
     PreparedAnalysis,
+    SourceRole,
 )
 from maa_diagnostic_expert.contracts.workflow import (
     ArtifactSourceKind,
@@ -188,6 +189,71 @@ def test_fix_candidate_plan_requires_complete_diagnosis() -> None:
 
     with pytest.raises(ValueError, match="complete evidence-backed diagnosis"):
         validate_fix_candidate_plan(_fix_plan(), diagnosis, [_evidence()])
+
+
+def test_code_fix_candidate_requires_versioned_source_from_its_component() -> None:
+    source = Evidence(
+        id="ev:mxu-source",
+        kind="source_search_match",
+        source_component="source:mxu",
+        source_path="git:mxu@abc:src/components/Toolbar.tsx",
+        content="if (await maaService.isWorkstationLocked()) { return false; }",
+        role=EvidenceRole.CONTEXT,
+    )
+    draft = DiagnosisDraft(
+        status=DiagnosisStatus.COMPLETE,
+        summary="The GUI lock guard blocks task startup.",
+        conclusions=[
+            Conclusion(
+                statement="The GUI applies the lock guard before controller selection.",
+                evidence_ids=[source.id],
+                confidence=0.9,
+            )
+        ],
+    )
+
+    def code_plan(method: FixMethod) -> FixCandidatePlan:
+        return FixCandidatePlan(
+            status=FixPlanningStatus.PROPOSED,
+            rationale="The versioned source identifies the code target.",
+            candidates=[
+                FixCandidate(
+                    fix_id="fix-lock-guard",
+                    target="src/components/Toolbar.tsx:isWorkstationLocked",
+                    scope=(FixScope.GUI if method is FixMethod.GUI_CODE else FixScope.FRAMEWORK),
+                    method=method,
+                    rationale="Scope the guard to desktop controllers.",
+                    evidence_ids=[source.id],
+                    verification_steps=["Test ADB and desktop controllers while locked."],
+                )
+            ],
+        )
+
+    assert (
+        validate_fix_candidate_plan(
+            code_plan(FixMethod.GUI_CODE),
+            draft,
+            [source],
+            {"mxu": SourceRole.GUI},
+        ).status
+        is FixPlanningStatus.PROPOSED
+    )
+    with pytest.raises(ValueError, match="role 'maa_framework'"):
+        validate_fix_candidate_plan(
+            code_plan(FixMethod.FRAMEWORK_CODE),
+            draft,
+            [source],
+            {"mxu": SourceRole.GUI},
+        )
+
+    without_source = source.model_copy(update={"kind": "text_line_window"})
+    with pytest.raises(ValueError, match="version-matched source evidence"):
+        validate_fix_candidate_plan(
+            code_plan(FixMethod.GUI_CODE),
+            draft,
+            [without_source],
+            {"mxu": SourceRole.GUI},
+        )
 
 
 def test_verification_plan_set_covers_every_fix_and_regression_risk() -> None:

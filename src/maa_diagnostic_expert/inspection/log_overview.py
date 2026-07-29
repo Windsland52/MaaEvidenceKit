@@ -252,7 +252,7 @@ def build_log_overviews(
     artifacts = {artifact.id: artifact for artifact in prepared.artifacts}
     overviews: list[LogArtifactOverview] = []
     for classification in inventory.classifications:
-        if classification.source_kind not in {ArtifactSourceKind.GUI, ArtifactSourceKind.CUSTOM}:
+        if classification.source_kind is ArtifactSourceKind.MAA_FRAMEWORK:
             continue
         artifact = artifacts.get(classification.artifact_id)
         if artifact is None:

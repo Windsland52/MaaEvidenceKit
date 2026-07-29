@@ -9,6 +9,7 @@
           "type": "string"
         },
         "evidence_ids": {
+          "description": "Copy complete evidence_id values exactly from the supplied evidence, preserving every prefix and colon.",
           "items": {
             "type": "string"
           },

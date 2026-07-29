@@ -32,9 +32,11 @@
         }
       ],
       "default": null,
+      "description": "Copy the complete selected candidate_id exactly, including prefixes such as 'incident:'.",
       "title": "Selected Candidate Id"
     },
     "relevant_candidate_ids": {
+      "description": "Copy complete candidate_id values exactly, including prefixes such as 'incident:'.",
       "items": {
         "type": "string"
       },
@@ -42,6 +44,7 @@
       "type": "array"
     },
     "evidence_ids": {
+      "description": "Copy only complete evidence_ids listed for the referenced candidates.",
       "items": {
         "type": "string"
       },
