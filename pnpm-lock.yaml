@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       '@types/node':
-        specifier: 24.6.0
-        version: 24.6.0
+        specifier: 26.1.2
+        version: 26.1.2
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -238,8 +238,8 @@ packages:
   '@nekosu/simple-parser@1.0.0':
     resolution: {integrity: sha512-Jf3tGs3/0D8XJtjRguInFh8ofGdCk6PcDK2V7HEZTXA4RN/9kk527I6pAX4zqPEUU8ISNu8dCR9F+KAn1U6tdg==}
 
-  '@types/node@24.6.0':
-    resolution: {integrity: sha512-F1CBxgqwOMc4GKJ7eY22hWhBVQuMYTtqI8L0FcszYcpYX0fzfDGpez22Xau8Mgm7O9fI+zA/TYIdq3tGWfweBA==}
+  '@types/node@26.1.2':
+    resolution: {integrity: sha512-Vu4a5UFA9rIIFJ7rB/Vaafh9lrCQszopTCx6KjFboXTGQbPNasehVR5TEiithSDGyd1DEiUByggTZsg8jukeIg==}
 
   '@windsland52/maa-log-adapter@1.1.0':
     resolution: {integrity: sha512-1s+1AUqRZYkO3H6e81coJOW6hP1hfSzZwWugYmfcxBvsTlkV28xa8ERNhlY2L6iqVWocMQrDj+0tBVJiUECUtg==}
@@ -286,8 +286,8 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
-  undici-types@7.13.0:
-    resolution: {integrity: sha512-Ov2Rr9Sx+fRgagJ5AX0qvItZG/JKKoBRAVITs1zk7IqZGTJUwgUr7qoYBpWwakpWilTZFM98rG/AFRocu10iIQ==}
+  undici-types@8.3.0:
+    resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
 
 snapshots:
 
@@ -411,9 +411,9 @@ snapshots:
 
   '@nekosu/simple-parser@1.0.0': {}
 
-  '@types/node@24.6.0':
+  '@types/node@26.1.2':
     dependencies:
-      undici-types: 7.13.0
+      undici-types: 8.3.0
 
   '@windsland52/maa-log-adapter@1.1.0':
     dependencies:
@@ -478,4 +478,4 @@ snapshots:
 
   typescript@5.9.3: {}
 
-  undici-types@7.13.0: {}
+  undici-types@8.3.0: {}

@@ -9,7 +9,7 @@
     "typecheck": "pnpm --filter @maa-diagnostic-expert/tool-adapter typecheck"
   },
   "devDependencies": {
-    "@types/node": "24.6.0",
+    "@types/node": "26.1.2",
     "typescript": "5.9.3"
   }
 }
