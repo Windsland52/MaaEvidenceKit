@@ -3,8 +3,12 @@ packages:
 allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:
-  - '@windsland52/maa-log-adapter@1.1.0'
-  - '@windsland52/maa-log-kernel@1.0.2'
-  - '@windsland52/maa-log-parser@1.1.0'
-  - '@windsland52/maa-log-runtime@1.1.0'
-  - '@windsland52/maa-log-tools@1.3.0'
+  - '@nekosu/maa-locale'
+  - '@nekosu/maa-pipeline-manager'
+  - '@nekosu/maa-tasker'
+  - '@nekosu/simple-parser'
+  - '@windsland52/maa-log-adapter'
+  - '@windsland52/maa-log-kernel'
+  - '@windsland52/maa-log-parser'
+  - '@windsland52/maa-log-runtime'
+  - '@windsland52/maa-log-tools'
