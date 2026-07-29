@@ -5,7 +5,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from .command import (
     CommandApprovalOutcome,
@@ -13,7 +13,39 @@ from .command import (
     CommandExecutionStatus,
     CommandRequest,
 )
-from .domain import ContractModel, Evidence, EvidenceQuery, MissingEvidence, SourceRole
+from .domain import ContractModel, Evidence, EvidenceQuery, JsonValue, MissingEvidence, SourceRole
+
+
+def _status_collection_json_schema(
+    *,
+    active_status: StrEnum,
+    inactive_status: StrEnum,
+    collection: str,
+) -> dict[str, JsonValue]:
+    return {
+        "allOf": [
+            {
+                "if": {
+                    "properties": {"status": {"const": active_status.value}},
+                    "required": ["status"],
+                },
+                "then": {
+                    "properties": {collection: {"minItems": 1}},
+                    "required": [collection],
+                },
+            },
+            {
+                "if": {
+                    "properties": {"status": {"const": inactive_status.value}},
+                    "required": ["status"],
+                },
+                "then": {
+                    "properties": {collection: {"maxItems": 0}},
+                    "required": [collection],
+                },
+            },
+        ]
+    }
 
 
 class RuntimeComponent(StrEnum):
@@ -359,12 +391,28 @@ class FixPlanningStatus(StrEnum):
     SKIP = "skip"
 
 
+_FIX_CANDIDATE_PLAN_JSON_SCHEMA = _status_collection_json_schema(
+    active_status=FixPlanningStatus.PROPOSED,
+    inactive_status=FixPlanningStatus.SKIP,
+    collection="candidates",
+)
+
+
 class FixCandidatePlan(ContractModel):
     """A bounded set of evidence-backed repair proposals, never an execution request."""
 
+    model_config = ConfigDict(json_schema_extra=_FIX_CANDIDATE_PLAN_JSON_SCHEMA)
+
     api_version: Literal["fix-candidate-plan/v1"] = "fix-candidate-plan/v1"
     status: FixPlanningStatus
-    candidates: list[FixCandidate] = Field(default_factory=list[FixCandidate], max_length=3)
+    candidates: list[FixCandidate] = Field(
+        default_factory=list[FixCandidate],
+        max_length=3,
+        description=(
+            "Use one to three candidates when status is 'proposed'; use an empty list when "
+            "status is 'skip'."
+        ),
+    )
     rationale: str = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -425,12 +473,28 @@ class VerificationPlanningStatus(StrEnum):
     SKIP = "skip"
 
 
+_VERIFICATION_PLAN_SET_JSON_SCHEMA = _status_collection_json_schema(
+    active_status=VerificationPlanningStatus.PLANNED,
+    inactive_status=VerificationPlanningStatus.SKIP,
+    collection="plans",
+)
+
+
 class VerificationPlanSet(ContractModel):
     """Pre-execution verification plans paired with validated fix candidates."""
 
+    model_config = ConfigDict(json_schema_extra=_VERIFICATION_PLAN_SET_JSON_SCHEMA)
+
     api_version: Literal["verification-plan-set/v1"] = "verification-plan-set/v1"
     status: VerificationPlanningStatus
-    plans: list[VerificationPlan] = Field(default_factory=list[VerificationPlan], max_length=3)
+    plans: list[VerificationPlan] = Field(
+        default_factory=list[VerificationPlan],
+        max_length=3,
+        description=(
+            "Use one to three plans when status is 'planned'; use an empty list when status "
+            "is 'skip'."
+        ),
+    )
     rationale: str = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -736,12 +800,24 @@ def _new_source_search_queries() -> list[SourceSearchQuery]:
     return []
 
 
+_SOURCE_RESEARCH_PLAN_JSON_SCHEMA = _status_collection_json_schema(
+    active_status=SourceResearchStatus.RUN,
+    inactive_status=SourceResearchStatus.SKIP,
+    collection="queries",
+)
+
+
 class SourceResearchPlan(ContractModel):
+    model_config = ConfigDict(json_schema_extra=_SOURCE_RESEARCH_PLAN_JSON_SCHEMA)
+
     api_version: Literal["source-research-plan/v1"] = "source-research-plan/v1"
     status: SourceResearchStatus
     queries: list[SourceSearchQuery] = Field(
         default_factory=_new_source_search_queries,
         max_length=5,
+        description=(
+            "Use one to five queries when status is 'run'; use an empty list when status is 'skip'."
+        ),
     )
     rationale: str = Field(min_length=1)
 
@@ -758,11 +834,16 @@ class SourceResearchPlan(ContractModel):
 
 
 class KnowledgeResearchPlan(ContractModel):
+    model_config = ConfigDict(json_schema_extra=_SOURCE_RESEARCH_PLAN_JSON_SCHEMA)
+
     api_version: Literal["knowledge-research-plan/v1"] = "knowledge-research-plan/v1"
     status: SourceResearchStatus
     queries: list[SourceSearchQuery] = Field(
         default_factory=_new_source_search_queries,
         max_length=5,
+        description=(
+            "Use one to five queries when status is 'run'; use an empty list when status is 'skip'."
+        ),
     )
     rationale: str = Field(min_length=1)
 
@@ -781,9 +862,18 @@ class KnowledgeResearchPlan(ContractModel):
 class EvidenceResearchPlan(ContractModel):
     """A bounded request for focused windows from authorized diagnostic artifacts."""
 
+    model_config = ConfigDict(json_schema_extra=_SOURCE_RESEARCH_PLAN_JSON_SCHEMA)
+
     api_version: Literal["evidence-research-plan/v1"] = "evidence-research-plan/v1"
     status: SourceResearchStatus
-    queries: list[EvidenceQuery] = Field(default_factory=list[EvidenceQuery], max_length=3)
+    queries: list[EvidenceQuery] = Field(
+        default_factory=list[EvidenceQuery],
+        max_length=3,
+        description=(
+            "Use one to three queries when status is 'run'; use an empty list when status is "
+            "'skip'."
+        ),
+    )
     rationale: str = Field(min_length=1)
 
     @model_validator(mode="after")

@@ -12,6 +12,13 @@ from maa_diagnostic_expert.contracts.domain import (
 )
 from maa_diagnostic_expert.contracts.mse import MseProjectPreflightResult
 from maa_diagnostic_expert.contracts.schemas import CONTRACT_MODELS, generate_contracts
+from maa_diagnostic_expert.contracts.workflow import (
+    EvidenceResearchPlan,
+    FixCandidatePlan,
+    KnowledgeResearchPlan,
+    SourceResearchPlan,
+    VerificationPlanSet,
+)
 
 _VERSION_FIELD_NAMES = ("api_version", "schema_version")
 _VERSIONED_CONTRACT_MODELS = sorted(
@@ -103,6 +110,48 @@ def test_complete_diagnosis_schema_requires_conclusions(
                 "required": ["conclusions"],
             },
         }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("model_type", "active_status", "inactive_status", "collection"),
+    [
+        (SourceResearchPlan, "run", "skip", "queries"),
+        (KnowledgeResearchPlan, "run", "skip", "queries"),
+        (EvidenceResearchPlan, "run", "skip", "queries"),
+        (FixCandidatePlan, "proposed", "skip", "candidates"),
+        (VerificationPlanSet, "planned", "skip", "plans"),
+    ],
+)
+def test_statused_plan_schemas_expose_collection_requirements(
+    model_type: type[BaseModel],
+    active_status: str,
+    inactive_status: str,
+    collection: str,
+) -> None:
+    schema = model_type.model_json_schema()
+
+    assert schema["allOf"] == [
+        {
+            "if": {
+                "properties": {"status": {"const": active_status}},
+                "required": ["status"],
+            },
+            "then": {
+                "properties": {collection: {"minItems": 1}},
+                "required": [collection],
+            },
+        },
+        {
+            "if": {
+                "properties": {"status": {"const": inactive_status}},
+                "required": ["status"],
+            },
+            "then": {
+                "properties": {collection: {"maxItems": 0}},
+                "required": [collection],
+            },
+        },
     ]
 
 

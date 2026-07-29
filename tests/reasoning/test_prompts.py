@@ -524,6 +524,8 @@ def test_source_research_context_focuses_comparison_and_guidance() -> None:
     ]
     assert "Available project/GUI/framework source IDs: project" in context.instruction
     assert "not a diagnosis" in context.instruction
+    assert "status to run only with one to five concrete queries" in context.instruction
+    assert "queries=[]" in context.instruction
 
 
 def test_stub_backend_skips_semantic_source_research() -> None:
@@ -564,6 +566,7 @@ def test_knowledge_research_context_focuses_diagnostic_evidence() -> None:
     assert [item.id for item in context.evidence] == ["pipeline"]
     assert "maafw-docs (documentation)" in context.instruction
     assert "wiki results are navigation only" in context.instruction
+    assert "status to run only with one to five concrete queries" in context.instruction
 
 
 def test_stub_backend_skips_semantic_knowledge_research() -> None:
@@ -610,6 +613,7 @@ def test_fix_candidate_context_separates_proposal_from_execution() -> None:
     assert "do not claim that any change was applied" in context.instruction
     assert "ROI/only_rec" in context.instruction
     assert "evidence=failure" in context.instruction
+    assert "status to proposed only with one to three candidates" in context.instruction
 
 
 def test_stub_backend_skips_semantic_fix_planning() -> None:
@@ -655,6 +659,7 @@ def test_verification_plan_context_requires_business_and_regression_checks() -> 
     assert "success event alone is not a business milestone" in context.instruction
     assert "Unrelated text might be accepted" in context.instruction
     assert "do not execute a repair" in context.instruction
+    assert "status to planned only with those plans" in context.instruction
 
 
 def test_stub_backend_skips_verification_without_fix_candidates() -> None:

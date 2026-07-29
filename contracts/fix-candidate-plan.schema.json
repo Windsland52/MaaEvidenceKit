@@ -103,6 +103,52 @@
     }
   },
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "proposed"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "candidates": {
+            "minItems": 1
+          }
+        },
+        "required": [
+          "candidates"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "skip"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "candidates": {
+            "maxItems": 0
+          }
+        },
+        "required": [
+          "candidates"
+        ]
+      }
+    }
+  ],
   "description": "A bounded set of evidence-backed repair proposals, never an execution request.",
   "properties": {
     "api_version": {
@@ -115,6 +161,7 @@
       "$ref": "#/$defs/FixPlanningStatus"
     },
     "candidates": {
+      "description": "Use one to three candidates when status is 'proposed'; use an empty list when status is 'skip'.",
       "items": {
         "$ref": "#/$defs/FixCandidate"
       },

@@ -69,6 +69,52 @@
     }
   },
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "run"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "queries": {
+            "minItems": 1
+          }
+        },
+        "required": [
+          "queries"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "skip"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "queries": {
+            "maxItems": 0
+          }
+        },
+        "required": [
+          "queries"
+        ]
+      }
+    }
+  ],
   "properties": {
     "api_version": {
       "const": "knowledge-research-plan/v1",
@@ -80,6 +126,7 @@
       "$ref": "#/$defs/SourceResearchStatus"
     },
     "queries": {
+      "description": "Use one to five queries when status is 'run'; use an empty list when status is 'skip'.",
       "items": {
         "$ref": "#/$defs/SourceSearchQuery"
       },

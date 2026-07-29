@@ -43,6 +43,52 @@
     }
   },
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "run"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "queries": {
+            "minItems": 1
+          }
+        },
+        "required": [
+          "queries"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "skip"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "queries": {
+            "maxItems": 0
+          }
+        },
+        "required": [
+          "queries"
+        ]
+      }
+    }
+  ],
   "description": "A bounded request for focused windows from authorized diagnostic artifacts.",
   "properties": {
     "api_version": {
@@ -55,6 +101,7 @@
       "$ref": "#/$defs/SourceResearchStatus"
     },
     "queries": {
+      "description": "Use one to three queries when status is 'run'; use an empty list when status is 'skip'.",
       "items": {
         "$ref": "#/$defs/EvidenceQuery"
       },

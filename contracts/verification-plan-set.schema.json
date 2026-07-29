@@ -75,6 +75,52 @@
     }
   },
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "planned"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "plans": {
+            "minItems": 1
+          }
+        },
+        "required": [
+          "plans"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "skip"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "plans": {
+            "maxItems": 0
+          }
+        },
+        "required": [
+          "plans"
+        ]
+      }
+    }
+  ],
   "description": "Pre-execution verification plans paired with validated fix candidates.",
   "properties": {
     "api_version": {
@@ -87,6 +133,7 @@
       "$ref": "#/$defs/VerificationPlanningStatus"
     },
     "plans": {
+      "description": "Use one to three plans when status is 'planned'; use an empty list when status is 'skip'.",
       "items": {
         "$ref": "#/$defs/VerificationPlan"
       },
