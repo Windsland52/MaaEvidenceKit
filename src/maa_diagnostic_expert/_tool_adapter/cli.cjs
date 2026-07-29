@@ -28,13 +28,13 @@ var import_node_readline = require("node:readline");
 var import_node_url2 = require("node:url");
 
 // dist/mla.js
-var import_promises4 = require("node:fs/promises");
+var import_promises5 = require("node:fs/promises");
 var import_node_path4 = __toESM(require("node:path"), 1);
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-kernel@1.0.1/node_modules/@windsland52/maa-log-kernel/package.json
+// ../../node_modules/.pnpm/@windsland52+maa-log-kernel@1.0.2/node_modules/@windsland52/maa-log-kernel/package.json
 var package_default = {
   name: "@windsland52/maa-log-kernel",
-  version: "1.0.1",
+  version: "1.0.2",
   type: "module",
   private: false,
   exports: {
@@ -60,7 +60,7 @@ var package_default = {
     }
   },
   engines: {
-    node: ">=24.0.0"
+    node: ">=20.18.0"
   },
   publishConfig: {
     access: "public"
@@ -76,15 +76,15 @@ var package_default = {
   },
   scripts: {
     typecheck: "tsc -p ./tsconfig.json",
-    build: "pnpm run clean && tsc -p ./tsconfig.build.json && node ../../scripts/fix-esm-imports.mjs ./dist",
+    build: `node -e "require('node:fs').rmSync('dist',{ recursive: true, force: true })" && tsc -p ./tsconfig.build.json && node ../../scripts/fix-esm-imports.mjs ./dist`,
     clean: `node -e "require('node:fs').rmSync('dist',{ recursive: true, force: true })"`
   }
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-kernel@1.0.1/node_modules/@windsland52/maa-log-kernel/dist/protocol.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-kernel@1.0.2/node_modules/@windsland52/maa-log-kernel/dist/protocol.js
 var MLA_KERNEL_SCHEMA_VERSION = "1.0.0";
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-kernel@1.0.1/node_modules/@windsland52/maa-log-kernel/dist/index.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-kernel@1.0.2/node_modules/@windsland52/maa-log-kernel/dist/index.js
 var KERNEL_PACKAGE_NAME = "@windsland52/maa-log-kernel";
 var KERNEL_PACKAGE_VERSION = package_default.version;
 var DEFAULT_KERNEL_PARSER_VERSION = `${KERNEL_PACKAGE_NAME}/${KERNEL_PACKAGE_VERSION}`;
@@ -115,7 +115,7 @@ var buildKernelOutput = (input) => {
   };
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-runtime@1.0.1/node_modules/@windsland52/maa-log-runtime/dist/index.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-runtime@1.1.0/node_modules/@windsland52/maa-log-runtime/dist/index.js
 var DEFAULT_CORE_PARSE_OPTIONS = {
   yieldControl: null
 };
@@ -133,11 +133,11 @@ var analyzeLogContentWith = async (adapter, input) => {
     tasks: parseResult.tasks,
     events: parseResult.events,
     stats,
-    parserVersion: input.parserVersion
+    parserVersion: input.parserVersion || adapter.parserVersion
   });
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.0.1/node_modules/@windsland52/maa-log-parser/dist/event/meta.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/event/meta.js
 var normalizeMaaDomain = (value) => {
   switch (value) {
     case "Resource":
@@ -224,7 +224,7 @@ var buildEventDedupSignature = (message, detailsJson) => {
   return `${message}|${fnv1aHash(detailsJson)}`;
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.0.1/node_modules/@windsland52/maa-log-parser/dist/event/line.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/event/line.js
 var EVENT_LINE_REGEX = /^\[([^\]]+)\]\[([^\]]+)\]\[(Px[^\]]+)\]\[(Tx[^\]]+)\].*?!!!OnEventNotify!!!\s*\[handle=[^\]]*\]\s*\[msg=([^\]]+)\]\s*\[details=(.*)\]\s*$/;
 var parseEventLine = (line, lineNum, options) => {
   const match = line.match(EVENT_LINE_REGEX);
@@ -237,12 +237,16 @@ var parseEventLine = (line, lineNum, options) => {
   const processId = options.internEventToken(rawProcessId);
   const threadId = options.internEventToken(rawThreadId);
   const msg = options.internEventToken(rawMsg);
-  let details = {};
+  let parsedDetails;
   try {
-    details = JSON.parse(detailsJson);
+    parsedDetails = JSON.parse(detailsJson);
   } catch {
     return null;
   }
+  if (parsedDetails == null || typeof parsedDetails !== "object" || Array.isArray(parsedDetails)) {
+    return null;
+  }
+  const details = parsedDetails;
   return {
     timestamp,
     level,
@@ -256,7 +260,7 @@ var parseEventLine = (line, lineNum, options) => {
   };
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.0.1/node_modules/@windsland52/maa-log-parser/dist/shared/logEventDecoders.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/shared/logEventDecoders.js
 var readNumberField = (details, field) => {
   if (!details)
     return void 0;
@@ -299,7 +303,7 @@ var parseWaitFreezesParam = (value) => {
   return Object.keys(param).length > 0 ? param : void 0;
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.0.1/node_modules/@windsland52/maa-log-parser/dist/protocol/eventFactory.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/protocol/eventFactory.js
 var toProtocolPhase = (phase) => {
   switch (phase) {
     case "Starting":
@@ -334,8 +338,9 @@ var readNextList = (value) => {
   });
   return items;
 };
-var requireTaskId = (event) => {
-  return event.taskId != null ? event : null;
+var readPositiveSafeIntegerField = (details, field) => {
+  const value = readNumberField(details, field);
+  return value !== void 0 && Number.isSafeInteger(value) && value > 0 ? value : void 0;
 };
 var buildBase = (event, options, kind, phase) => ({
   kind,
@@ -386,95 +391,125 @@ var createProtocolEvent = (event, options) => {
     return protocolEvent;
   }
   if (meta.domain === "Tasker" && meta.taskerKind === "Task") {
+    const taskId = readPositiveSafeIntegerField(details, "task_id");
+    if (taskId === void 0)
+      return null;
     const protocolEvent = {
       ...buildBase(event, options, "task", phase),
-      taskId: readNumberField(details, "task_id"),
+      taskId,
       entry: readStringField(details, "entry"),
       uuid: readStringField(details, "uuid"),
       hash: readStringField(details, "hash")
     };
-    return requireTaskId(protocolEvent);
+    return protocolEvent;
   }
   if (meta.domain !== "Node")
     return null;
   switch (meta.nodeKind) {
     case "PipelineNode": {
+      const taskId = readPositiveSafeIntegerField(details, "task_id");
+      const nodeId = readPositiveSafeIntegerField(details, "node_id");
+      if (taskId === void 0 || nodeId === void 0)
+        return null;
       const protocolEvent = {
         ...buildBase(event, options, "pipeline_node", phase),
-        taskId: readNumberField(details, "task_id"),
-        nodeId: readNumberField(details, "node_id"),
+        taskId,
+        nodeId,
         name: readStringField(details, "name"),
         focus: readUnknownField(details, "focus"),
         nodeDetails: readRecord(readUnknownField(details, "node_details")),
         recoDetails: readRecord(readUnknownField(details, "reco_details")),
         actionDetails: readRecord(readUnknownField(details, "action_details"))
       };
-      return requireTaskId(protocolEvent);
+      return protocolEvent;
     }
     case "RecognitionNode": {
+      const taskId = readPositiveSafeIntegerField(details, "task_id");
+      const nodeId = readPositiveSafeIntegerField(details, "node_id");
+      if (taskId === void 0 || nodeId === void 0)
+        return null;
       const protocolEvent = {
         ...buildBase(event, options, "recognition_node", phase),
-        taskId: readNumberField(details, "task_id"),
-        nodeId: readNumberField(details, "node_id"),
-        recoId: readNumberField(details, "reco_id"),
+        taskId,
+        nodeId,
+        recoId: readPositiveSafeIntegerField(details, "reco_id"),
         name: readStringField(details, "name"),
         focus: readUnknownField(details, "focus"),
         nodeDetails: readRecord(readUnknownField(details, "node_details")),
         recoDetails: readRecord(readUnknownField(details, "reco_details"))
       };
-      return requireTaskId(protocolEvent);
+      return protocolEvent;
     }
     case "ActionNode": {
+      const taskId = readPositiveSafeIntegerField(details, "task_id");
+      const nodeId = readPositiveSafeIntegerField(details, "node_id");
+      if (taskId === void 0 || nodeId === void 0)
+        return null;
       const protocolEvent = {
         ...buildBase(event, options, "action_node", phase),
-        taskId: readNumberField(details, "task_id"),
-        nodeId: readNumberField(details, "node_id"),
-        actionId: readNumberField(details, "action_id"),
+        taskId,
+        nodeId,
+        actionId: readPositiveSafeIntegerField(details, "action_id"),
         name: readStringField(details, "name"),
         focus: readUnknownField(details, "focus"),
         nodeDetails: readRecord(readUnknownField(details, "node_details")),
         actionDetails: readRecord(readUnknownField(details, "action_details"))
       };
-      return requireTaskId(protocolEvent);
+      return protocolEvent;
     }
     case "NextList": {
+      const taskId = readPositiveSafeIntegerField(details, "task_id");
+      if (taskId === void 0)
+        return null;
       const protocolEvent = {
         ...buildBase(event, options, "next_list", phase),
-        taskId: readNumberField(details, "task_id"),
+        taskId,
         name: readStringField(details, "name"),
         list: readNextList(readUnknownField(details, "list")),
         focus: readUnknownField(details, "focus")
       };
-      return requireTaskId(protocolEvent);
+      return protocolEvent;
     }
     case "Recognition": {
+      const taskId = readPositiveSafeIntegerField(details, "task_id");
+      const recoId = readPositiveSafeIntegerField(details, "reco_id");
+      if (taskId === void 0 || recoId === void 0)
+        return null;
       const protocolEvent = {
         ...buildBase(event, options, "recognition", phase),
-        taskId: readNumberField(details, "task_id"),
-        recoId: readNumberField(details, "reco_id"),
+        taskId,
+        recoId,
         name: readStringField(details, "name"),
         focus: readUnknownField(details, "focus"),
         anchor: readStringField(details, "anchor"),
         recoDetails: readRecord(readUnknownField(details, "reco_details"))
       };
-      return requireTaskId(protocolEvent);
+      return protocolEvent;
     }
     case "Action": {
+      const taskId = readPositiveSafeIntegerField(details, "task_id");
+      const actionId = readPositiveSafeIntegerField(details, "action_id");
+      if (taskId === void 0 || actionId === void 0)
+        return null;
       const protocolEvent = {
         ...buildBase(event, options, "action", phase),
-        taskId: readNumberField(details, "task_id"),
-        actionId: readNumberField(details, "action_id"),
+        taskId,
+        actionId,
         name: readStringField(details, "name"),
         focus: readUnknownField(details, "focus"),
         actionDetails: readRecord(readUnknownField(details, "action_details"))
       };
-      return requireTaskId(protocolEvent);
+      return protocolEvent;
     }
     case "WaitFreezes": {
+      const taskId = readPositiveSafeIntegerField(details, "task_id");
+      const wfId = readPositiveSafeIntegerField(details, "wf_id");
+      if (taskId === void 0 || wfId === void 0)
+        return null;
       const protocolEvent = {
         ...buildBase(event, options, "wait_freezes", phase),
-        taskId: readNumberField(details, "task_id"),
-        wfId: readNumberField(details, "wf_id"),
+        taskId,
+        wfId,
         name: readStringField(details, "name"),
         waitPhase: readStringField(details, "phase"),
         roi: parseRoi(readUnknownField(details, "roi")),
@@ -483,14 +518,14 @@ var createProtocolEvent = (event, options) => {
         elapsed: readNumberField(details, "elapsed"),
         focus: readUnknownField(details, "focus")
       };
-      return requireTaskId(protocolEvent);
+      return protocolEvent;
     }
     default:
       return null;
   }
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.0.1/node_modules/@windsland52/maa-log-parser/dist/trace/scopeId.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/trace/scopeId.js
 var readNumberField2 = (record, camelField, snakeField) => {
   const camelValue = record[camelField];
   if (typeof camelValue === "number")
@@ -552,7 +587,7 @@ var createScopeId = (kind, payload, startSeq, explicitTaskId) => {
   });
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.0.1/node_modules/@windsland52/maa-log-parser/dist/trace/reducer.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/trace/reducer.js
 var BUSINESS_SCOPE_KINDS = /* @__PURE__ */ new Set([
   "task",
   "pipeline_node",
@@ -872,11 +907,11 @@ var buildTraceTree = (events) => {
   return state.root;
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.0.1/node_modules/@windsland52/maa-log-parser/dist/query/locator.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/query/locator.js
 var buildTaskNodeKey = (taskId, nodeId) => `${taskId}:${nodeId}`;
 var buildTaskLocalKey = (taskId, localId) => `${taskId}:${localId}`;
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.0.1/node_modules/@windsland52/maa-log-parser/dist/query/traceIndex.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/query/traceIndex.js
 var pushMapArray = (map, key, value) => {
   const current = map.get(key);
   if (current) {
@@ -996,7 +1031,7 @@ var buildTraceIndex = (root, events = []) => {
   return index;
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.0.1/node_modules/@windsland52/maa-log-parser/dist/shared/timestamp.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/shared/timestamp.js
 var toTimestampMs = (value) => {
   if (!value)
     return Number.POSITIVE_INFINITY;
@@ -1005,45 +1040,233 @@ var toTimestampMs = (value) => {
   return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.0.1/node_modules/@windsland52/maa-log-parser/dist/event/imageLookupHelpers.js
-function toImageSecondsKey(timestamp) {
-  return timestamp.replace(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})\..*/, "$1.$2.$3-$4.$5.$6");
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/event/imageLookupHelpers.js
+function parseEventTimestamp(timestamp) {
+  const match = timestamp.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?/);
+  if (!match)
+    return void 0;
+  const [, year, month, day, hour, minute, second, milliseconds = "0"] = match;
+  return {
+    secondsKey: `${year}.${month}.${day}-${hour}.${minute}.${second}`,
+    milliseconds: Number(milliseconds.padEnd(3, "0"))
+  };
+}
+function parseImageTimestamp(key) {
+  const match = key.match(/^(\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2})\.(\d{1,3})_/);
+  if (!match)
+    return void 0;
+  return {
+    secondsKey: match[1],
+    milliseconds: Number(match[2].padEnd(3, "0"))
+  };
 }
 function findImageByTimestampSuffix(source, timestamp, suffix) {
   if (source.size === 0)
     return void 0;
-  const secondsKey = toImageSecondsKey(timestamp);
+  const target = parseEventTimestamp(timestamp);
+  if (!target)
+    return void 0;
+  const exactKey = `${target.secondsKey}.${String(target.milliseconds).padStart(3, "0")}${suffix}`;
+  const exactMatch = source.get(exactKey);
+  if (exactMatch)
+    return exactMatch;
+  let nearestKey;
+  let nearestPath;
+  let nearestDistance = Number.POSITIVE_INFINITY;
   for (const [key, path8] of source.entries()) {
-    if (key.includes(`${secondsKey}.`) && key.endsWith(suffix)) {
-      return path8;
-    }
-  }
-  return void 0;
-}
-function findWaitFreezesImages(waitFreezesImages, nodeTimestamp, actionName) {
-  if (waitFreezesImages.size === 0)
-    return void 0;
-  const suffix = `_${actionName}_wait_freezes`;
-  const results = [];
-  const nodeTime = new Date(nodeTimestamp).getTime();
-  if (isNaN(nodeTime))
-    return void 0;
-  for (const [key, path8] of waitFreezesImages.entries()) {
     if (!key.endsWith(suffix))
       continue;
-    const tsMatch = key.match(/^(\d{4})\.(\d{2})\.(\d{2})-(\d{2})\.(\d{2})\.(\d{2})\.(\d{1,3})_/);
-    if (!tsMatch)
+    const candidate = parseImageTimestamp(key);
+    if (!candidate || candidate.secondsKey !== target.secondsKey)
       continue;
-    const [, y2, mo, d2, h2, mi, s, ms] = tsMatch;
-    const imgTime = (/* @__PURE__ */ new Date(`${y2}-${mo}-${d2}T${h2}:${mi}:${s}.${ms.padEnd(3, "0")}`)).getTime();
-    if (!isNaN(imgTime) && imgTime <= nodeTime && nodeTime - imgTime < 6e4) {
-      results.push(path8);
+    const distance = Math.abs(candidate.milliseconds - target.milliseconds);
+    if (distance < nearestDistance || distance === nearestDistance && (nearestKey == null || key < nearestKey)) {
+      nearestKey = key;
+      nearestPath = path8;
+      nearestDistance = distance;
     }
   }
-  return results.length > 0 ? results : void 0;
+  return nearestPath;
 }
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.0.1/node_modules/@windsland52/maa-log-parser/dist/projector/taskProjector.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/projector/waitFreezesImageProjector.js
+var readRecord2 = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return void 0;
+  return value;
+};
+var readString = (record, camelField, snakeField) => {
+  const camelValue = record[camelField];
+  if (typeof camelValue === "string")
+    return camelValue;
+  if (!snakeField)
+    return void 0;
+  const snakeValue = record[snakeField];
+  return typeof snakeValue === "string" ? snakeValue : void 0;
+};
+var readNumber = (record, camelField, snakeField) => {
+  const camelValue = record[camelField];
+  if (typeof camelValue === "number")
+    return camelValue;
+  if (!snakeField)
+    return void 0;
+  const snakeValue = record[snakeField];
+  return typeof snakeValue === "number" ? snakeValue : void 0;
+};
+var parseScopeWindow = (scope, fallbackEndMs) => {
+  const startMs = toTimestampMs(scope.ts);
+  const parsedEndMs = toTimestampMs(scope.endTs);
+  const endMs = Number.isFinite(parsedEndMs) ? parsedEndMs : fallbackEndMs;
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
+    return void 0;
+  }
+  return { startMs, endMs };
+};
+var intersectWindows = (first, second) => {
+  if (!first || !second)
+    return void 0;
+  const startMs = Math.max(first.startMs, second.startMs);
+  const endMs = Math.min(first.endMs, second.endMs);
+  return endMs >= startMs ? { startMs, endMs } : void 0;
+};
+var readScopeSourceKey = (payload) => {
+  const source = readRecord2(payload.source);
+  return source ? readString(source, "sourceKey", "source_key") : void 0;
+};
+var isNodeScope = (scope) => {
+  return scope.kind === "pipeline_node" || scope.kind === "recognition_node" || scope.kind === "action_node";
+};
+var collectWaitFreezesOccurrences = (scope, fallbackEndMs, context, output) => {
+  const payload = readRecord2(scope.payload) ?? {};
+  const scopeWindow = parseScopeWindow(scope, fallbackEndMs);
+  const taskId = scope.taskId ?? readNumber(payload, "taskId", "task_id") ?? context.taskId;
+  const sourceKey = readScopeSourceKey(payload) ?? context.sourceKey;
+  let taskWindow = context.taskWindow;
+  let hasTaskScope = context.hasTaskScope ?? false;
+  let hasNodeScope = context.hasNodeScope ?? false;
+  let nodeId = context.nodeId;
+  let nodeWindow = context.nodeWindow;
+  if (scope.kind === "task") {
+    hasTaskScope = true;
+    taskWindow = scopeWindow;
+    hasNodeScope = false;
+    nodeId = void 0;
+    nodeWindow = void 0;
+  }
+  if (isNodeScope(scope)) {
+    hasNodeScope = true;
+    nodeId = readNumber(payload, "nodeId", "node_id") ?? context.nodeId;
+    const parentWindow = context.hasNodeScope ? context.nodeWindow : taskWindow;
+    nodeWindow = intersectWindows(parentWindow, scopeWindow);
+  }
+  if (scope.kind === "wait_freezes") {
+    let occurrenceWindow = scopeWindow;
+    if (hasTaskScope) {
+      occurrenceWindow = intersectWindows(occurrenceWindow, taskWindow);
+    }
+    if (hasNodeScope) {
+      occurrenceWindow = intersectWindows(occurrenceWindow, nodeWindow);
+    }
+    if (occurrenceWindow) {
+      output.push({
+        scopeId: scope.id,
+        name: readString(payload, "name") ?? scope.kind,
+        seq: scope.seq,
+        taskId,
+        nodeId,
+        sourceKey,
+        ...occurrenceWindow
+      });
+    }
+  }
+  const childContext = {
+    taskId,
+    nodeId,
+    sourceKey,
+    hasTaskScope,
+    hasNodeScope,
+    taskWindow,
+    nodeWindow
+  };
+  for (const child of scope.children) {
+    collectWaitFreezesOccurrences(child, fallbackEndMs, childContext, output);
+  }
+};
+var parseWaitFreezesImage = (key, path8) => {
+  const match = key.match(/^(\d{4})\.(\d{2})\.(\d{2})-(\d{2})\.(\d{2})\.(\d{2})\.(\d{1,3})_(.+)_wait_freezes$/);
+  if (!match)
+    return void 0;
+  const [, year, month, day, hour, minute, second, milliseconds, name] = match;
+  const timestampMs2 = toTimestampMs(`${year}-${month}-${day} ${hour}:${minute}:${second}.${milliseconds.padEnd(3, "0")}`);
+  if (!Number.isFinite(timestampMs2))
+    return void 0;
+  return { key, name, path: path8, timestampMs: timestampMs2 };
+};
+var compareText = (left, right) => {
+  if (left === right)
+    return 0;
+  return left < right ? -1 : 1;
+};
+var compareImages = (left, right) => {
+  return left.timestampMs - right.timestampMs || compareText(left.key, right.key) || compareText(left.path, right.path);
+};
+var compareOccurrenceForImage = (left, right) => {
+  const leftNodeSpecificity = left.nodeId == null ? 0 : 1;
+  const rightNodeSpecificity = right.nodeId == null ? 0 : 1;
+  const leftTaskSpecificity = left.taskId == null ? 0 : 1;
+  const rightTaskSpecificity = right.taskId == null ? 0 : 1;
+  return right.startMs - left.startMs || rightNodeSpecificity - leftNodeSpecificity || rightTaskSpecificity - leftTaskSpecificity || left.endMs - right.endMs || right.seq - left.seq || compareText(left.sourceKey ?? "", right.sourceKey ?? "") || (left.taskId ?? Number.MAX_SAFE_INTEGER) - (right.taskId ?? Number.MAX_SAFE_INTEGER) || (left.nodeId ?? Number.MAX_SAFE_INTEGER) - (right.nodeId ?? Number.MAX_SAFE_INTEGER) || compareText(left.scopeId, right.scopeId);
+};
+var selectOccurrence = (image, occurrences) => {
+  let selected;
+  for (const occurrence of occurrences) {
+    if (occurrence.name !== image.name)
+      continue;
+    if (image.timestampMs < occurrence.startMs || image.timestampMs > occurrence.endMs)
+      continue;
+    if (!selected || compareOccurrenceForImage(occurrence, selected) < 0) {
+      selected = occurrence;
+    }
+  }
+  return selected;
+};
+var buildWaitFreezesImageAssignments = (root, source) => {
+  if (source.size === 0)
+    return /* @__PURE__ */ new Map();
+  const fallbackEndMs = toTimestampMs(root.endTs);
+  const occurrences = [];
+  collectWaitFreezesOccurrences(root, fallbackEndMs, {}, occurrences);
+  if (occurrences.length === 0)
+    return /* @__PURE__ */ new Map();
+  const occurrencesByName = /* @__PURE__ */ new Map();
+  for (const occurrence of occurrences) {
+    const matching = occurrencesByName.get(occurrence.name);
+    if (matching) {
+      matching.push(occurrence);
+    } else {
+      occurrencesByName.set(occurrence.name, [occurrence]);
+    }
+  }
+  const images = [...source.entries()].map(([key, path8]) => parseWaitFreezesImage(key, path8)).filter((image) => !!image).sort(compareImages);
+  const assignments = /* @__PURE__ */ new Map();
+  for (const image of images) {
+    const matchingOccurrences = occurrencesByName.get(image.name);
+    if (!matchingOccurrences)
+      continue;
+    const occurrence = selectOccurrence(image, matchingOccurrences);
+    if (!occurrence)
+      continue;
+    const assigned = assignments.get(occurrence.scopeId);
+    if (assigned) {
+      assigned.push(image.path);
+    } else {
+      assignments.set(occurrence.scopeId, [image.path]);
+    }
+  }
+  return assignments;
+};
+
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/projector/taskProjector.js
 var EMPTY_IMAGE_MAP = /* @__PURE__ */ new Map();
 var toTaskStatus = (status) => {
   switch (status) {
@@ -1066,15 +1289,46 @@ var toRuntimeStatus = (status) => {
   }
 };
 var sortScopesBySeq2 = (scopes) => {
-  return [...scopes].sort((left, right) => left.seq - right.seq);
+  for (let index = 1; index < scopes.length; index += 1) {
+    if ((scopes[index - 1]?.seq ?? 0) > (scopes[index]?.seq ?? 0)) {
+      return [...scopes].sort((left, right) => left.seq - right.seq);
+    }
+  }
+  return scopes;
 };
-var readRecord2 = (value) => {
+var mergeProjectedTaskEntries = (left, right) => {
+  if (left.length === 0)
+    return right;
+  if (right.length === 0)
+    return left;
+  const merged = new Array(left.length + right.length);
+  let leftIndex = 0;
+  let rightIndex = 0;
+  let outputIndex = 0;
+  while (leftIndex < left.length && rightIndex < right.length) {
+    const leftEntry = left[leftIndex];
+    const rightEntry = right[rightIndex];
+    if (leftEntry.seq <= rightEntry.seq) {
+      merged[outputIndex++] = leftEntry;
+      leftIndex += 1;
+    } else {
+      merged[outputIndex++] = rightEntry;
+      rightIndex += 1;
+    }
+  }
+  while (leftIndex < left.length)
+    merged[outputIndex++] = left[leftIndex++];
+  while (rightIndex < right.length)
+    merged[outputIndex++] = right[rightIndex++];
+  return merged;
+};
+var readRecord3 = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value))
     return null;
   return value;
 };
 var readScopePayload = (scope) => {
-  return readRecord2(scope.payload) ?? {};
+  return readRecord3(scope.payload) ?? {};
 };
 var readStringField2 = (record, camelField, snakeField) => {
   const camelValue = record[camelField];
@@ -1128,7 +1382,7 @@ var normalizeNextList = (value) => {
   if (!Array.isArray(value))
     return [];
   return value.map((item) => {
-    const record = readRecord2(item) ?? {};
+    const record = readRecord3(item) ?? {};
     return {
       name: readStringField2(record, "name") ?? "",
       anchor: record.anchor === true,
@@ -1137,7 +1391,7 @@ var normalizeNextList = (value) => {
   });
 };
 var normalizeNodeDetails = (value) => {
-  const record = readRecord2(value);
+  const record = readRecord3(value);
   if (!record)
     return void 0;
   return {
@@ -1149,7 +1403,7 @@ var normalizeNodeDetails = (value) => {
   };
 };
 var normalizeRecognitionDetail = (value) => {
-  const record = readRecord2(value);
+  const record = readRecord3(value);
   if (!record)
     return void 0;
   const box = Array.isArray(record.box) && record.box.length === 4 ? record.box : null;
@@ -1162,7 +1416,7 @@ var normalizeRecognitionDetail = (value) => {
   };
 };
 var normalizeActionDetail = (value) => {
-  const record = readRecord2(value);
+  const record = readRecord3(value);
   if (!record)
     return void 0;
   const box = Array.isArray(record.box) && record.box.length === 4 ? record.box : [0, 0, 0, 0];
@@ -1210,19 +1464,20 @@ var normalizeWaitFreezesDetail = (scope, options) => {
   const payload = readScopePayload(scope);
   const roi = Array.isArray(payload.roi) && payload.roi.length === 4 ? payload.roi : void 0;
   const recoIds = Array.isArray(payload.recoIds) ? payload.recoIds.filter((value) => typeof value === "number") : void 0;
+  const images = options.waitFreezesImagesByScopeId?.get(scope.id);
   return {
     wf_id: readScopeWaitFreezesId(scope) ?? 0,
     phase: readStringField2(payload, "waitPhase", "phase"),
     elapsed: readNumberField3(payload, "elapsed"),
     reco_ids: recoIds,
     roi,
-    param: readRecord2(payload.param),
+    param: readRecord3(payload.param),
     focus: payload.focus,
-    images: findWaitFreezesImages(options.waitFreezesImages ?? EMPTY_IMAGE_MAP, scope.endTs ?? scope.ts, readScopeName(scope))
+    images: images ? [...images] : void 0
   };
 };
 var readNestedDetailName = (payload, field) => {
-  return readStringField2(readRecord2(payload[field]) ?? {}, "name");
+  return readStringField2(readRecord3(payload[field]) ?? {}, "name");
 };
 var findErrorImageByNames = (options, timestamp, candidateNames) => {
   const source = options.errorImages ?? EMPTY_IMAGE_MAP;
@@ -1312,8 +1567,27 @@ var collectTaskScopes = (scope, output) => {
     collectTaskScopes(child, output);
   }
 };
+var buildNextTaskOccurrenceSeq = (scopes) => {
+  const nextSeqByScope = /* @__PURE__ */ new Map();
+  const nextSeqByTaskAndSource = /* @__PURE__ */ new Map();
+  for (let index = scopes.length - 1; index >= 0; index -= 1) {
+    const scope = scopes[index];
+    if (!scope)
+      continue;
+    const taskId = readScopeTaskId(scope);
+    if (taskId == null)
+      continue;
+    const key = `${taskId}\0${readScopeSourceKey2(scope) ?? ""}`;
+    const nextSeq = nextSeqByTaskAndSource.get(key);
+    if (nextSeq != null) {
+      nextSeqByScope.set(scope, nextSeq);
+    }
+    nextSeqByTaskAndSource.set(key, scope.seq);
+  }
+  return nextSeqByScope;
+};
 var readTaskEventTaskId = (event) => {
-  const details = readRecord2(event.details);
+  const details = readRecord3(event.details);
   if (!details)
     return void 0;
   return readNumberField3(details, "taskId", "task_id");
@@ -1327,8 +1601,50 @@ var getEventTimestampMs = (event) => {
   eventTimestampMsCache.set(event, parsed);
   return parsed;
 };
-var projectTaskEvents = (scope, options) => {
+var readScopeSourceKey2 = (scope) => {
+  const source = readRecord3(readScopePayload(scope).source);
+  return source ? readStringField2(source, "sourceKey") : void 0;
+};
+var copyTaskEvent = (event) => ({
+  timestamp: event.timestamp,
+  level: event.level,
+  message: event.message,
+  details: event.details,
+  _lineNumber: event._lineNumber
+});
+var findFirstSequencedEventIndex = (events, targetSeq) => {
+  let low = 0;
+  let high = events.length;
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2);
+    const event = events[middle];
+    if (event && event.seq < targetSeq) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return low;
+};
+var projectTaskEvents = (scope, options, nextOccurrenceSeq) => {
   const taskId = readScopeTaskId(scope);
+  const sequencedEvents = taskId == null ? void 0 : options.sequencedEventsByTaskId?.get(taskId);
+  if (taskId != null && sequencedEvents) {
+    const sourceKey = readScopeSourceKey2(scope);
+    const scopeEndSeq = scope.endSeq ?? Number.POSITIVE_INFINITY;
+    const occurrenceEndSeq = nextOccurrenceSeq == null ? scopeEndSeq : Math.min(scopeEndSeq, nextOccurrenceSeq - 1);
+    const projectedEvents = [];
+    const firstEventIndex = findFirstSequencedEventIndex(sequencedEvents, scope.seq);
+    for (let index = firstEventIndex; index < sequencedEvents.length; index += 1) {
+      const item = sequencedEvents[index];
+      if (!item || item.seq > occurrenceEndSeq)
+        break;
+      if (sourceKey != null && item.sourceKey !== sourceKey)
+        continue;
+      projectedEvents.push(copyTaskEvent(item.event));
+    }
+    return projectedEvents;
+  }
   const events = taskId == null ? void 0 : options.eventsByTaskId?.get(taskId) ?? options.events;
   if (taskId == null || !events || events.length === 0)
     return [];
@@ -1341,13 +1657,7 @@ var projectTaskEvents = (scope, options) => {
     if (!Number.isFinite(startMs) || !Number.isFinite(eventMs))
       return true;
     return eventMs >= startMs && eventMs <= endMs + 1;
-  }).map((event) => ({
-    timestamp: event.timestamp,
-    level: event.level,
-    message: event.message,
-    details: event.details,
-    _lineNumber: event._lineNumber
-  }));
+  }).map(copyTaskEvent);
 };
 var projectFlowChildren = (scope, context) => {
   const items = [];
@@ -1625,7 +1935,7 @@ var projectPipelineNodeScope = (scope, options) => {
     ])
   };
 };
-var projectTaskScope = (scope, options) => {
+var projectTaskScope = (scope, options, nextOccurrenceSeq) => {
   const payload = readScopePayload(scope);
   const pipelineScopes = sortScopesBySeq2(scope.children).filter((child) => child.kind === "pipeline_node");
   const nodes = pipelineScopes.map((pipelineScope) => projectPipelineNodeScope(pipelineScope, options));
@@ -1639,20 +1949,20 @@ var projectTaskScope = (scope, options) => {
     end_time: scope.endTs,
     status: toTaskStatus(scope.status),
     nodes,
-    events: projectTaskEvents(scope, options),
+    events: projectTaskEvents(scope, options, nextOccurrenceSeq),
     duration: buildDuration(scope.ts, scope.endTs)
   };
 };
-var projectTaskScopeWithCache = (scope, options) => {
+var projectTaskScopeWithCache = (scope, options, nextOccurrenceSeq) => {
   const endSeq = scope.endSeq;
   const canCache = scope.status !== "running" && endSeq != null;
   if (!canCache || !options.completedTaskCache) {
-    return projectTaskScope(scope, options);
+    return projectTaskScope(scope, options, nextOccurrenceSeq);
   }
   const cached = options.completedTaskCache.get(scope.id);
   if (cached?.endSeq === endSeq)
     return cached.task;
-  const task = projectTaskScope(scope, options);
+  const task = projectTaskScope(scope, options, nextOccurrenceSeq);
   options.completedTaskCache.set(scope.id, { endSeq, task });
   return task;
 };
@@ -1717,17 +2027,23 @@ var projectRootResourceTaskEntry = (groupedScopes, options, groupIndex) => {
   };
 };
 var projectTasksFromTrace = (root, options = {}) => {
+  const projectionOptions = {
+    ...options,
+    waitFreezesImagesByScopeId: buildWaitFreezesImageAssignments(root, options.waitFreezesImages ?? EMPTY_IMAGE_MAP)
+  };
   const taskScopes = [];
   collectTaskScopes(root, taskScopes);
-  const projectedTaskEntries = sortScopesBySeq2(taskScopes).map((scope) => ({
+  const sortedTaskScopes = sortScopesBySeq2(taskScopes);
+  const nextOccurrenceSeqByScope = buildNextTaskOccurrenceSeq(sortedTaskScopes);
+  const projectedTaskEntries = sortedTaskScopes.map((scope) => ({
     seq: scope.seq,
-    task: projectTaskScopeWithCache(scope, options)
+    task: projectTaskScopeWithCache(scope, projectionOptions, nextOccurrenceSeqByScope.get(scope))
   }));
-  const rootResourceTaskEntries = collectRootResourceScopeGroups(root).map((groupedScopes, groupIndex) => projectRootResourceTaskEntry(groupedScopes, options, groupIndex)).filter((entry) => !!entry);
-  return [...projectedTaskEntries, ...rootResourceTaskEntries].sort((left, right) => left.seq - right.seq).map(({ task }) => task).filter((task) => task.entry !== "MaaTaskerPostStop");
+  const rootResourceTaskEntries = collectRootResourceScopeGroups(root).map((groupedScopes, groupIndex) => projectRootResourceTaskEntry(groupedScopes, projectionOptions, groupIndex)).filter((entry) => !!entry);
+  return mergeProjectedTaskEntries(projectedTaskEntries, rootResourceTaskEntries).map(({ task }) => task).filter((task) => task.entry !== "MaaTaskerPostStop");
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.0.1/node_modules/@windsland52/maa-log-parser/dist/raw/store.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/raw/store.js
 var createRawLineStore = () => ({
   sources: /* @__PURE__ */ new Map()
 });
@@ -1745,18 +2061,85 @@ var cloneRawLineStore = (store) => {
   }
   return cloned;
 };
-var setRawLineSource = (store, source) => {
-  const normalized = {
+var adoptRawLineSource = (store, source) => {
+  const adopted = {
     sourceKey: source.sourceKey,
     sourcePath: source.sourcePath,
     inputIndex: source.inputIndex,
-    lines: source.lines.slice()
+    lines: source.lines
   };
-  store.sources.set(normalized.sourceKey, normalized);
-  return normalized;
+  store.sources.set(adopted.sourceKey, adopted);
+  return adopted;
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.0.1/node_modules/@windsland52/maa-log-parser/dist/core/logParser.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/core/snapshotIsolation.js
+var isObject = (value) => value !== null && typeof value === "object";
+var cloneSnapshotData = (value, seen = /* @__PURE__ */ new WeakMap()) => {
+  if (!isObject(value))
+    return value;
+  const existing = seen.get(value);
+  if (existing !== void 0)
+    return existing;
+  if (Array.isArray(value)) {
+    const result2 = [];
+    seen.set(value, result2);
+    for (const item of value)
+      result2.push(cloneSnapshotData(item, seen));
+    return result2;
+  }
+  const result = Object.create(Object.getPrototypeOf(value));
+  seen.set(value, result);
+  for (const key of Reflect.ownKeys(value)) {
+    result[key] = cloneSnapshotData(value[key], seen);
+  }
+  return result;
+};
+var freezeSnapshotData = (value, seen = /* @__PURE__ */ new WeakSet()) => {
+  if (!isObject(value) || seen.has(value))
+    return value;
+  seen.add(value);
+  for (const key of Reflect.ownKeys(value)) {
+    freezeSnapshotData(value[key], seen);
+  }
+  return Object.freeze(value);
+};
+
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/core/logParser.js
+var normalizeParseSourceInputs = (inputs) => {
+  const indexedInputs = inputs.map((input, index) => ({
+    ...input,
+    inputIndex: input.inputIndex ?? index
+  }));
+  const baseKeys = indexedInputs.map((input) => {
+    if (input.sourceKey?.trim())
+      return input.sourceKey;
+    if (input.sourcePath?.trim())
+      return input.sourcePath;
+    return `input:${input.inputIndex}`;
+  });
+  const reservedKeys = new Set(baseKeys);
+  const usedKeys = /* @__PURE__ */ new Set();
+  const nextSuffixByBaseKey = /* @__PURE__ */ new Map();
+  return indexedInputs.map((input, index) => {
+    const baseKey = baseKeys[index];
+    let sourceKey = baseKey;
+    if (usedKeys.has(sourceKey)) {
+      let suffix = nextSuffixByBaseKey.get(baseKey) ?? 2;
+      do {
+        sourceKey = `${baseKey}#${suffix}`;
+        suffix += 1;
+      } while (usedKeys.has(sourceKey) || reservedKeys.has(sourceKey));
+      nextSuffixByBaseKey.set(baseKey, suffix);
+    } else {
+      nextSuffixByBaseKey.set(baseKey, 2);
+    }
+    usedKeys.add(sourceKey);
+    return {
+      ...input,
+      sourceKey
+    };
+  });
+};
 var defaultParseYieldControl = async () => {
   if (typeof MessageChannel !== "undefined") {
     await new Promise((resolve) => {
@@ -1774,12 +2157,13 @@ var forceCopyString = (value) => {
   return (" " + value).slice(1);
 };
 var CROSS_SOURCE_DUPLICATE_WINDOW_MS = 1e3;
+var MAX_DEDUP_SIGNATURES = 16384;
 var LogParser = class {
   constructor() {
     this.events = [];
     this.protocolEvents = [];
     this.traceReducer = createIncrementalTraceReducer();
-    this.eventsByTaskId = /* @__PURE__ */ new Map();
+    this.sequencedEventsByTaskId = /* @__PURE__ */ new Map();
     this.completedTaskCache = /* @__PURE__ */ new Map();
     this.rawLines = null;
     this.eventTokenPool = /* @__PURE__ */ new Map();
@@ -1790,6 +2174,7 @@ var LogParser = class {
     this.errorImages = /* @__PURE__ */ new Map();
     this.visionImages = /* @__PURE__ */ new Map();
     this.waitFreezesImages = /* @__PURE__ */ new Map();
+    this.fullParseInProgress = false;
   }
   /**
    * 设置错误截图映射
@@ -1818,7 +2203,7 @@ var LogParser = class {
     this.events = [];
     this.protocolEvents = [];
     this.traceReducer.reset();
-    this.eventsByTaskId.clear();
+    this.sequencedEventsByTaskId.clear();
     this.completedTaskCache.clear();
     this.rawLines = null;
     this.lastEventBySignature.clear();
@@ -1845,6 +2230,18 @@ var LogParser = class {
     if (this.dedupSignatureTimelineHead > 4096 && this.dedupSignatureTimelineHead * 2 >= this.dedupSignatureTimeline.length) {
       this.dedupSignatureTimeline = this.dedupSignatureTimeline.slice(this.dedupSignatureTimelineHead);
       this.dedupSignatureTimelineHead = 0;
+    }
+  }
+  pruneDedupSignatureCapacity() {
+    while (this.dedupSignatureTimeline.length - this.dedupSignatureTimelineHead > MAX_DEDUP_SIGNATURES) {
+      const item = this.dedupSignatureTimeline[this.dedupSignatureTimelineHead];
+      if (item) {
+        const mapped = this.lastEventBySignature.get(item.signature);
+        if (mapped?.timestampMs === item.timestampMs) {
+          this.lastEventBySignature.delete(item.signature);
+        }
+      }
+      this.dedupSignatureTimelineHead += 1;
     }
   }
   internEventToken(raw) {
@@ -1877,35 +2274,41 @@ var LogParser = class {
       details: event.details,
       _lineNumber: event._lineNumber
     };
-    this.events.push(storedEvent);
     const protocolEvent = createProtocolEvent(event, {
       seq: this.protocolEvents.length + 1,
       sourceKey: sourceOptions?.sourceKey,
       sourcePath: sourceOptions?.sourcePath,
       inputIndex: sourceOptions?.inputIndex
     });
+    this.events.push(storedEvent);
     if (protocolEvent) {
       this.protocolEvents.push(protocolEvent);
       this.traceReducer.append(protocolEvent);
       if ("taskId" in protocolEvent && protocolEvent.taskId != null) {
-        const taskEvents = this.eventsByTaskId.get(protocolEvent.taskId);
+        const sequencedEvent = {
+          seq: protocolEvent.seq,
+          sourceKey: protocolEvent.source.sourceKey,
+          event: storedEvent
+        };
+        const taskEvents = this.sequencedEventsByTaskId.get(protocolEvent.taskId);
         if (taskEvents) {
-          taskEvents.push(storedEvent);
+          taskEvents.push(sequencedEvent);
         } else {
-          this.eventsByTaskId.set(protocolEvent.taskId, [storedEvent]);
+          this.sequencedEventsByTaskId.set(protocolEvent.taskId, [sequencedEvent]);
         }
       }
     }
-    this.lastEventBySignature.set(event._dedupSignature, {
-      timestampMs: eventMs,
-      processId: event.processId,
-      threadId: event.threadId
-    });
     if (Number.isFinite(eventMs)) {
+      this.lastEventBySignature.set(event._dedupSignature, {
+        timestampMs: eventMs,
+        processId: event.processId,
+        threadId: event.threadId
+      });
       this.dedupSignatureTimeline.push({
         signature: event._dedupSignature,
         timestampMs: eventMs
       });
+      this.pruneDedupSignatureCapacity();
     }
   }
   appendRealtimeLines(lines) {
@@ -1948,7 +2351,7 @@ var LogParser = class {
     let lineNum = 0;
     if (totalChars === 0) {
       if (rawLines) {
-        setRawLineSource(this.ensureRawLineStore(), {
+        adoptRawLineSource(this.ensureRawLineStore(), {
           ...sourceMeta,
           lines: rawLines
         });
@@ -2001,7 +2404,7 @@ var LogParser = class {
       }
     }
     if (rawLines) {
-      setRawLineSource(this.ensureRawLineStore(), {
+      adoptRawLineSource(this.ensureRawLineStore(), {
         ...sourceMeta,
         lines: rawLines
       });
@@ -2012,43 +2415,51 @@ var LogParser = class {
    * 解析多 source 日志内容（异步分块处理）
    */
   async parseInputs(inputs, onProgress, options) {
-    this.resetParsedEvents();
-    const normalizedInputs = inputs.map((input, index) => ({
-      ...input,
-      inputIndex: input.inputIndex ?? index
-    }));
-    const totalChars = normalizedInputs.reduce((sum, input) => sum + input.content.length, 0);
     const chunkLineCount = options?.chunkLineCount ?? 1e3;
-    const yieldControl = options?.yieldControl === void 0 ? defaultParseYieldControl : options.yieldControl;
-    const storeRawLines = options?.storeRawLines === true;
-    if (normalizedInputs.length === 0) {
+    if (!Number.isSafeInteger(chunkLineCount) || chunkLineCount <= 0) {
+      throw new RangeError("chunkLineCount must be a positive safe integer");
+    }
+    if (this.fullParseInProgress) {
+      throw new Error("A full parse is already in progress for this LogParser instance");
+    }
+    this.fullParseInProgress = true;
+    try {
+      this.resetParsedEvents();
+      const normalizedInputs = normalizeParseSourceInputs(inputs);
+      const totalChars = normalizedInputs.reduce((sum, input) => sum + input.content.length, 0);
+      const yieldControl = options?.yieldControl === void 0 ? defaultParseYieldControl : options.yieldControl;
+      const storeRawLines = options?.storeRawLines === true;
+      if (normalizedInputs.length === 0) {
+        if (onProgress) {
+          onProgress({
+            current: 0,
+            total: 0,
+            percentage: 100
+          });
+        }
+        return;
+      }
+      let progressOffset = 0;
+      for (const input of normalizedInputs) {
+        const parsedChars = await this.parseSourceContent(input, {
+          onProgress,
+          chunkLineCount,
+          yieldControl,
+          progressOffset,
+          totalChars,
+          storeRawLines
+        });
+        progressOffset += parsedChars;
+      }
       if (onProgress) {
         onProgress({
-          current: 0,
-          total: 0,
+          current: totalChars,
+          total: totalChars,
           percentage: 100
         });
       }
-      return;
-    }
-    let progressOffset = 0;
-    for (const input of normalizedInputs) {
-      const parsedChars = await this.parseSourceContent(input, {
-        onProgress,
-        chunkLineCount,
-        yieldControl,
-        progressOffset,
-        totalChars,
-        storeRawLines
-      });
-      progressOffset += parsedChars;
-    }
-    if (onProgress) {
-      onProgress({
-        current: totalChars,
-        total: totalChars,
-        percentage: 100
-      });
+    } finally {
+      this.fullParseInProgress = false;
     }
   }
   /**
@@ -2077,7 +2488,7 @@ var LogParser = class {
     this.events = [];
     this.protocolEvents = [];
     this.traceReducer.reset();
-    this.eventsByTaskId.clear();
+    this.sequencedEventsByTaskId.clear();
     this.completedTaskCache.clear();
     this.rawLines = null;
     this.lastEventBySignature.clear();
@@ -2090,12 +2501,14 @@ var LogParser = class {
   projectTasksSnapshot(consume) {
     const trace = this.traceReducer.getTrace();
     const tasks = projectTasksFromTrace(trace, {
-      eventsByTaskId: this.eventsByTaskId,
+      sequencedEventsByTaskId: this.sequencedEventsByTaskId,
       completedTaskCache: this.completedTaskCache,
       errorImages: this.errorImages,
       visionImages: this.visionImages,
       waitFreezesImages: this.waitFreezesImages
     });
+    for (const task of tasks)
+      freezeSnapshotData(task);
     if (consume) {
       this.clearConsumedParseState();
     }
@@ -2111,19 +2524,21 @@ var LogParser = class {
     return this.projectTasksSnapshot(false);
   }
   getEventsSnapshot() {
-    return this.events.slice();
+    return cloneSnapshotData(this.events);
   }
   getProtocolEventsSnapshot() {
-    return this.protocolEvents.slice();
+    return cloneSnapshotData(this.protocolEvents);
   }
   getRawLineStoreSnapshot() {
     return cloneRawLineStore(this.rawLines);
   }
   getTraceSnapshot() {
-    return buildTraceTree(this.protocolEvents);
+    return buildTraceTree(this.getProtocolEventsSnapshot());
   }
   getTraceIndexSnapshot() {
-    return buildTraceIndex(this.getTraceSnapshot(), this.protocolEvents);
+    const events = this.getProtocolEventsSnapshot();
+    const trace = buildTraceTree(events);
+    return buildTraceIndex(trace, events);
   }
   getParseArtifactsSnapshot() {
     const events = this.getProtocolEventsSnapshot();
@@ -2149,11 +2564,135 @@ var LogParser = class {
    * 获取所有事件
    */
   getEvents() {
-    return this.events;
+    return this.getEventsSnapshot();
   }
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.0.1/node_modules/@windsland52/maa-log-parser/dist/node/flow.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/package.json
+var package_default2 = {
+  name: "@windsland52/maa-log-parser",
+  version: "1.1.0",
+  type: "module",
+  private: false,
+  types: "./dist/core/index.d.ts",
+  exports: {
+    ".": {
+      import: "./dist/core/index.js",
+      types: "./dist/core/index.d.ts"
+    },
+    "./raw-value": {
+      import: "./dist/shared/rawValue.js",
+      types: "./dist/shared/rawValue.d.ts"
+    },
+    "./protocol-types": {
+      import: "./dist/protocol/types.js",
+      types: "./dist/protocol/types.d.ts"
+    },
+    "./protocol-event-factory": {
+      import: "./dist/protocol/eventFactory.js",
+      types: "./dist/protocol/eventFactory.d.ts"
+    },
+    "./trace-scope-types": {
+      import: "./dist/trace/scopeTypes.js",
+      types: "./dist/trace/scopeTypes.d.ts"
+    },
+    "./trace-scope-id": {
+      import: "./dist/trace/scopeId.js",
+      types: "./dist/trace/scopeId.d.ts"
+    },
+    "./trace-reducer": {
+      import: "./dist/trace/reducer.js",
+      types: "./dist/trace/reducer.d.ts"
+    },
+    "./query-types": {
+      import: "./dist/query/queryTypes.js",
+      types: "./dist/query/queryTypes.d.ts"
+    },
+    "./query-locator": {
+      import: "./dist/query/locator.js",
+      types: "./dist/query/locator.d.ts"
+    },
+    "./trace-index": {
+      import: "./dist/query/traceIndex.js",
+      types: "./dist/query/traceIndex.d.ts"
+    },
+    "./query-helpers": {
+      import: "./dist/query/helpers.js",
+      types: "./dist/query/helpers.d.ts"
+    },
+    "./raw-line-store": {
+      import: "./dist/raw/store.js",
+      types: "./dist/raw/store.d.ts"
+    },
+    "./service-session-store": {
+      import: "./dist/service/sessionStore.js",
+      types: "./dist/service/sessionStore.d.ts"
+    },
+    "./service-evidence-builders": {
+      import: "./dist/service/evidenceBuilders.js",
+      types: "./dist/service/evidenceBuilders.d.ts"
+    },
+    "./service-tool-handlers": {
+      import: "./dist/service/toolHandlers.js",
+      types: "./dist/service/toolHandlers.d.ts"
+    },
+    "./service-tool-protocol": {
+      import: "./dist/service/toolProtocol.js",
+      types: "./dist/service/toolProtocol.d.ts"
+    },
+    "./types": {
+      import: "./dist/shared/types.js",
+      types: "./dist/shared/types.d.ts"
+    },
+    "./log-event-decoders": {
+      import: "./dist/shared/logEventDecoders.js",
+      types: "./dist/shared/logEventDecoders.d.ts"
+    },
+    "./node-flow": {
+      import: "./dist/node/flow.js",
+      types: "./dist/node/flow.d.ts"
+    },
+    "./timestamp": {
+      import: "./dist/shared/timestamp.js",
+      types: "./dist/shared/timestamp.d.ts"
+    },
+    "./node-statistics": {
+      import: "./dist/node/statistics.js",
+      types: "./dist/node/statistics.d.ts"
+    }
+  },
+  engines: {
+    node: ">=20.18.0"
+  },
+  publishConfig: {
+    access: "public"
+  },
+  files: [
+    "dist",
+    "README.md"
+  ],
+  repository: {
+    type: "git",
+    url: "https://github.com/MaaXYZ/MaaLogAnalyzer",
+    directory: "packages/maa-log-parser"
+  },
+  scripts: {
+    typecheck: "tsc -p ./tsconfig.json",
+    test: "vitest run src/__tests__",
+    build: `node -e "require('node:fs').rmSync('dist',{ recursive: true, force: true })" && tsc -p ./tsconfig.build.json && node ../../scripts/fix-esm-imports.mjs ./dist`,
+    clean: `node -e "require('node:fs').rmSync('dist',{ recursive: true, force: true })"`
+  }
+};
+
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/version.js
+var PARSER_PACKAGE_NAME = package_default2.name;
+var PARSER_PACKAGE_VERSION = package_default2.version;
+var DEFAULT_PARSER_VERSION = `${PARSER_PACKAGE_NAME}/${PARSER_PACKAGE_VERSION}`;
+
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/service/sessionStore.js
+var DEFAULT_IDLE_TTL_MS = 30 * 60 * 1e3;
+
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/node/flow.js
 var flowItemTimestampMs = (item) => {
   return toTimestampMs(item.ts || item.end_ts);
 };
@@ -2214,24 +2753,28 @@ var buildNodeRecognitionAttempts = (node) => {
   }];
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.0.1/node_modules/@windsland52/maa-log-parser/dist/node/statistics.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-parser@1.1.0/node_modules/@windsland52/maa-log-parser/dist/node/statistics.js
 var summarizeDurations = (durations) => {
-  if (durations.length === 0) {
-    return { total: 0, average: 0, min: 0, max: 0 };
-  }
   let total = 0;
   let min = Number.POSITIVE_INFINITY;
   let max2 = Number.NEGATIVE_INFINITY;
+  let count = 0;
   for (const duration of durations) {
+    if (!Number.isFinite(duration))
+      continue;
     total += duration;
+    count += 1;
     if (duration < min)
       min = duration;
     if (duration > max2)
       max2 = duration;
   }
+  if (count === 0) {
+    return { total: 0, average: 0, min: 0, max: 0 };
+  }
   return {
     total,
-    average: total / durations.length,
+    average: total / count,
     min,
     max: max2
   };
@@ -2244,19 +2787,18 @@ var NodeStatisticsAnalyzer = class {
       for (let i2 = 0; i2 < nodes.length; i2++) {
         const node = nodes[i2];
         const nextNode = nodes[i2 + 1];
-        let duration = 0;
-        if (nextNode) {
-          const currentTime = new Date(node.ts).getTime();
-          const nextTime = new Date(nextNode.ts).getTime();
-          duration = nextTime - currentTime;
+        let duration;
+        const currentTime = toTimestampMs(node.ts);
+        if (node.end_ts) {
+          duration = toTimestampMs(node.end_ts) - currentTime;
+        } else if (nextNode) {
+          duration = toTimestampMs(nextNode.ts) - currentTime;
         } else if (task.end_time) {
-          const currentTime = new Date(node.ts).getTime();
-          const endTime = new Date(task.end_time).getTime();
-          duration = endTime - currentTime;
+          duration = toTimestampMs(task.end_time) - currentTime;
         } else {
           continue;
         }
-        if (duration < 0 || duration > 36e5) {
+        if (!Number.isFinite(duration) || duration < 0 || duration > 36e5) {
           continue;
         }
         if (node.status === "running") {
@@ -2335,16 +2877,16 @@ var NodeStatisticsAnalyzer = class {
         const stats = statsMap.get(node.name);
         stats.recognitionAttempts.push(attempts.length);
         if (attempts.length > 0) {
-          const firstAttemptTs = new Date(attempts[0].ts).getTime();
+          const firstAttemptTs = toTimestampMs(attempts[0].ts);
           const lastAttempt = attempts[attempts.length - 1];
-          const lastAttemptTime = new Date(lastAttempt.end_ts || lastAttempt.ts).getTime();
+          const lastAttemptTime = toTimestampMs(lastAttempt.end_ts || lastAttempt.ts);
           const recognitionDuration = lastAttemptTime - firstAttemptTs;
-          if (recognitionDuration >= 0 && recognitionDuration < 36e5) {
+          if (Number.isFinite(recognitionDuration) && recognitionDuration >= 0 && recognitionDuration < 36e5) {
             stats.recognitionDurations.push(recognitionDuration);
           }
-          const nodeCompleteTime = new Date(node.end_ts || node.ts).getTime();
+          const nodeCompleteTime = toTimestampMs(node.end_ts || node.ts);
           const actionDuration = nodeCompleteTime - lastAttemptTime;
-          if (actionDuration >= 0 && actionDuration < 36e5) {
+          if (Number.isFinite(actionDuration) && actionDuration >= 0 && actionDuration < 36e5) {
             stats.actionDurations.push(actionDuration);
           }
         }
@@ -2394,9 +2936,10 @@ var NodeStatisticsAnalyzer = class {
   }
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-adapter@1.0.1/node_modules/@windsland52/maa-log-adapter/dist/index.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-adapter@1.1.0/node_modules/@windsland52/maa-log-adapter/dist/index.js
 var createMlaRuntimeAdapter = () => {
   return {
+    parserVersion: DEFAULT_PARSER_VERSION,
     async parse(input) {
       const parser = new LogParser();
       parser.setErrorImages(input.errorImages ?? /* @__PURE__ */ new Map());
@@ -2418,8 +2961,8 @@ var createMlaRuntimeAdapter = () => {
 };
 var mlaRuntimeAdapter = createMlaRuntimeAdapter();
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.2.2/node_modules/@windsland52/maa-log-tools/dist/nodeInput.js
-var import_promises = require("node:fs/promises");
+// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.3.0/node_modules/@windsland52/maa-log-tools/dist/nodeInput.js
+var import_promises2 = require("node:fs/promises");
 var import_node_path = __toESM(require("node:path"), 1);
 
 // ../../node_modules/.pnpm/fflate@0.8.3/node_modules/fflate/esm/index.mjs
@@ -2795,6 +3338,43 @@ var b4 = function(d2, b3) {
 var b8 = function(d2, b3) {
   return b4(d2, b3) + b4(d2, b3 + 4) * 4294967296;
 };
+var Inflate = /* @__PURE__ */ (function() {
+  function Inflate2(opts, cb) {
+    if (typeof opts == "function")
+      cb = opts, opts = {};
+    this.ondata = cb;
+    var dict = opts && opts.dictionary && opts.dictionary.subarray(-32768);
+    this.s = { i: 0, b: dict ? dict.length : 0 };
+    this.o = new u8(32768);
+    this.p = new u8(0);
+    if (dict)
+      this.o.set(dict);
+  }
+  Inflate2.prototype.e = function(c2) {
+    if (!this.ondata)
+      err(5);
+    if (this.d)
+      err(4);
+    if (!this.p.length)
+      this.p = c2;
+    else if (c2.length) {
+      var n3 = new u8(this.p.length + c2.length);
+      n3.set(this.p), n3.set(c2, this.p.length), this.p = n3;
+    }
+  };
+  Inflate2.prototype.c = function(final) {
+    this.s.i = +(this.d = final || false);
+    var bts = this.s.b;
+    var dt = inflt(this.p, this.s, this.o);
+    this.ondata(slc(dt, bts, this.s.b), this.d);
+    this.o = slc(dt, this.s.b - 32768), this.s.b = this.o.length;
+    this.p = slc(this.p, this.s.p / 8 | 0), this.s.p &= 7;
+  };
+  Inflate2.prototype.push = function(chunk, final) {
+    this.e(chunk), this.c(final);
+  };
+  return Inflate2;
+})();
 function inflateSync(data, opts) {
   return inflt(data, { i: 2 }, opts && opts.out, opts && opts.dictionary);
 }
@@ -2863,6 +3443,163 @@ var z64hs = function(d2, b3, l2, z, sc, su, off) {
   }
   return [sc, su, off, 0];
 };
+var UnzipPassThrough = /* @__PURE__ */ (function() {
+  function UnzipPassThrough2() {
+  }
+  UnzipPassThrough2.prototype.push = function(chunk, final) {
+    this.ondata(null, chunk, final);
+  };
+  UnzipPassThrough2.compression = 0;
+  return UnzipPassThrough2;
+})();
+var UnzipInflate = /* @__PURE__ */ (function() {
+  function UnzipInflate2() {
+    var _this = this;
+    this.i = new Inflate(function(dat, final) {
+      _this.ondata(null, dat, final);
+    });
+  }
+  UnzipInflate2.prototype.push = function(chunk, final) {
+    try {
+      this.i.push(chunk, final);
+    } catch (e2) {
+      this.ondata(e2, null, final);
+    }
+  };
+  UnzipInflate2.compression = 8;
+  return UnzipInflate2;
+})();
+var Unzip = /* @__PURE__ */ (function() {
+  function Unzip2(cb) {
+    this.onfile = cb;
+    this.k = [];
+    this.o = {
+      0: UnzipPassThrough
+    };
+    this.p = et;
+  }
+  Unzip2.prototype.push = function(chunk, final) {
+    var _this = this;
+    if (!this.onfile)
+      err(5);
+    if (!this.p)
+      err(4);
+    if (this.c > 0) {
+      var len = Math.min(this.c, chunk.length);
+      var toAdd = chunk.subarray(0, len);
+      this.c -= len;
+      if (this.d)
+        this.d.push(toAdd, !this.c);
+      else
+        this.k[0].push(toAdd);
+      chunk = chunk.subarray(len);
+      if (chunk.length)
+        return this.push(chunk, final);
+    } else {
+      var f = 0, i2 = 0, is = void 0, buf = void 0;
+      if (!this.p.length)
+        buf = chunk;
+      else if (!chunk.length)
+        buf = this.p;
+      else {
+        buf = new u8(this.p.length + chunk.length);
+        buf.set(this.p), buf.set(chunk, this.p.length);
+      }
+      var l2 = buf.length, oc = this.c, add = oc && this.d;
+      var _loop_2 = function() {
+        var sig = b4(buf, i2);
+        if (sig == 67324752) {
+          f = 1, is = i2;
+          this_1.d = null;
+          this_1.c = 0;
+          var bf = b2(buf, i2 + 6), cmp_1 = b2(buf, i2 + 8), u2 = bf & 2048, dd = bf & 8, fnl = b2(buf, i2 + 26), es = b2(buf, i2 + 28);
+          if (l2 > i2 + 30 + fnl + es) {
+            var chks_3 = [];
+            this_1.k.unshift(chks_3);
+            f = 2;
+            var lsc = b4(buf, i2 + 18), lsu = b4(buf, i2 + 22);
+            var fn_1 = strFromU8(buf.subarray(i2 + 30, i2 += 30 + fnl), !u2);
+            var _a2 = z64hs(buf, i2, es, 2, lsc, lsu, 0), sc_1 = _a2[0], su_1 = _a2[1], z64 = _a2[3];
+            if (dd)
+              sc_1 = -1 - z64;
+            i2 += es;
+            this_1.c = sc_1;
+            var d_1;
+            var file_1 = {
+              name: fn_1,
+              compression: cmp_1,
+              start: function() {
+                if (!file_1.ondata)
+                  err(5);
+                if (!sc_1)
+                  file_1.ondata(null, et, true);
+                else {
+                  var ctr = _this.o[cmp_1];
+                  if (!ctr)
+                    file_1.ondata(err(14, "unknown compression type " + cmp_1, 1), null, false);
+                  d_1 = sc_1 < 0 ? new ctr(fn_1) : new ctr(fn_1, sc_1, su_1);
+                  d_1.ondata = function(err2, dat3, final2) {
+                    file_1.ondata(err2, dat3, final2);
+                  };
+                  for (var _i = 0, chks_4 = chks_3; _i < chks_4.length; _i++) {
+                    var dat2 = chks_4[_i];
+                    d_1.push(dat2, false);
+                  }
+                  if (_this.k[0] == chks_3 && _this.c)
+                    _this.d = d_1;
+                  else
+                    d_1.push(et, true);
+                }
+              },
+              terminate: function() {
+                if (d_1 && d_1.terminate)
+                  d_1.terminate();
+              }
+            };
+            if (sc_1 >= 0)
+              file_1.size = sc_1, file_1.originalSize = su_1;
+            this_1.onfile(file_1);
+          }
+          return "break";
+        } else if (oc) {
+          if (sig == 134695760) {
+            is = i2 += 12 + (oc == -2 && 8), f = 3, this_1.c = 0;
+            return "break";
+          } else if (sig == 33639248) {
+            is = i2 -= 4, f = 3, this_1.c = 0;
+            return "break";
+          }
+        }
+      };
+      var this_1 = this;
+      for (; i2 < l2 - 4; ++i2) {
+        var state_1 = _loop_2();
+        if (state_1 === "break")
+          break;
+      }
+      this.p = et;
+      if (oc < 0) {
+        var dat = f ? buf.subarray(0, is - 12 - (oc == -2 && 8) - (b4(buf, is - 16) == 134695760 && 4)) : buf.subarray(0, i2);
+        if (add)
+          add.push(dat, !!f);
+        else
+          this.k[+(f == 2)].push(dat);
+      }
+      if (f & 2)
+        return this.push(buf.subarray(i2), final);
+      this.p = buf.subarray(i2);
+    }
+    if (final) {
+      if (this.c)
+        err(13);
+      this.p = null;
+    }
+  };
+  Unzip2.prototype.register = function(decoder) {
+    this.o[decoder.compression] = decoder;
+  };
+  return Unzip2;
+})();
 function unzipSync(data, opts) {
   var files = {};
   var e2 = data.length - 22;
@@ -2905,7 +3642,590 @@ function unzipSync(data, opts) {
   return files;
 }
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.2.2/node_modules/@windsland52/maa-log-tools/dist/nodeInput.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.3.0/node_modules/@windsland52/maa-log-tools/dist/archiveLimits.js
+var ArchiveLimitError = class extends Error {
+  constructor(code, actual, limit) {
+    super(`Input ${code} exceeds the configured limit (${actual} > ${limit})`);
+    this.code = code;
+    this.actual = actual;
+    this.limit = limit;
+    this.name = "ArchiveLimitError";
+  }
+};
+var ArchiveFormatError = class extends Error {
+  constructor(code, entryName, message) {
+    super(message);
+    this.code = code;
+    this.entryName = entryName;
+    this.name = "ArchiveFormatError";
+  }
+};
+var DEFAULT_ARCHIVE_LIMITS = Object.freeze({
+  maxVolumes: 16,
+  maxCompressedBytes: 268435456,
+  maxEntries: 1e4,
+  maxPathBytes: 4096,
+  maxTotalPathBytes: 8388608,
+  maxFileBytes: 268435456,
+  maxImageBytes: 33554432,
+  maxExtractedBytes: 536870912,
+  maxCompressionRatio: 500,
+  compressionRatioMinBytes: 1048576
+});
+var integerLimitKeys = [
+  "maxVolumes",
+  "maxCompressedBytes",
+  "maxEntries",
+  "maxPathBytes",
+  "maxTotalPathBytes",
+  "maxFileBytes",
+  "maxImageBytes",
+  "maxExtractedBytes",
+  "compressionRatioMinBytes"
+];
+var validateLimits = (limits) => {
+  for (const key of integerLimitKeys) {
+    const value = limits[key];
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new RangeError(`Archive limit ${key} must be a non-negative safe integer`);
+    }
+  }
+  if (!Number.isFinite(limits.maxCompressionRatio) || limits.maxCompressionRatio < 0) {
+    throw new RangeError("Archive limit maxCompressionRatio must be a non-negative finite number");
+  }
+  return Object.freeze(limits);
+};
+var resolveArchiveLimits = (overrides = {}) => validateLimits({
+  ...DEFAULT_ARCHIVE_LIMITS,
+  ...overrides
+});
+var EMPTY_ARCHIVE_DIRECTORY_BUDGET = Object.freeze({
+  entryCount: 0,
+  totalPathBytes: 0
+});
+var EMPTY_EXTRACTION_BUDGET = Object.freeze({
+  extractedBytes: 0
+});
+var assertMetadataInteger = (value, label) => {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Invalid input metadata: ${label} must be a non-negative safe integer`);
+  }
+};
+var addSize = (total, value, label) => {
+  assertMetadataInteger(total, `${label} total`);
+  assertMetadataInteger(value, label);
+  const next = total + value;
+  if (!Number.isSafeInteger(next)) {
+    throw new Error(`Invalid input metadata: ${label} total exceeds the safe integer range`);
+  }
+  return next;
+};
+var throwLimitError = (code, actual, limit) => {
+  throw new ArchiveLimitError(code, actual, limit);
+};
+var assertArchiveInputsWithinLimits = (inputs, limits = DEFAULT_ARCHIVE_LIMITS) => {
+  if (inputs.length > limits.maxVolumes) {
+    throwLimitError("volume-count", inputs.length, limits.maxVolumes);
+  }
+  let total = 0;
+  for (const input of inputs) {
+    total = addSize(total, input.size, "compressed size");
+    if (total > limits.maxCompressedBytes) {
+      throwLimitError("compressed-size", total, limits.maxCompressedBytes);
+    }
+  }
+};
+var utf8Encoder = new TextEncoder();
+var throwFormatError = (code, entryName, message) => {
+  throw new ArchiveFormatError(code, entryName, message);
+};
+var canonicalizeArchivePath = (rawPath) => {
+  if (rawPath.length === 0 || rawPath.includes("\\") || rawPath.normalize("NFC") !== rawPath) {
+    throwFormatError("invalid-path", rawPath, `Archive entry uses a non-canonical path: ${rawPath}`);
+  }
+  if (/[\u0000-\u001f\u007f]/u.test(rawPath) || rawPath.startsWith("/")) {
+    throwFormatError("invalid-path", rawPath, `Archive entry uses an unsafe path: ${rawPath}`);
+  }
+  const isDirectory2 = rawPath.endsWith("/");
+  const canonical = isDirectory2 ? rawPath.slice(0, -1) : rawPath;
+  if (canonical.length === 0) {
+    throwFormatError("invalid-path", rawPath, `Archive entry uses an empty path: ${rawPath}`);
+  }
+  const segments = canonical.split("/");
+  for (const [index, segment] of segments.entries()) {
+    if (segment.length === 0 || segment === "." || segment === ".." || segment.endsWith(".") || segment.endsWith(" ") || segment.includes(":") || index === 0 && /^[a-z]:$/iu.test(segment)) {
+      throwFormatError("invalid-path", rawPath, `Archive entry uses a path alias: ${rawPath}`);
+    }
+  }
+  return {
+    canonical,
+    identity: canonical.toLowerCase()
+  };
+};
+var addArchiveDirectoryEntry = (current, entry, limits = DEFAULT_ARCHIVE_LIMITS) => {
+  if (typeof entry.name !== "string") {
+    throw new Error("Invalid input metadata: entry name must be a string");
+  }
+  assertMetadataInteger(entry.size, "compressed entry size");
+  assertMetadataInteger(entry.originalSize, "original entry size");
+  assertMetadataInteger(entry.compression, "compression method");
+  const entryCount = addSize(current.entryCount, 1, "entry count");
+  if (entryCount > limits.maxEntries) {
+    throwLimitError("entry-count", entryCount, limits.maxEntries);
+  }
+  const pathBytes = utf8Encoder.encode(entry.name).byteLength;
+  if (pathBytes > limits.maxPathBytes) {
+    throwLimitError("path-size", pathBytes, limits.maxPathBytes);
+  }
+  const totalPathBytes = addSize(current.totalPathBytes, pathBytes, "path size");
+  if (totalPathBytes > limits.maxTotalPathBytes) {
+    throwLimitError("total-path-size", totalPathBytes, limits.maxTotalPathBytes);
+  }
+  return { entryCount, totalPathBytes };
+};
+var copyEntryMetadata = (entry) => ({
+  name: entry.name,
+  size: entry.size,
+  originalSize: entry.originalSize,
+  compression: entry.compression
+});
+var readU16 = (data, offset) => {
+  if (offset < 0 || offset + 2 > data.byteLength) {
+    throwFormatError("invalid-structure", "", "ZIP record is truncated");
+  }
+  return data[offset] | data[offset + 1] << 8;
+};
+var readU32 = (data, offset) => {
+  if (offset < 0 || offset + 4 > data.byteLength) {
+    throwFormatError("invalid-structure", "", "ZIP record is truncated");
+  }
+  return (data[offset] | data[offset + 1] << 8 | data[offset + 2] << 16 | data[offset + 3] << 24) >>> 0;
+};
+var findEndOfCentralDirectory = (data) => {
+  const minimumOffset = Math.max(0, data.byteLength - 65557);
+  for (let offset = data.byteLength - 22; offset >= minimumOffset; offset -= 1) {
+    if (readU32(data, offset) !== 101010256)
+      continue;
+    const commentBytes = readU16(data, offset + 20);
+    if (offset + 22 + commentBytes === data.byteLength)
+      return offset;
+  }
+  return throwFormatError("invalid-structure", "", "ZIP end-of-central-directory record is missing");
+};
+var equalBytes = (left, right) => {
+  if (left.byteLength !== right.byteLength)
+    return false;
+  for (let index = 0; index < left.byteLength; index += 1) {
+    if (left[index] !== right[index])
+      return false;
+  }
+  return true;
+};
+var parseAndValidateRawZipRecords = (data) => {
+  const eocdOffset = findEndOfCentralDirectory(data);
+  const diskNumber = readU16(data, eocdOffset + 4);
+  const centralDisk = readU16(data, eocdOffset + 6);
+  const entriesOnDisk = readU16(data, eocdOffset + 8);
+  const totalEntries = readU16(data, eocdOffset + 10);
+  const centralSize = readU32(data, eocdOffset + 12);
+  const centralOffset = readU32(data, eocdOffset + 16);
+  if (diskNumber !== 0 || centralDisk !== 0 || entriesOnDisk !== totalEntries || totalEntries === 65535 || centralSize === 4294967295 || centralOffset === 4294967295) {
+    throwFormatError("unsupported-archive", "", "Multi-disk and ZIP64 archives are not supported");
+  }
+  if (centralOffset + centralSize !== eocdOffset) {
+    throwFormatError("invalid-structure", "", "ZIP central-directory bounds are inconsistent");
+  }
+  const entries = [];
+  let offset = centralOffset;
+  for (let index = 0; index < totalEntries; index += 1) {
+    if (readU32(data, offset) !== 33639248) {
+      throwFormatError("invalid-structure", "", "ZIP central-directory entry is malformed");
+    }
+    const nameBytes = readU16(data, offset + 28);
+    const extraBytes = readU16(data, offset + 30);
+    const commentBytes = readU16(data, offset + 32);
+    const recordEnd = offset + 46 + nameBytes + extraBytes + commentBytes;
+    if (recordEnd > eocdOffset) {
+      throwFormatError("invalid-structure", "", "ZIP central-directory entry is truncated");
+    }
+    const size = readU32(data, offset + 20);
+    const originalSize = readU32(data, offset + 24);
+    const localHeaderOffset = readU32(data, offset + 42);
+    if (size === 4294967295 || originalSize === 4294967295 || localHeaderOffset === 4294967295) {
+      throwFormatError("unsupported-archive", "", "ZIP64 entries are not supported");
+    }
+    entries.push({
+      flags: readU16(data, offset + 8),
+      compression: readU16(data, offset + 10),
+      crc32: readU32(data, offset + 16),
+      size,
+      originalSize,
+      localHeaderOffset,
+      rawName: data.subarray(offset + 46, offset + 46 + nameBytes)
+    });
+    offset = recordEnd;
+  }
+  if (offset !== eocdOffset) {
+    throwFormatError("invalid-structure", "", "ZIP central-directory size does not match its entries");
+  }
+  const localRanges = [];
+  const localOffsets = /* @__PURE__ */ new Set();
+  for (const entry of entries) {
+    const localOffset = entry.localHeaderOffset;
+    if (localOffsets.has(localOffset) || readU32(data, localOffset) !== 67324752) {
+      throwFormatError("local-entry-mismatch", "", "ZIP local-header offsets are invalid or duplicated");
+    }
+    localOffsets.add(localOffset);
+    const localFlags = readU16(data, localOffset + 6);
+    const localCompression = readU16(data, localOffset + 8);
+    const localCrc32 = readU32(data, localOffset + 14);
+    const localSize = readU32(data, localOffset + 18);
+    const localOriginalSize = readU32(data, localOffset + 22);
+    const nameBytes = readU16(data, localOffset + 26);
+    const extraBytes = readU16(data, localOffset + 28);
+    const payloadOffset = localOffset + 30 + nameBytes + extraBytes;
+    const rawLocalName = data.subarray(localOffset + 30, localOffset + 30 + nameBytes);
+    if (payloadOffset > centralOffset || localFlags !== entry.flags || localCompression !== entry.compression || !equalBytes(rawLocalName, entry.rawName)) {
+      throwFormatError("local-entry-mismatch", "", "ZIP local and central entry declarations differ");
+    }
+    if ((localFlags & 1) !== 0) {
+      throwFormatError("unsupported-archive", "", "Encrypted ZIP entries are not supported");
+    }
+    const usesDescriptor = (localFlags & 8) !== 0;
+    if (!usesDescriptor && (localCrc32 !== entry.crc32 || localSize !== entry.size || localOriginalSize !== entry.originalSize)) {
+      throwFormatError("declared-size-mismatch", "", "ZIP local and central sizes differ");
+    }
+    if (usesDescriptor && (localCrc32 !== 0 && localCrc32 !== entry.crc32 || localSize !== 0 && localSize !== entry.size || localOriginalSize !== 0 && localOriginalSize !== entry.originalSize)) {
+      throwFormatError("declared-size-mismatch", "", "ZIP streaming local sizes conflict with the central directory");
+    }
+    const payloadEnd = payloadOffset + entry.size;
+    if (!Number.isSafeInteger(payloadEnd) || payloadEnd > centralOffset) {
+      throwFormatError("invalid-structure", "", "ZIP entry payload exceeds the local-file area");
+    }
+    let recordEnd = payloadEnd;
+    if (usesDescriptor) {
+      const hasSignature = readU32(data, recordEnd) === 134695760;
+      if (hasSignature)
+        recordEnd += 4;
+      const descriptorCrc32 = readU32(data, recordEnd);
+      const descriptorSize = readU32(data, recordEnd + 4);
+      const descriptorOriginalSize = readU32(data, recordEnd + 8);
+      recordEnd += 12;
+      if (descriptorCrc32 !== entry.crc32 || descriptorSize !== entry.size || descriptorOriginalSize !== entry.originalSize) {
+        throwFormatError("declared-size-mismatch", "", "ZIP data descriptor conflicts with the central directory");
+      }
+    }
+    if (recordEnd > centralOffset) {
+      throwFormatError("invalid-structure", "", "ZIP local entry overlaps the central directory");
+    }
+    localRanges.push({ start: localOffset, end: recordEnd });
+  }
+  localRanges.sort((left, right) => left.start - right.start);
+  for (let index = 1; index < localRanges.length; index += 1) {
+    if (localRanges[index].start < localRanges[index - 1].end) {
+      throwFormatError("invalid-structure", "", "ZIP local entries overlap");
+    }
+  }
+  return entries;
+};
+var inspectZipDirectory = (data, limits = DEFAULT_ARCHIVE_LIMITS) => {
+  assertArchiveInputsWithinLimits([{ size: data.byteLength }], limits);
+  const rawEntries = parseAndValidateRawZipRecords(data);
+  const entries = [];
+  let directoryBudget = EMPTY_ARCHIVE_DIRECTORY_BUDGET;
+  const rawPaths = /* @__PURE__ */ new Set();
+  const canonicalPaths = /* @__PURE__ */ new Set();
+  unzipSync(data, {
+    filter: (entry) => {
+      const metadata = copyEntryMetadata(entry);
+      const rawEntry = rawEntries[entries.length];
+      if (!rawEntry || rawEntry.size !== metadata.size || rawEntry.originalSize !== metadata.originalSize || rawEntry.compression !== metadata.compression) {
+        throwFormatError("local-entry-mismatch", metadata.name, `ZIP parsed metadata is inconsistent for ${metadata.name}`);
+      }
+      const archivePath = canonicalizeArchivePath(metadata.name);
+      if (rawPaths.has(metadata.name) || canonicalPaths.has(archivePath.identity)) {
+        throwFormatError("duplicate-path", metadata.name, `Archive contains duplicate or aliased entry paths: ${metadata.name}`);
+      }
+      rawPaths.add(metadata.name);
+      canonicalPaths.add(archivePath.identity);
+      directoryBudget = addArchiveDirectoryEntry(directoryBudget, metadata, limits);
+      entries.push(metadata);
+      return false;
+    }
+  });
+  if (entries.length !== rawEntries.length) {
+    throwFormatError("invalid-structure", "", "ZIP entry count is inconsistent");
+  }
+  return entries;
+};
+var isImageEntry = (name) => /\.(?:png|jpe?g)$/i.test(name);
+var addSelectedEntry = (current, entry, limits = DEFAULT_ARCHIVE_LIMITS, checkCompressionRatio = true) => {
+  assertMetadataInteger(current.extractedBytes, "extracted size total");
+  assertMetadataInteger(entry.size, "compressed entry size");
+  assertMetadataInteger(entry.originalSize, "original entry size");
+  if (entry.originalSize > limits.maxFileBytes) {
+    throwLimitError("file-size", entry.originalSize, limits.maxFileBytes);
+  }
+  if (isImageEntry(entry.name) && entry.originalSize > limits.maxImageBytes) {
+    throwLimitError("image-size", entry.originalSize, limits.maxImageBytes);
+  }
+  const extractedBytes = addSize(current.extractedBytes, entry.originalSize, "extracted size");
+  if (extractedBytes > limits.maxExtractedBytes) {
+    throwLimitError("extracted-size", extractedBytes, limits.maxExtractedBytes);
+  }
+  if (checkCompressionRatio && entry.originalSize >= limits.compressionRatioMinBytes && entry.originalSize > 0) {
+    const ratio = entry.size === 0 ? Number.POSITIVE_INFINITY : entry.originalSize / entry.size;
+    if (ratio > limits.maxCompressionRatio) {
+      throwLimitError("compression-ratio", ratio, limits.maxCompressionRatio);
+    }
+  }
+  return { extractedBytes };
+};
+var assertSelectedEntriesWithinLimits = (entries, limits = DEFAULT_ARCHIVE_LIMITS) => {
+  let budget = EMPTY_EXTRACTION_BUDGET;
+  for (const entry of entries) {
+    budget = addSelectedEntry(budget, entry, limits);
+  }
+};
+var STREAM_INPUT_CHUNK_BYTES = 16 * 1024;
+var assertLocalEntryMatchesCentral = (file, central) => {
+  if (file.compression !== central.compression) {
+    throwFormatError("local-entry-mismatch", file.name, `ZIP local and central compression methods differ for ${file.name}`);
+  }
+  if (file.size !== void 0 && file.size !== central.size) {
+    throwFormatError("declared-size-mismatch", file.name, `ZIP local and central compressed sizes differ for ${file.name}`);
+  }
+  if (file.originalSize !== void 0 && file.originalSize !== central.originalSize) {
+    throwFormatError("declared-size-mismatch", file.name, `ZIP local and central original sizes differ for ${file.name}`);
+  }
+};
+var extractSelectedEntriesStreaming = (data, entries, selectedNames, limits) => {
+  const centralByName = new Map(entries.map((entry) => [entry.name, entry]));
+  const seenLocalNames = /* @__PURE__ */ new Set();
+  const completedNames = /* @__PURE__ */ new Set();
+  const files = /* @__PURE__ */ Object.create(null);
+  let actualExtractedBytes = 0;
+  let fatalError = null;
+  const fail = (error) => {
+    if (fatalError == null)
+      fatalError = error;
+  };
+  const unzipper = new Unzip((file) => {
+    if (fatalError != null)
+      return;
+    if (seenLocalNames.has(file.name)) {
+      fail(new ArchiveFormatError("duplicate-path", file.name, `ZIP local headers contain a duplicate entry: ${file.name}`));
+      return;
+    }
+    seenLocalNames.add(file.name);
+    const central = centralByName.get(file.name);
+    if (!central) {
+      fail(new ArchiveFormatError("local-entry-mismatch", file.name, `ZIP local entry is missing from the central directory: ${file.name}`));
+      return;
+    }
+    try {
+      canonicalizeArchivePath(file.name);
+      assertLocalEntryMatchesCentral(file, central);
+    } catch (error) {
+      fail(error);
+      return;
+    }
+    if (!selectedNames.has(file.name))
+      return;
+    if (central.compression !== 0 && central.compression !== 8) {
+      fail(new ArchiveFormatError("unsupported-compression", file.name, `Unsupported ZIP compression method ${central.compression} for ${file.name}`));
+      return;
+    }
+    const output = new Uint8Array(central.originalSize);
+    let outputOffset = 0;
+    file.ondata = (error, chunk, final) => {
+      if (fatalError != null)
+        return;
+      if (error) {
+        fail(error);
+        return;
+      }
+      const abortOutput = (outputError) => {
+        fail(outputError);
+        throw outputError;
+      };
+      const nextFileSize = outputOffset + chunk.byteLength;
+      const nextTotalSize = actualExtractedBytes + chunk.byteLength;
+      if (!Number.isSafeInteger(nextFileSize) || nextFileSize > central.originalSize) {
+        abortOutput(new ArchiveFormatError("actual-size-mismatch", file.name, `ZIP entry output exceeds its declared original size: ${file.name}`));
+      }
+      if (nextFileSize > limits.maxFileBytes) {
+        abortOutput(new ArchiveLimitError("file-size", nextFileSize, limits.maxFileBytes));
+      }
+      if (isImageEntry(file.name) && nextFileSize > limits.maxImageBytes) {
+        abortOutput(new ArchiveLimitError("image-size", nextFileSize, limits.maxImageBytes));
+      }
+      if (!Number.isSafeInteger(nextTotalSize) || nextTotalSize > limits.maxExtractedBytes) {
+        abortOutput(new ArchiveLimitError("extracted-size", nextTotalSize, limits.maxExtractedBytes));
+      }
+      if (nextFileSize >= limits.compressionRatioMinBytes && nextFileSize > 0) {
+        const actualRatio = central.size === 0 ? Number.POSITIVE_INFINITY : nextFileSize / central.size;
+        if (actualRatio > limits.maxCompressionRatio) {
+          abortOutput(new ArchiveLimitError("compression-ratio", actualRatio, limits.maxCompressionRatio));
+        }
+      }
+      output.set(chunk, outputOffset);
+      outputOffset = nextFileSize;
+      actualExtractedBytes = nextTotalSize;
+      if (!final)
+        return;
+      if (outputOffset !== central.originalSize) {
+        abortOutput(new ArchiveFormatError("actual-size-mismatch", file.name, `ZIP entry output does not match its declared original size: ${file.name}`));
+      }
+      if (file.originalSize !== void 0 && outputOffset !== file.originalSize) {
+        abortOutput(new ArchiveFormatError("actual-size-mismatch", file.name, `ZIP entry output does not match its local declared size: ${file.name}`));
+      }
+      files[file.name] = output;
+      completedNames.add(file.name);
+    };
+    try {
+      file.start();
+    } catch (error) {
+      fail(error);
+    }
+  });
+  unzipper.register(UnzipInflate);
+  try {
+    for (let offset = 0; offset < data.byteLength; offset += STREAM_INPUT_CHUNK_BYTES) {
+      const end = Math.min(offset + STREAM_INPUT_CHUNK_BYTES, data.byteLength);
+      unzipper.push(data.subarray(offset, end), end === data.byteLength);
+      if (fatalError != null)
+        throw fatalError;
+    }
+  } catch (error) {
+    if (fatalError != null)
+      throw fatalError;
+    throw error;
+  }
+  for (const entry of entries) {
+    if (!seenLocalNames.has(entry.name)) {
+      throwFormatError("missing-entry", entry.name, `ZIP central directory entry has no matching local header: ${entry.name}`);
+    }
+    if (selectedNames.has(entry.name) && !completedNames.has(entry.name)) {
+      throwFormatError("missing-entry", entry.name, `ZIP selected entry did not finish streaming: ${entry.name}`);
+    }
+  }
+  return files;
+};
+var extractInspectedZipEntriesWithinLimits = (data, entries, shouldExtract, limits = DEFAULT_ARCHIVE_LIMITS) => {
+  const selectedEntries = entries.filter((entry) => shouldExtract(entry.name));
+  assertSelectedEntriesWithinLimits(selectedEntries, limits);
+  const selectedNames = new Set(selectedEntries.map((entry) => entry.name));
+  const files = extractSelectedEntriesStreaming(data, entries, selectedNames, limits);
+  return { files, entries: [...entries] };
+};
+var extractZipEntriesWithinLimits = (data, shouldExtract, limits = DEFAULT_ARCHIVE_LIMITS) => {
+  const entries = inspectZipDirectory(data, limits);
+  return extractInspectedZipEntriesWithinLimits(data, entries, shouldExtract, limits);
+};
+var createStoredFileMetadata = (name, size) => ({
+  name,
+  size,
+  originalSize: size,
+  compression: 0
+});
+
+// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.3.0/node_modules/@windsland52/maa-log-tools/dist/boundedFileReader.js
+var import_promises = require("node:fs/promises");
+var InputFileError = class extends Error {
+  constructor(code, filePath, message) {
+    super(message);
+    this.code = code;
+    this.filePath = filePath;
+    this.name = "InputFileError";
+  }
+};
+var READ_CHUNK_BYTES = 64 * 1024;
+var getFileIdentity = (stats) => ({
+  dev: stats.dev,
+  ino: stats.ino
+});
+var sameFileIdentity = (left, right) => left.dev === right.dev && left.ino === right.ino;
+var assertRegularPath = (filePath, stats) => {
+  if (stats.isSymbolicLink()) {
+    throw new InputFileError("symlink", filePath, `Symbolic-link inputs are not allowed: ${filePath}`);
+  }
+  if (!stats.isFile()) {
+    throw new InputFileError("not-regular-file", filePath, `Expected a regular file: ${filePath}`);
+  }
+};
+var assertHandleIdentity = (filePath, expected, actual) => {
+  if (!actual.isFile() || !sameFileIdentity(expected, getFileIdentity(actual))) {
+    throw new InputFileError("identity-changed", filePath, `File identity changed while opening or reading: ${filePath}`);
+  }
+};
+var assertStableContentState = (filePath, expected, actual) => {
+  if (expected.size !== actual.size || expected.mtimeMs !== actual.mtimeMs || expected.ctimeMs !== actual.ctimeMs) {
+    throw new InputFileError("content-changed", filePath, `File content or metadata changed while opening or reading: ${filePath}`);
+  }
+};
+var readBoundedRegularFile = async (filePath, maxBytes, createLimitError, options = {}) => {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+    throw new RangeError("Maximum file read size must be a non-negative safe integer");
+  }
+  const beforeOpen = await (0, import_promises.lstat)(filePath);
+  assertRegularPath(filePath, beforeOpen);
+  const beforeIdentity = getFileIdentity(beforeOpen);
+  if (options.expectedIdentity && !sameFileIdentity(options.expectedIdentity, beforeIdentity)) {
+    throw new InputFileError("identity-changed", filePath, `File identity changed after directory discovery: ${filePath}`);
+  }
+  const handle = await (0, import_promises.open)(filePath, "r");
+  try {
+    const opened = await handle.stat();
+    assertHandleIdentity(filePath, beforeIdentity, opened);
+    assertStableContentState(filePath, beforeOpen, opened);
+    const afterOpen = await (0, import_promises.lstat)(filePath);
+    assertRegularPath(filePath, afterOpen);
+    assertHandleIdentity(filePath, beforeIdentity, afterOpen);
+    assertStableContentState(filePath, opened, afterOpen);
+    if (opened.size > maxBytes)
+      throw createLimitError(opened.size);
+    const chunks = [];
+    let totalBytes = 0;
+    let chunkCount = 0;
+    while (totalBytes <= maxBytes) {
+      const remaining = maxBytes + 1 - totalBytes;
+      if (remaining <= 0)
+        break;
+      const buffer = Buffer.allocUnsafe(Math.min(READ_CHUNK_BYTES, remaining));
+      const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, totalBytes);
+      if (bytesRead === 0)
+        break;
+      totalBytes += bytesRead;
+      chunkCount += 1;
+      if (totalBytes > maxBytes)
+        throw createLimitError(totalBytes);
+      chunks.push(buffer.subarray(0, bytesRead));
+      await options.onChunkRead?.({ handle, bytesRead: totalBytes, chunkCount });
+    }
+    const finalHandleStats = await handle.stat();
+    assertHandleIdentity(filePath, beforeIdentity, finalHandleStats);
+    const finalPathStats = await (0, import_promises.lstat)(filePath);
+    assertRegularPath(filePath, finalPathStats);
+    assertHandleIdentity(filePath, beforeIdentity, finalPathStats);
+    assertStableContentState(filePath, opened, finalHandleStats);
+    assertStableContentState(filePath, opened, finalPathStats);
+    if (finalHandleStats.size !== totalBytes) {
+      throw new InputFileError("size-changed", filePath, `File size changed after the bounded read completed: ${filePath}`);
+    }
+    const output = new Uint8Array(totalBytes);
+    let outputOffset = 0;
+    for (const chunk of chunks) {
+      output.set(chunk, outputOffset);
+      outputOffset += chunk.byteLength;
+    }
+    return output;
+  } finally {
+    await handle.close();
+  }
+};
+
+// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.3.0/node_modules/@windsland52/maa-log-tools/dist/nodeInput.js
 var MAIN_LOG_NAMES = ["maa.log", "maafw.log"];
 var BAK_LOG_NAMES = ["maa.bak.log", "maafw.bak.log"];
 var SEARCH_TEXT_EXTENSIONS = [".log", ".txt", ".jsonl"];
@@ -3107,10 +4427,90 @@ var sortLogPaths = (paths) => {
     return left.localeCompare(right);
   });
 };
-var collectFocusedFileContents = async (logPaths, focus) => {
+var pathKey = (value) => {
+  const resolved = import_node_path.default.resolve(value);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+};
+var isPathInside = (rootPath, candidatePath) => {
+  const relativePath2 = import_node_path.default.relative(rootPath, candidatePath);
+  return relativePath2 === "" || !relativePath2.startsWith("..") && !import_node_path.default.isAbsolute(relativePath2);
+};
+var assertPathInsideContext = async (context, fullPath) => {
+  const absolutePath = import_node_path.default.resolve(fullPath);
+  if (!isPathInside(context.rootPath, absolutePath)) {
+    throw new InputFileError("path-escape", fullPath, `Input path escapes the selected root: ${fullPath}`);
+  }
+  const physicalPath = await (0, import_promises2.realpath)(absolutePath);
+  if (!isPathInside(context.rootRealPath, physicalPath)) {
+    throw new InputFileError("path-escape", fullPath, `Input path resolves outside the selected root: ${fullPath}`);
+  }
+};
+var createNodeInputBudgetContext = async (rootPath, limits, requireDirectoryRoot = true) => {
+  const absoluteRoot = import_node_path.default.resolve(rootPath);
+  const rootStats = await (0, import_promises2.lstat)(absoluteRoot);
+  if (rootStats.isSymbolicLink()) {
+    throw new InputFileError("symlink", absoluteRoot, `Symbolic-link roots are not allowed: ${absoluteRoot}`);
+  }
+  if (requireDirectoryRoot && !rootStats.isDirectory()) {
+    throw new InputFileError("not-directory", absoluteRoot, `Expected a directory root: ${absoluteRoot}`);
+  }
+  const physicalRoot = await (0, import_promises2.realpath)(absoluteRoot);
+  return {
+    limits,
+    rootPath: absoluteRoot,
+    rootRealPath: physicalRoot,
+    directory: EMPTY_ARCHIVE_DIRECTORY_BUDGET,
+    extraction: EMPTY_EXTRACTION_BUDGET,
+    chargedPaths: /* @__PURE__ */ new Set(),
+    discoveredIdentities: /* @__PURE__ */ new Map()
+  };
+};
+var chargePath = (context, fullPath) => {
+  const key = pathKey(fullPath);
+  if (context.chargedPaths.has(key))
+    return;
+  const relativePath2 = toPosixPath(import_node_path.default.relative(context.rootPath, import_node_path.default.resolve(fullPath)));
+  context.directory = addArchiveDirectoryEntry(context.directory, {
+    name: relativePath2,
+    size: 0,
+    originalSize: 0,
+    compression: 0
+  }, context.limits);
+  context.chargedPaths.add(key);
+};
+var recordDiscoveredIdentity = (context, fullPath, stats) => {
+  const key = pathKey(fullPath);
+  const identity = getFileIdentity(stats);
+  const previous = context.discoveredIdentities.get(key);
+  if (previous && !sameFileIdentity(previous, identity)) {
+    throw new InputFileError("identity-changed", fullPath, `Input identity changed during directory analysis: ${fullPath}`);
+  }
+  context.discoveredIdentities.set(key, identity);
+};
+var inspectDirectoryEntry = async (context, fullPath) => {
+  const stats = await (0, import_promises2.lstat)(fullPath);
+  chargePath(context, fullPath);
+  if (stats.isSymbolicLink()) {
+    throw new InputFileError("symlink", fullPath, `Symbolic-link entries are not allowed: ${fullPath}`);
+  }
+  await assertPathInsideContext(context, fullPath);
+  recordDiscoveredIdentity(context, fullPath, stats);
+  return stats;
+};
+var readNodeTextFileWithinBudget = async (filePath, context) => {
+  chargePath(context, filePath);
+  await assertPathInsideContext(context, filePath);
+  const remainingBytes = context.limits.maxExtractedBytes - context.extraction.extractedBytes;
+  const maxBytes = Math.min(context.limits.maxFileBytes, remainingBytes);
+  const limitCode = context.limits.maxFileBytes <= remainingBytes ? "file-size" : "extracted-size";
+  const bytes = await readBoundedRegularFile(filePath, maxBytes, (actualBytes) => new ArchiveLimitError(limitCode, limitCode === "extracted-size" ? context.extraction.extractedBytes + actualBytes : actualBytes, limitCode === "extracted-size" ? context.limits.maxExtractedBytes : context.limits.maxFileBytes), { expectedIdentity: context.discoveredIdentities.get(pathKey(filePath)) });
+  context.extraction = addSelectedEntry(context.extraction, createStoredFileMetadata(toPosixPath(filePath), bytes.byteLength), context.limits, false);
+  return decodeNodeBytes(bytes);
+};
+var collectFocusedFileContents = async (logPaths, focus, context) => {
   const chunks = [];
   for (const logPath of sortLogPaths(logPaths)) {
-    const content = await readNodeTextFileContent(logPath);
+    const content = await readNodeTextFileWithinBudget(logPath, context);
     if (!contentMatchesFocus(content, focus))
       continue;
     chunks.push({
@@ -3175,14 +4575,24 @@ var buildDefaultZipContent = (entries, paths, basePath, sourceRef) => {
   }
   return joinMergedWithSources(chunks);
 };
-var readNodeTextFileContent = async (filePath) => {
-  const bytes = await (0, import_promises.readFile)(filePath);
-  return decodeNodeBytes(new Uint8Array(bytes));
+var readNodeTextFileContent = async (filePath, options = {}) => {
+  const limits = resolveArchiveLimits(options.archiveLimits);
+  const context = options.budgetContext ?? await createNodeInputBudgetContext(import_node_path.default.dirname(import_node_path.default.resolve(filePath)), limits);
+  return readNodeTextFileWithinBudget(filePath, context);
+};
+var readNodeTextFilesContent = async (filePaths, options = {}) => {
+  const limits = resolveArchiveLimits(options.archiveLimits);
+  const commonRoot = filePaths.length > 0 ? import_node_path.default.dirname(import_node_path.default.resolve(filePaths[0])) : process.cwd();
+  const context = options.budgetContext ?? await createNodeInputBudgetContext(commonRoot, limits);
+  const contents = [];
+  for (const filePath of filePaths) {
+    contents.push(await readNodeTextFileWithinBudget(filePath, context));
+  }
+  return contents;
 };
 var extractZipContentFromNodeBuffer = (zipData, sourceRef = "memory.zip", options = {}) => {
-  const files = unzipSync(zipData, {
-    filter: (entry) => isNeededZipEntry(entry.name)
-  });
+  const limits = resolveArchiveLimits(options.archiveLimits);
+  const { files } = extractZipEntriesWithinLimits(zipData, isNeededZipEntry, limits);
   const paths = Object.keys(files);
   const basePath = findBaseDirectory(paths);
   if (basePath == null)
@@ -3234,70 +4644,158 @@ var extractZipContentFromNodeBuffer = (zipData, sourceRef = "memory.zip", option
   return { content: merged.content, sourceSegments: merged.segments, errorImages, visionImages, waitFreezesImages, textFiles };
 };
 var extractZipContentFromNodeFile = async (zipFilePath, options = {}) => {
-  const bytes = await (0, import_promises.readFile)(zipFilePath);
-  return extractZipContentFromNodeBuffer(new Uint8Array(bytes), zipFilePath, options);
+  const limits = resolveArchiveLimits(options.archiveLimits);
+  const bytes = await readNodeArchiveFileBytes(zipFilePath, limits);
+  return extractZipContentFromNodeBuffer(bytes, zipFilePath, {
+    ...options,
+    archiveLimits: limits
+  });
 };
-var pathExists = async (targetPath) => {
-  try {
-    await (0, import_promises.stat)(targetPath);
-    return true;
-  } catch {
-    return false;
+var readNodeArchiveFileBytes = async (zipFilePath, limits) => {
+  assertArchiveInputsWithinLimits([{ size: 0 }], limits);
+  const context = await createNodeInputBudgetContext(import_node_path.default.dirname(import_node_path.default.resolve(zipFilePath)), limits);
+  chargePath(context, zipFilePath);
+  await assertPathInsideContext(context, zipFilePath);
+  const bytes = await readBoundedRegularFile(zipFilePath, limits.maxCompressedBytes, (actualBytes) => new ArchiveLimitError("compressed-size", actualBytes, limits.maxCompressedBytes));
+  assertArchiveInputsWithinLimits([{ size: bytes.byteLength }], limits);
+  return bytes;
+};
+var assertDirectoryIdentity = (directoryPath, expected, stats) => {
+  if (!stats.isDirectory() || stats.isSymbolicLink()) {
+    throw new InputFileError("not-directory", directoryPath, `Expected a stable directory: ${directoryPath}`);
+  }
+  if (!sameFileIdentity(expected, getFileIdentity(stats))) {
+    throw new InputFileError("identity-changed", directoryPath, `Directory identity changed during traversal: ${directoryPath}`);
   }
 };
-var hasMainLogInDirectory = async (dirPath) => {
+var inspectDirectory = async (context, directoryPath) => {
+  if (pathKey(directoryPath) !== pathKey(context.rootPath))
+    chargePath(context, directoryPath);
+  const stats = await (0, import_promises2.lstat)(directoryPath);
+  if (stats.isSymbolicLink()) {
+    throw new InputFileError("symlink", directoryPath, `Symbolic-link directories are not allowed: ${directoryPath}`);
+  }
+  if (!stats.isDirectory()) {
+    throw new InputFileError("not-directory", directoryPath, `Expected a directory: ${directoryPath}`);
+  }
+  await assertPathInsideContext(context, directoryPath);
+  recordDiscoveredIdentity(context, directoryPath, stats);
+  return stats;
+};
+var withSafeDirectory = async (context, directoryPath, consume) => {
+  const beforeOpen = await inspectDirectory(context, directoryPath);
+  const expectedIdentity = getFileIdentity(beforeOpen);
+  const directory = await (0, import_promises2.opendir)(directoryPath);
+  const afterOpen = await (0, import_promises2.lstat)(directoryPath);
+  assertDirectoryIdentity(directoryPath, expectedIdentity, afterOpen);
+  try {
+    return await consume(directory);
+  } finally {
+    await directory.close().catch(() => void 0);
+    const afterRead = await (0, import_promises2.lstat)(directoryPath);
+    assertDirectoryIdentity(directoryPath, expectedIdentity, afterRead);
+  }
+};
+var tryInspectDirectory = async (context, directoryPath) => {
+  try {
+    await inspectDirectory(context, directoryPath);
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT")
+      return false;
+    throw error;
+  }
+};
+var hasNodeMainLogInDirectory = async (context, directoryPath) => {
+  if (!await tryInspectDirectory(context, directoryPath))
+    return false;
   for (const name of MAIN_LOG_NAMES) {
-    if (await pathExists(import_node_path.default.join(dirPath, name))) {
-      return true;
+    const candidatePath = import_node_path.default.join(directoryPath, name);
+    try {
+      const stats = await inspectDirectoryEntry(context, candidatePath);
+      if (stats.isFile())
+        return true;
+    } catch (error) {
+      if (error.code === "ENOENT")
+        continue;
+      throw error;
     }
   }
   return false;
 };
-var findDebugDirectoryRecursively = async (rootPath) => {
-  const entries = await (0, import_promises.readdir)(rootPath, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory())
-      continue;
-    const subDirPath = import_node_path.default.join(rootPath, entry.name);
-    if (await hasMainLogInDirectory(subDirPath)) {
-      return subDirPath;
+var findExistingRegularNodeFile = async (context, directoryPath, names) => {
+  for (const name of names) {
+    const candidatePath = import_node_path.default.join(directoryPath, name);
+    try {
+      const stats = await inspectDirectoryEntry(context, candidatePath);
+      if (stats.isFile())
+        return candidatePath;
+    } catch (error) {
+      if (error.code === "ENOENT")
+        continue;
+      throw error;
     }
-    const nested = await findDebugDirectoryRecursively(subDirPath);
-    if (nested)
-      return nested;
   }
   return null;
 };
-var resolveDebugDirectory = async (inputPath) => {
-  if (await hasMainLogInDirectory(inputPath)) {
-    return inputPath;
+var findDebugDirectoryRecursively = async (rootPath, context) => {
+  const pending = [rootPath];
+  while (pending.length > 0) {
+    const currentPath = pending.pop();
+    if (!currentPath)
+      break;
+    const found = await withSafeDirectory(context, currentPath, async (directory) => {
+      for await (const entry of directory) {
+        const fullPath = import_node_path.default.join(currentPath, entry.name);
+        const stats = await inspectDirectoryEntry(context, fullPath);
+        if (!stats.isDirectory())
+          continue;
+        if (await hasNodeMainLogInDirectory(context, fullPath))
+          return fullPath;
+        pending.push(fullPath);
+      }
+      return null;
+    });
+    if (found)
+      return found;
   }
-  const directDebugPath = import_node_path.default.join(inputPath, "debug");
-  if (await hasMainLogInDirectory(directDebugPath)) {
-    return directDebugPath;
-  }
-  return findDebugDirectoryRecursively(inputPath);
+  return null;
 };
-var collectFilesRecursively = async (rootPath) => {
+var resolveNodeDebugDirectory = async (inputPath, context) => {
+  if (await hasNodeMainLogInDirectory(context, inputPath))
+    return inputPath;
+  const directDebugPath = import_node_path.default.join(inputPath, "debug");
+  if (await hasNodeMainLogInDirectory(context, directDebugPath))
+    return directDebugPath;
+  return findDebugDirectoryRecursively(inputPath, context);
+};
+var collectFilesRecursively = async (rootPath, context) => {
   const collected = [];
-  const entries = await (0, import_promises.readdir)(rootPath, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = import_node_path.default.join(rootPath, entry.name);
-    if (entry.isDirectory()) {
-      const nested = await collectFilesRecursively(fullPath);
-      collected.push(...nested);
-      continue;
-    }
-    collected.push(fullPath);
+  const pending = [rootPath];
+  while (pending.length > 0) {
+    const currentPath = pending.pop();
+    if (!currentPath)
+      break;
+    await withSafeDirectory(context, currentPath, async (directory) => {
+      for await (const entry of directory) {
+        const fullPath = import_node_path.default.join(currentPath, entry.name);
+        const stats = await inspectDirectoryEntry(context, fullPath);
+        if (stats.isDirectory()) {
+          pending.push(fullPath);
+        } else if (stats.isFile()) {
+          collected.push(fullPath);
+        }
+      }
+    });
   }
   return collected;
 };
 var pickPrimaryLogPath = async (debugPath, allFiles, candidates) => {
   for (const name of candidates) {
     const directPath = import_node_path.default.join(debugPath, name);
-    if (await pathExists(directPath)) {
-      return directPath;
-    }
+    const directMatch = allFiles.find((filePath) => pathKey(filePath) === pathKey(directPath));
+    if (directMatch)
+      return directMatch;
   }
   const normalizedCandidates = new Set(candidates.map((name) => name.toLowerCase()));
   for (const filePath of allFiles) {
@@ -3308,20 +4806,20 @@ var pickPrimaryLogPath = async (debugPath, allFiles, candidates) => {
   }
   return null;
 };
-var buildDefaultDirectoryContent = async (debugPath, allFiles) => {
+var buildDefaultDirectoryContent = async (debugPath, allFiles, context) => {
   const bakLogPath = await pickPrimaryLogPath(debugPath, allFiles, BAK_LOG_NAMES);
   const mainLogPath = await pickPrimaryLogPath(debugPath, allFiles, MAIN_LOG_NAMES);
   const chunks = [];
   if (bakLogPath) {
     chunks.push({
-      content: await readNodeTextFileContent(bakLogPath),
+      content: await readNodeTextFileWithinBudget(bakLogPath, context),
       source: toFileReference(bakLogPath),
       path: toPosixPath(import_node_path.default.relative(debugPath, bakLogPath))
     });
   }
   if (mainLogPath) {
     chunks.push({
-      content: await readNodeTextFileContent(mainLogPath),
+      content: await readNodeTextFileWithinBudget(mainLogPath, context),
       source: toFileReference(mainLogPath),
       path: toPosixPath(import_node_path.default.relative(debugPath, mainLogPath))
     });
@@ -3329,11 +4827,13 @@ var buildDefaultDirectoryContent = async (debugPath, allFiles) => {
   return joinMergedWithSources(chunks);
 };
 var loadNodeLogDirectory = async (inputDirectoryPath, options = {}) => {
-  const debugPath = await resolveDebugDirectory(inputDirectoryPath);
+  const limits = resolveArchiveLimits(options.archiveLimits);
+  const context = await createNodeInputBudgetContext(inputDirectoryPath, limits);
+  const debugPath = await resolveNodeDebugDirectory(inputDirectoryPath, context);
   if (!debugPath)
     return null;
-  const allFiles = await collectFilesRecursively(debugPath);
-  const merged = options.focus ? await collectFocusedFileContents(allFiles.filter((filePath) => isCoreLogName(import_node_path.default.basename(filePath))), options.focus) : await buildDefaultDirectoryContent(debugPath, allFiles);
+  const allFiles = await collectFilesRecursively(debugPath, context);
+  const merged = options.focus ? await collectFocusedFileContents(allFiles.filter((filePath) => isCoreLogName(import_node_path.default.basename(filePath))), options.focus, context) : await buildDefaultDirectoryContent(debugPath, allFiles, context);
   if (!merged.content)
     return null;
   const errorImages = /* @__PURE__ */ new Map();
@@ -3367,7 +4867,7 @@ var loadNodeLogDirectory = async (inputDirectoryPath, options = {}) => {
     textFiles.push({
       path: relativePath2,
       name: fileName,
-      content: await readNodeTextFileContent(absolutePath),
+      content: await readNodeTextFileWithinBudget(absolutePath, context),
       reference: toFileReference(absolutePath)
     });
   }
@@ -3382,8 +4882,8 @@ var loadNodeLogDirectory = async (inputDirectoryPath, options = {}) => {
   };
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.2.2/node_modules/@windsland52/maa-log-tools/dist/frameworkInput.js
-var import_promises2 = require("node:fs/promises");
+// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.3.0/node_modules/@windsland52/maa-log-tools/dist/frameworkInput.js
+var import_promises3 = require("node:fs/promises");
 var import_node_path2 = __toESM(require("node:path"), 1);
 var MAIN_LOG_NAMES2 = ["maafw.log", "maa.log"];
 var BAK_LOG_NAMES2 = ["maafw.bak.log", "maa.bak.log"];
@@ -3413,9 +4913,10 @@ var findZipBasePath = (paths) => {
   }
   return null;
 };
-var loadZipSources = async (zipPath) => {
-  const files = unzipSync(new Uint8Array(await (0, import_promises2.readFile)(zipPath)));
-  const paths = Object.keys(files);
+var loadZipSources = async (zipPath, limits) => {
+  const bytes = await readNodeArchiveFileBytes(zipPath, limits);
+  const entries = inspectZipDirectory(bytes, limits);
+  const paths = entries.map((entry) => entry.name);
   const basePath = findZipBasePath(paths);
   if (basePath == null)
     return [];
@@ -3427,84 +4928,63 @@ var loadZipSources = async (zipPath) => {
     if (candidate && MAIN_LOG_NAMES2.includes(name))
       break;
   }
+  const selectedPaths = new Set(selected);
+  const { files } = extractInspectedZipEntriesWithinLimits(bytes, entries, (entryPath) => selectedPaths.has(entryPath), limits);
   return selected.flatMap((entryPath) => {
-    const bytes = files[entryPath];
-    if (!bytes)
+    const bytes2 = files[entryPath];
+    if (!bytes2)
       return [];
     const normalized = toPosixPath2(entryPath);
     return [{
       path: normalized,
       name: import_node_path2.default.posix.basename(normalized),
-      content: decodeBytes(bytes),
+      content: decodeBytes(bytes2),
       reference: `zip:${toPosixPath2(zipPath)}#${normalized}`
     }];
   });
 };
-var pathExists2 = async (candidate) => {
-  try {
-    await (0, import_promises2.stat)(candidate);
-    return true;
-  } catch {
-    return false;
-  }
-};
-var findDebugDirectory = async (root) => {
-  for (const name of MAIN_LOG_NAMES2) {
-    if (await pathExists2(import_node_path2.default.join(root, name)))
-      return root;
-  }
-  const directDebug = import_node_path2.default.join(root, "debug");
-  for (const name of MAIN_LOG_NAMES2) {
-    if (await pathExists2(import_node_path2.default.join(directDebug, name)))
-      return directDebug;
-  }
-  for (const entry of await (0, import_promises2.readdir)(root, { withFileTypes: true })) {
-    if (!entry.isDirectory())
-      continue;
-    const found = await findDebugDirectory(import_node_path2.default.join(root, entry.name));
-    if (found)
-      return found;
-  }
-  return null;
-};
-var firstExisting = async (root, names) => {
-  for (const name of names) {
-    const candidate = import_node_path2.default.join(root, name);
-    if (await pathExists2(candidate))
-      return candidate;
-  }
-  return null;
-};
-var loadDirectorySources = async (directoryPath) => {
-  const debugPath = await findDebugDirectory(directoryPath);
+var loadDirectorySources = async (directoryPath, limits) => {
+  const context = await createNodeInputBudgetContext(directoryPath, limits);
+  const debugPath = await resolveNodeDebugDirectory(directoryPath, context);
   if (!debugPath)
     return [];
   const selected = [
-    await firstExisting(debugPath, BAK_LOG_NAMES2),
-    await firstExisting(debugPath, MAIN_LOG_NAMES2)
+    await findExistingRegularNodeFile(context, debugPath, BAK_LOG_NAMES2),
+    await findExistingRegularNodeFile(context, debugPath, MAIN_LOG_NAMES2)
   ].filter((candidate) => candidate != null);
-  return Promise.all(selected.map(async (absolutePath) => ({
+  const contents = await readNodeTextFilesContent(selected, {
+    archiveLimits: limits,
+    budgetContext: context
+  });
+  return selected.map((absolutePath, index) => ({
     path: toPosixPath2(import_node_path2.default.relative(debugPath, absolutePath)),
     name: import_node_path2.default.basename(absolutePath),
-    content: await readNodeTextFileContent(absolutePath),
+    content: contents[index] ?? "",
     reference: `file:${toPosixPath2(absolutePath)}`
-  })));
+  }));
 };
-var loadFrameworkLogSources = async (targetPath) => {
-  const targetStat = await (0, import_promises2.stat)(targetPath);
+var loadFrameworkLogSources = async (targetPath, options = {}) => {
+  const limits = resolveArchiveLimits(options.archiveLimits);
+  const targetStat = await (0, import_promises3.lstat)(targetPath);
+  if (targetStat.isSymbolicLink()) {
+    throw new InputFileError("symlink", targetPath, `Symbolic-link inputs are not allowed: ${targetPath}`);
+  }
   if (targetStat.isDirectory())
-    return loadDirectorySources(targetPath);
+    return loadDirectorySources(targetPath, limits);
+  if (!targetStat.isFile()) {
+    throw new InputFileError("not-regular-file", targetPath, `Expected a regular file: ${targetPath}`);
+  }
   if (targetPath.toLowerCase().endsWith(".zip"))
-    return loadZipSources(targetPath);
+    return loadZipSources(targetPath, limits);
   return [{
     path: toPosixPath2(targetPath),
     name: import_node_path2.default.basename(targetPath),
-    content: await readNodeTextFileContent(targetPath),
+    content: await readNodeTextFileContent(targetPath, { archiveLimits: limits }),
     reference: `file:${toPosixPath2(targetPath)}`
   }];
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.2.2/node_modules/@windsland52/maa-log-tools/dist/frameworkVersion.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.3.0/node_modules/@windsland52/maa-log-tools/dist/frameworkVersion.js
 var PROCESS_START_PATTERN = /\]\[Logger\]\s+MAA Process Start(?:\s|$)/;
 var VERSION_PATTERN = /\]\[Logger\]\s+Version\s+(v\d+(?:\.\d+)+(?:[-+][0-9A-Za-z.-]+)?)(?:\s|$)/;
 var TIMESTAMP_PATTERN = /^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)\]/;
@@ -3608,7 +5088,7 @@ var extractFrameworkSessions = (sources) => {
   return { sessions, summary, warnings };
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.2.2/node_modules/@windsland52/maa-log-tools/dist/nextListPresentation.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.3.0/node_modules/@windsland52/maa-log-tools/dist/nextListPresentation.js
 var normalizeOptionalName = (value) => {
   if (typeof value !== "string")
     return void 0;
@@ -3623,7 +5103,7 @@ var resolveRecognitionNextListName = (attempt, nextListNames) => {
   return attempt.name || "";
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.2.2/node_modules/@windsland52/maa-log-tools/dist/nodeExecutionName.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.3.0/node_modules/@windsland52/maa-log-tools/dist/nodeExecutionName.js
 var normalizeOptionalName2 = (value) => {
   if (typeof value !== "string")
     return void 0;
@@ -3728,7 +5208,7 @@ var resolveNodeExecutionName = (node) => {
   return resolveNodeMatchedRecognitionName(node) || node.name || "\u672A\u547D\u540D\u8282\u70B9";
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.2.2/node_modules/@windsland52/maa-log-tools/dist/taskExecutionOrder.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.3.0/node_modules/@windsland52/maa-log-tools/dist/taskExecutionOrder.js
 var LOG_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?$/;
 var toTimestampMs2 = (timestamp) => {
   if (!timestamp)
@@ -3757,7 +5237,7 @@ var sortNodesByGlobalExecutionOrder = (nodes) => {
   }).map((item) => item.node);
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.2.2/node_modules/@windsland52/maa-log-tools/dist/nodeExecutionTimeline.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.3.0/node_modules/@windsland52/maa-log-tools/dist/nodeExecutionTimeline.js
 var isNodeActionFailed = (node) => {
   if (node.action_details && node.action_details.success === false)
     return true;
@@ -3841,7 +5321,7 @@ var buildNodeExecutionTimeline = (nodes, options = {}) => {
   });
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.2.2/node_modules/@windsland52/maa-log-tools/dist/runtimeInspection.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.3.0/node_modules/@windsland52/maa-log-tools/dist/runtimeInspection.js
 var MLA_RUNTIME_INSPECTION_SCHEMA_VERSION = "mla-runtime-inspection/v1";
 var timestampMs = (value) => {
   if (!value)
@@ -4392,7 +5872,7 @@ var buildRuntimeInspection = (output, framework, sourceSegments) => {
   };
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.2.2/node_modules/@windsland52/maa-log-tools/dist/index.js
+// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.3.0/node_modules/@windsland52/maa-log-tools/dist/index.js
 var analyzeLogContent = async (input) => {
   return analyzeLogContentWith(mlaRuntimeAdapter, {
     ...input,
@@ -4401,7 +5881,8 @@ var analyzeLogContent = async (input) => {
 };
 var analyzeZipFile = async (input) => {
   const extracted = await extractZipContentFromNodeFile(input.zipFilePath, {
-    focus: input.focus
+    focus: input.focus,
+    archiveLimits: input.archiveLimits
   });
   if (!extracted)
     return null;
@@ -4416,7 +5897,8 @@ var analyzeZipFile = async (input) => {
 };
 var analyzeDirectory = async (input) => {
   const extracted = await loadNodeLogDirectory(input.directoryPath, {
-    focus: input.focus
+    focus: input.focus,
+    archiveLimits: input.archiveLimits
   });
   if (!extracted)
     return null;
@@ -4430,8 +5912,8 @@ var analyzeDirectory = async (input) => {
   });
 };
 
-// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.2.2/node_modules/@windsland52/maa-log-tools/dist/cli.js
-var import_promises3 = require("node:fs/promises");
+// ../../node_modules/.pnpm/@windsland52+maa-log-tools@1.3.0/node_modules/@windsland52/maa-log-tools/dist/cli.js
+var import_promises4 = require("node:fs/promises");
 var import_node_path3 = __toESM(require("node:path"), 1);
 var import_node_url = require("node:url");
 var printUsage = () => {
@@ -4476,6 +5958,9 @@ var renderOutput = (output, pretty, noEvents) => {
   return JSON.stringify(payload, null, pretty ? 2 : 0);
 };
 var MLA_PREFLIGHT_SCHEMA_VERSION = "mla-preflight/v1";
+var isTaskLifecycleProjection = (task) => {
+  return !task.uuid.startsWith("synthetic:resource_loading:");
+};
 var EMPTY_FRAMEWORK_EXTRACTION = {
   sessions: [],
   summary: { status: "none", versions: [] },
@@ -4497,13 +5982,14 @@ var buildPreflightOutput = (output, framework = EMPTY_FRAMEWORK_EXTRACTION) => {
       warnings: framework.warnings
     };
   }
-  const reason = output.events.length > 0 ? output.tasks.length > 0 ? "notify_events_parsed" : "no_task_lifecycle" : output.warnings.includes("Empty log content.") ? "empty_log" : "no_notify_events";
+  const taskLifecycleCount = output.tasks.filter(isTaskLifecycleProjection).length;
+  const reason = output.events.length > 0 ? taskLifecycleCount > 0 ? "notify_events_parsed" : "no_task_lifecycle" : output.warnings.includes("Empty log content.") ? "empty_log" : "no_notify_events";
   return {
     schemaVersion: MLA_PREFLIGHT_SCHEMA_VERSION,
     status: reason === "notify_events_parsed" ? "supported" : "unsupported",
     reason,
     parserVersion: output.meta.parserVersion,
-    taskCount: output.tasks.length,
+    taskCount: taskLifecycleCount,
     eventCount: output.events.length,
     nodeStatisticCount: output.stats.nodes.length,
     recognitionStatisticCount: output.stats.recognitionActions.length,
@@ -4523,7 +6009,7 @@ var main = async () => {
     process.exit(1);
   }
   const resolvedPath = import_node_path3.default.resolve(targetPath);
-  const targetStat = await (0, import_promises3.stat)(resolvedPath);
+  const targetStat = await (0, import_promises4.stat)(resolvedPath);
   const framework = preflight || runtimeInspection ? extractFrameworkSessions(await loadFrameworkLogSources(resolvedPath)) : EMPTY_FRAMEWORK_EXTRACTION;
   let result = null;
   let sourceSegments = [];
@@ -4869,7 +6355,7 @@ var translatePreflight = (preflight) => ({
 });
 async function runMlaPreflight(targetPath) {
   const resolvedPath = import_node_path4.default.resolve(targetPath);
-  const targetStat = await (0, import_promises4.stat)(resolvedPath);
+  const targetStat = await (0, import_promises5.stat)(resolvedPath);
   const framework = extractFrameworkSessions(await loadFrameworkLogSources(resolvedPath));
   let output = null;
   if (targetStat.isDirectory()) {
@@ -4885,7 +6371,7 @@ async function runMlaPreflight(targetPath) {
 }
 async function runMlaRuntimeInspection(targetPath) {
   const resolvedPath = import_node_path4.default.resolve(targetPath);
-  const targetStat = await (0, import_promises4.stat)(resolvedPath);
+  const targetStat = await (0, import_promises5.stat)(resolvedPath);
   const framework = extractFrameworkSessions(await loadFrameworkLogSources(resolvedPath));
   let output = null;
   let sourceSegments = [];
@@ -4931,10 +6417,10 @@ async function runMlaRuntimeInspection(targetPath) {
 }
 
 // dist/mse.js
-var import_promises5 = require("node:fs/promises");
+var import_promises6 = require("node:fs/promises");
 var import_node_path5 = __toESM(require("node:path"), 1);
 
-// ../../node_modules/.pnpm/@nekosu+maa-locale@1.0.2/node_modules/@nekosu/maa-locale/dist/index.mjs
+// ../../node_modules/.pnpm/@nekosu+maa-locale@1.0.3/node_modules/@nekosu/maa-locale/dist/index.mjs
 var locale_zh_cn_default = {
   "maa.pi.entry.switch-controller": "\u66F4\u6539\u63A7\u5236\u5668",
   "maa.pi.entry.switch-resource": "\u66F4\u6539\u8D44\u6E90",
@@ -4979,6 +6465,7 @@ var locale_zh_cn_default = {
   "maa.debug.task-finished": "\u4EFB\u52A1\u5B8C\u6210 {0} - {1}",
   "maa.debug.task-failed": "\u4EFB\u52A1\u5931\u8D25 {0} - {1}",
   "maa.pipeline.codelens.launch": "\u6267\u884C",
+  "maa.pipeline.codelens.refs": "{0} \u5F15\u7528",
   "maa.pipeline.codelens.eval-task": "\u8BA1\u7B97\u4EFB\u52A1",
   "maa.pipeline.codelens.eval-expr": "\u8BA1\u7B97 {0}",
   "maa.pipeline.codelens.resource-switch": "\u5207\u6362",
@@ -5046,6 +6533,12 @@ var locale_zh_cn_default = {
   "maa.core.cannot-find-log": "\u65E0\u6CD5\u627E\u5230\u65E5\u5FD7\u6587\u4EF6: {0}",
   "maa.core.load-maafw-failed": "\u52A0\u8F7D MaaFramework \u5931\u8D25",
   "maa.crop.warning.no-resource": "\u672A\u914D\u7F6Einterface\u7684\u8D44\u6E90, \u5C06\u76F4\u63A5\u4FDD\u5B58",
+  "maa.screencap.no-runtime": "\u672A\u627E\u5230\u53EF\u622A\u56FE\u7684\u8FD0\u884C\u8D44\u6E90\u9879\u76EE",
+  "maa.screencap.multiple-resources": "\u8FD0\u884C\u4E2D\u7684 Maa \u5B9E\u4F8B\u5C5E\u4E8E\u591A\u4E2A\u8D44\u6E90\u9879\u76EE\uFF0C\u65E0\u6CD5\u786E\u5B9A\u622A\u56FE\u76EE\u6807",
+  "maa.screencap.failed": "\u622A\u56FE\u5931\u8D25",
+  "maa.screencap.saved": "\u622A\u56FE\u5DF2\u4FDD\u5B58: {0}",
+  "maa.shortcut.no-target": "\u672A\u6FC0\u6D3B\u5168\u5C40\u5FEB\u6377\u952E\u76EE\u6807\uFF0C\u8BF7\u5728 Maa \u63A7\u5236\u9762\u677F\u4E2D\u6FC0\u6D3B\u5F53\u524D\u7A97\u53E3",
+  "maa.shortcut.no-instances": "\u5F53\u524D\u5FEB\u6377\u952E\u76EE\u6807\u7A97\u53E3\u4E2D\u6CA1\u6709\u8FD0\u884C\u4E2D\u7684 Maa \u5B9E\u4F8B",
   "maa.eval.input-task": "\u8F93\u5165\u4EFB\u52A1",
   "maa.eval.eval-failed": "\u8BA1\u7B97\u5931\u8D25!",
   "maa.eval.loop-detected": "\u68C0\u6D4B\u5230\u5FAA\u73AF",
@@ -5062,7 +6555,7 @@ function t(key, ...args) {
   return str;
 }
 
-// ../../node_modules/.pnpm/@nekosu+maa-pipeline-manager@1.0.11/node_modules/@nekosu/maa-pipeline-manager/dist/index.mjs
+// ../../node_modules/.pnpm/@nekosu+maa-pipeline-manager@1.0.12/node_modules/@nekosu/maa-pipeline-manager/dist/index.mjs
 var import_node_events = __toESM(require("node:events"), 1);
 var path5 = __toESM(require("node:path"), 1);
 
@@ -6353,7 +7846,7 @@ var C = class {
   }
 };
 
-// ../../node_modules/.pnpm/@nekosu+maa-pipeline-manager@1.0.11/node_modules/@nekosu/maa-pipeline-manager/dist/index.mjs
+// ../../node_modules/.pnpm/@nekosu+maa-pipeline-manager@1.0.12/node_modules/@nekosu/maa-pipeline-manager/dist/index.mjs
 var fs = __toESM(require("node:fs/promises"), 1);
 var nodeKeys = [
   "next",
@@ -9209,7 +10702,7 @@ var ProjectRootConfinement = class {
   violations = 0;
   constructor(projectRoot) {
     this.root = import_node_path5.default.resolve(projectRoot);
-    this.rootReal = (0, import_promises5.realpath)(this.root);
+    this.rootReal = (0, import_promises6.realpath)(this.root);
   }
   recordViolation() {
     this.violations += 1;
@@ -9247,7 +10740,7 @@ var ProjectRootConfinement = class {
     let current = target;
     while (this.isContained(this.root, current)) {
       try {
-        return await (0, import_promises5.realpath)(current);
+        return await (0, import_promises6.realpath)(current);
       } catch (error) {
         if (!["ENOENT", "ENOTDIR"].includes(errorCode(error) ?? ""))
           return null;
@@ -9386,7 +10879,7 @@ var ReadOnlySnapshotWatcher = class {
       return;
     let entries;
     try {
-      entries = await (0, import_promises5.readdir)(directory, { withFileTypes: true });
+      entries = await (0, import_promises6.readdir)(directory, { withFileTypes: true });
     } catch {
       this.accessRecorder.recordUnreadableRoot(directory);
       return;
@@ -9412,7 +10905,7 @@ var isFile = async (target, confinement) => {
   try {
     if (confinement !== void 0 && !await confinement.isAllowed(target))
       return false;
-    const targetStat = await (0, import_promises5.stat)(target);
+    const targetStat = await (0, import_promises6.stat)(target);
     return targetStat.isFile();
   } catch {
     return false;
@@ -9420,7 +10913,7 @@ var isFile = async (target, confinement) => {
 };
 var directoryScanStatus = async (target) => {
   try {
-    const targetStat = await (0, import_promises5.stat)(target);
+    const targetStat = await (0, import_promises6.stat)(target);
     return targetStat.isDirectory() ? "directory" : "not_directory";
   } catch (error) {
     const code = errorCode(error);
@@ -9433,7 +10926,7 @@ var directoryScanStatus = async (target) => {
 };
 var fileScanStatus = async (target) => {
   try {
-    const targetStat = await (0, import_promises5.stat)(target);
+    const targetStat = await (0, import_promises6.stat)(target);
     return targetStat.isFile() ? "file" : "not_file";
   } catch (error) {
     const code = errorCode(error);
@@ -9448,7 +10941,7 @@ var missingPathStatus = async (target, blockedByFileStatus) => {
   let current = import_node_path5.default.dirname(import_node_path5.default.resolve(target));
   while (true) {
     try {
-      const currentStat = await (0, import_promises5.stat)(current);
+      const currentStat = await (0, import_promises6.stat)(current);
       return currentStat.isDirectory() ? "missing" : blockedByFileStatus;
     } catch (error) {
       const code = errorCode(error);
@@ -9465,7 +10958,7 @@ var isDirectory = async (target, confinement) => {
   try {
     if (confinement !== void 0 && !await confinement.isAllowed(target))
       return false;
-    const targetStat = await (0, import_promises5.stat)(target);
+    const targetStat = await (0, import_promises6.stat)(target);
     return targetStat.isDirectory();
   } catch {
     return false;

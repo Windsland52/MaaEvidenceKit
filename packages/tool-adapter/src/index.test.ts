@@ -4,7 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 
-import { FsContentLoader } from "@nekosu/maa-pipeline-manager";
+import {
+  FsContentLoader,
+  resolveCheckbox,
+  type CheckboxOption
+} from "@nekosu/maa-pipeline-manager";
 
 import {
   handleRequest,
@@ -37,6 +41,30 @@ test("tools/list exposes MLA and MSE deterministic tools", async () => {
     "mse.project-preflight",
     "mse.resolve-tasks"
   ]);
+});
+
+test("maa-pipeline-manager applies checkbox defaults when config is omitted", () => {
+  const option = {
+    type: "checkbox",
+    default_case: ["Enabled"],
+    cases: [
+      {
+        name: "Enabled",
+        pipeline_override: { Start: { enabled: true } }
+      },
+      {
+        name: "Disabled",
+        pipeline_override: { Start: { enabled: false } }
+      }
+    ]
+  } satisfies CheckboxOption;
+
+  const resolved = resolveCheckbox({ name: "Combat" }, "Features", option);
+
+  assert.deepEqual(resolved?.map((item) => item.name), ["Enabled"]);
+  assert.deepEqual(resolved?.[0]?.pipeline_override, {
+    Start: { enabled: true }
+  });
 });
 
 test("mse.project-preflight loads interface resource combinations read-only", async () => {

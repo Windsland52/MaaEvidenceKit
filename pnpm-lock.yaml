@@ -18,14 +18,14 @@ importers:
   packages/tool-adapter:
     dependencies:
       '@nekosu/maa-pipeline-manager':
-        specifier: 1.0.11
-        version: 1.0.11
+        specifier: 1.0.12
+        version: 1.0.12
       '@nekosu/maa-tasker':
         specifier: 1.0.0
         version: 1.0.0
       '@windsland52/maa-log-tools':
-        specifier: 1.2.2
-        version: 1.2.2
+        specifier: 1.3.0
+        version: 1.3.0
     devDependencies:
       '@maaxyz/maa-node':
         specifier: 5.12.2
@@ -226,11 +226,11 @@ packages:
     resolution: {integrity: sha512-2MzI2x5uAKp4YScDIq96Mjns4JeZUbt9nqqXLj+uVAtK059KVaNwpa2kpCuV0y8ip3WK20ZChoq1jPL2+iqj/w==}
     engines: {node: '>= 20.0.0'}
 
-  '@nekosu/maa-locale@1.0.2':
-    resolution: {integrity: sha512-h09IQIN6iKt3OmwiCD7O36QOkmfL8lFO4nAAj+cXOuQfXYbWv4kLDzApzfURhGezjpm4+9gPaksYY9xK9LLkOA==}
+  '@nekosu/maa-locale@1.0.3':
+    resolution: {integrity: sha512-7HNGbhhuKky8kumBxAJXrezSzIPmP1en+DlqENx5r5DZHwJRCDSjzbW7Wi7Zogbo8lpBZNq631kEDspdTbFKIA==}
 
-  '@nekosu/maa-pipeline-manager@1.0.11':
-    resolution: {integrity: sha512-5OzCMO5w7ohaLBlgpcuKeidUN+tU49e2EFpY5MveKXDPpyVkwKkqtrcug52nfJgJP57v+8Eta1ZU9/8aGyL9tA==}
+  '@nekosu/maa-pipeline-manager@1.0.12':
+    resolution: {integrity: sha512-xIw6xYbAZwcNl6NmpriqwZS2KrMLAA2ZGvOYij87rtTX+tp3749dyvTySBQ+2MqFg4kvMPm1M2L/zigmtt1vCQ==}
 
   '@nekosu/maa-tasker@1.0.0':
     resolution: {integrity: sha512-p5SaBJGvAMr5J2uk6imoiK7eIF7yA67HndWyfxddAHHdoyliai2dkHqBhTmDDuRmmAJ/ly4INg5Hnx8CI7Po3A==}
@@ -241,25 +241,25 @@ packages:
   '@types/node@24.6.0':
     resolution: {integrity: sha512-F1CBxgqwOMc4GKJ7eY22hWhBVQuMYTtqI8L0FcszYcpYX0fzfDGpez22Xau8Mgm7O9fI+zA/TYIdq3tGWfweBA==}
 
-  '@windsland52/maa-log-adapter@1.0.1':
-    resolution: {integrity: sha512-dVhl8rcq72+Kvf5yfIE2sZvvB+ZA3kMqA9rZT8/LSO0lty04mb6SaBR5LOhumjTvZY+tND5cNVkqzXta9tuvyg==}
-    engines: {node: '>=24.0.0'}
+  '@windsland52/maa-log-adapter@1.1.0':
+    resolution: {integrity: sha512-1s+1AUqRZYkO3H6e81coJOW6hP1hfSzZwWugYmfcxBvsTlkV28xa8ERNhlY2L6iqVWocMQrDj+0tBVJiUECUtg==}
+    engines: {node: '>=20.18.0'}
 
-  '@windsland52/maa-log-kernel@1.0.1':
-    resolution: {integrity: sha512-aERzU+AYMEYckEajHpOJvwAp979zR5vUzLWdGSW/vld3IFjZmHC2u0JO8tU6E5cX7TKLWYqWT7M51aFLTiXnAw==}
-    engines: {node: '>=24.0.0'}
+  '@windsland52/maa-log-kernel@1.0.2':
+    resolution: {integrity: sha512-5HZN+YfI389AZltTmScelhTPG8PX9iEkFFBlnxHhdY8roHusaC/h4Gxqz0hVRckfKcdiKOWwiH7je2CDEJKbmA==}
+    engines: {node: '>=20.18.0'}
 
-  '@windsland52/maa-log-parser@1.0.1':
-    resolution: {integrity: sha512-T+O1wxEVZd6NtzB4bh91qWbXSQPxwPKSv0oMBNjiTPUpFIcuI2uYcUZRrWqmMiHY2hhP1O2WykE9Cxas9l8+4Q==}
-    engines: {node: '>=24.0.0'}
+  '@windsland52/maa-log-parser@1.1.0':
+    resolution: {integrity: sha512-LRbRTJ3yYXu5zWULA1GkQFN8fZu4eGcdmzzr2/XlTnM2Hg2Tmo+BTVHacROcCMiJqz77tRBLcLrEXnm7jCdu9A==}
+    engines: {node: '>=20.18.0'}
 
-  '@windsland52/maa-log-runtime@1.0.1':
-    resolution: {integrity: sha512-ZUkn3JTwLQkIlBvEFB2qzPaVnlihhYT6b5c4BWuQoyusthBKTSfJubeQckACqdTutdkIzerwJJwUE0my+sOlNg==}
-    engines: {node: '>=24.0.0'}
+  '@windsland52/maa-log-runtime@1.1.0':
+    resolution: {integrity: sha512-33QSpc093kqGZR3yUzA+vz5QdeWednKeweqApJ6fvT2oWX71TEGWX2CHLUoyPlqqy6sMHA6zbHGHmyujAFROww==}
+    engines: {node: '>=20.18.0'}
 
-  '@windsland52/maa-log-tools@1.2.2':
-    resolution: {integrity: sha512-Ry90IkQ5dl1uZZuyzTCPnL3kxF53WRh6FB73qLgoBp/T525xGZmXSPfOIX5ha7tvBQYJdhTUIBrMKDJqmRjBJA==}
-    engines: {node: '>=24.0.0'}
+  '@windsland52/maa-log-tools@1.3.0':
+    resolution: {integrity: sha512-dCmY8wjSWpv4bZ/8sPUW/HFtIl23B053GHtwKsxZbfUyrzJhAP6LqpQC96vuRtnqYSVKq9Qbu0N7fQDZzqHttw==}
+    engines: {node: '>=20.18.0'}
     hasBin: true
 
   chokidar@5.0.0:
@@ -396,11 +396,11 @@ snapshots:
       '@maaxyz/maa-node-win32-arm64': 5.12.2
       '@maaxyz/maa-node-win32-x64': 5.12.2
 
-  '@nekosu/maa-locale@1.0.2': {}
+  '@nekosu/maa-locale@1.0.3': {}
 
-  '@nekosu/maa-pipeline-manager@1.0.11':
+  '@nekosu/maa-pipeline-manager@1.0.12':
     dependencies:
-      '@nekosu/maa-locale': 1.0.2
+      '@nekosu/maa-locale': 1.0.3
       '@nekosu/maa-tasker': 1.0.0
       chokidar: 5.0.0
       jsonc-parser: 3.3.1
@@ -415,26 +415,26 @@ snapshots:
     dependencies:
       undici-types: 7.13.0
 
-  '@windsland52/maa-log-adapter@1.0.1':
+  '@windsland52/maa-log-adapter@1.1.0':
     dependencies:
-      '@windsland52/maa-log-kernel': 1.0.1
-      '@windsland52/maa-log-parser': 1.0.1
-      '@windsland52/maa-log-runtime': 1.0.1
+      '@windsland52/maa-log-kernel': 1.0.2
+      '@windsland52/maa-log-parser': 1.1.0
+      '@windsland52/maa-log-runtime': 1.1.0
 
-  '@windsland52/maa-log-kernel@1.0.1': {}
+  '@windsland52/maa-log-kernel@1.0.2': {}
 
-  '@windsland52/maa-log-parser@1.0.1': {}
+  '@windsland52/maa-log-parser@1.1.0': {}
 
-  '@windsland52/maa-log-runtime@1.0.1':
+  '@windsland52/maa-log-runtime@1.1.0':
     dependencies:
-      '@windsland52/maa-log-kernel': 1.0.1
+      '@windsland52/maa-log-kernel': 1.0.2
 
-  '@windsland52/maa-log-tools@1.2.2':
+  '@windsland52/maa-log-tools@1.3.0':
     dependencies:
-      '@windsland52/maa-log-adapter': 1.0.1
-      '@windsland52/maa-log-kernel': 1.0.1
-      '@windsland52/maa-log-parser': 1.0.1
-      '@windsland52/maa-log-runtime': 1.0.1
+      '@windsland52/maa-log-adapter': 1.1.0
+      '@windsland52/maa-log-kernel': 1.0.2
+      '@windsland52/maa-log-parser': 1.1.0
+      '@windsland52/maa-log-runtime': 1.1.0
       fflate: 0.8.3
 
   chokidar@5.0.0:

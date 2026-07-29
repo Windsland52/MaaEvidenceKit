@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import zipfile
 from pathlib import Path
 
+from maa_diagnostic_expert.contracts.domain import AnalysisRequest, ArtifactInput, ArtifactKind
 from maa_diagnostic_expert.contracts.mla import MlaPreflightResult
 from maa_diagnostic_expert.contracts.mse import MseProjectPreflightResult
+from maa_diagnostic_expert.inspection.service import inspect_analysis
 from maa_diagnostic_expert.interfaces.tool_adapter import (
     JsonlToolAdapterClient,
     default_tool_adapter_path,
@@ -36,6 +39,33 @@ def test_python_client_calls_bundled_mla_adapter_across_process(tmp_path: Path) 
 
     assert result.framework.versions == ["v5.11.1"]
     assert result.framework.sessions[0].version_evidence[0].line == 2
+
+
+def test_bundled_mla_archive_limit_failure_becomes_missing_evidence(
+    tmp_path: Path,
+) -> None:
+    archive_path = tmp_path / "debug.zip"
+    with zipfile.ZipFile(
+        archive_path,
+        mode="w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=9,
+    ) as archive:
+        archive.writestr("maafw.log", b"0" * (2 * 1024 * 1024))
+
+    inspection = inspect_analysis(
+        AnalysisRequest(artifacts=[ArtifactInput(path=archive_path, kind=ArtifactKind.ARCHIVE)]),
+        _bundled_client(),
+    )
+
+    failures = [
+        item for item in inspection.prepared.missing_evidence if item.code == "mla_preflight_failed"
+    ]
+    assert len(failures) == 1
+    assert "compression-ratio" in failures[0].message
+    assert failures[0].source_path == archive_path.resolve()
+    assert inspection.mla_preflights == []
+    assert inspection.mla_runtime_inspections == []
 
 
 def test_python_client_calls_bundled_mse_adapter_across_process(tmp_path: Path) -> None:
