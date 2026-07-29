@@ -440,6 +440,24 @@ const errorCode = (error: unknown): string | undefined => {
     : undefined;
 };
 
+const isAbsoluteOnSupportedPlatform = (target: string): boolean => {
+  return path.posix.isAbsolute(target) || path.win32.isAbsolute(target);
+};
+
+const assertInterfacePathsAreRelative = (bundle: InterfaceBundle): void => {
+  for (const ref of bundle.info.refs) {
+    if (
+      ref.type === "interface.resource_path" ||
+      ref.type === "interface.import_path" ||
+      ref.type === "interface.language_path"
+    ) {
+      if (isAbsoluteOnSupportedPlatform(ref.target)) {
+        throw new Error(CONFINEMENT_ERROR);
+      }
+    }
+  }
+};
+
 const findInterface = async (
   projectRoot: string,
   confinement: ProjectRootConfinement
@@ -554,8 +572,10 @@ export async function runMseProjectPreflight(
   try {
     await bundle.load();
     confinement.assertNoViolations();
+    assertInterfacePathsAreRelative(bundle);
     await bundle.flush(false);
     confinement.assertNoViolations();
+    assertInterfacePathsAreRelative(bundle);
     const controllers = [...new Set(bundle.allControllerNames())];
     const resources = [...new Set(bundle.allResourceNames())];
     const controllerChoices: Array<string | null> =
@@ -783,8 +803,10 @@ export async function runMseTaskResolution(
   try {
     await bundle.load();
     confinement.assertNoViolations();
+    assertInterfacePathsAreRelative(bundle);
     await bundle.flush(false);
     confinement.assertNoViolations();
+    assertInterfacePathsAreRelative(bundle);
     const controllers = requestedController === undefined
       ? [...new Set(bundle.allControllerNames())]
       : [requestedController];

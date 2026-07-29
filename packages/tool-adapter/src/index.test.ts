@@ -223,6 +223,46 @@ test("mse.resolve-tasks rejects absolute resource paths outside the project", as
   );
 });
 
+test("mse tools reject foreign-platform absolute resource paths", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mde-mse-foreign-absolute-"));
+  temporaryRoots.push(root);
+  const foreignAbsolute = path.sep === "/"
+    ? "C:\\mde-outside-resource"
+    : "/mde-outside-resource";
+  await writeFile(
+    path.join(root, "interface.json"),
+    JSON.stringify({
+      controller: [{ name: "Adb" }],
+      resource: [{ name: "Escaped", path: [foreignAbsolute], controller: ["Adb"] }]
+    }),
+    "utf8"
+  );
+
+  const calls = [
+    { id: "mse-foreign-absolute-preflight", name: "mse.project-preflight" },
+    { id: "mse-foreign-absolute-resolve", name: "mse.resolve-tasks" }
+  ];
+  for (const call of calls) {
+    const response = await handleRequest({
+      id: call.id,
+      apiVersion: "tool-adapter/v1",
+      method: "tools/call",
+      params: {
+        name: call.name,
+        arguments: {
+          path: root,
+          syntax_mode: "maafw",
+          ...(call.name === "mse.resolve-tasks" ? { tasks: ["Start"] } : {})
+        }
+      }
+    });
+
+    assert.equal(response.ok, false);
+    assert.equal(response.error?.code, "TOOL_EXECUTION_FAILED");
+    assert.match(response.error?.message ?? "", /escaped the configured project root/u);
+  }
+});
+
 test("mse.project-preflight does not treat missing in-root resources as escapes", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mde-mse-missing-resource-"));
   temporaryRoots.push(root);

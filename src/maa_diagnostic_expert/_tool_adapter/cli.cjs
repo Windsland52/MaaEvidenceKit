@@ -9474,6 +9474,18 @@ var isDirectory = async (target, confinement) => {
 var errorCode = (error) => {
   return isRecord(error) && typeof error["code"] === "string" ? error["code"] : void 0;
 };
+var isAbsoluteOnSupportedPlatform = (target) => {
+  return import_node_path5.default.posix.isAbsolute(target) || import_node_path5.default.win32.isAbsolute(target);
+};
+var assertInterfacePathsAreRelative = (bundle) => {
+  for (const ref of bundle.info.refs) {
+    if (ref.type === "interface.resource_path" || ref.type === "interface.import_path" || ref.type === "interface.language_path") {
+      if (isAbsoluteOnSupportedPlatform(ref.target)) {
+        throw new Error(CONFINEMENT_ERROR);
+      }
+    }
+  }
+};
 var findInterface = async (projectRoot, confinement) => {
   for (const relative2 of INTERFACE_CANDIDATES) {
     const candidate = import_node_path5.default.join(projectRoot, relative2);
@@ -9569,8 +9581,10 @@ async function runMseProjectPreflight(targetPath, syntaxMode) {
   try {
     await bundle.load();
     confinement.assertNoViolations();
+    assertInterfacePathsAreRelative(bundle);
     await bundle.flush(false);
     confinement.assertNoViolations();
+    assertInterfacePathsAreRelative(bundle);
     const controllers = [...new Set(bundle.allControllerNames())];
     const resources = [...new Set(bundle.allResourceNames())];
     const controllerChoices = controllers.length > 0 ? controllers : [null];
@@ -9748,8 +9762,10 @@ async function runMseTaskResolution(targetPath, requestedTasks, syntaxMode, requ
   try {
     await bundle.load();
     confinement.assertNoViolations();
+    assertInterfacePathsAreRelative(bundle);
     await bundle.flush(false);
     confinement.assertNoViolations();
+    assertInterfacePathsAreRelative(bundle);
     const controllers = requestedController === void 0 ? [...new Set(bundle.allControllerNames())] : [requestedController];
     const controllerChoices = controllers.length > 0 ? controllers : [null];
     configurationLoop: for (const controller of controllerChoices) {
