@@ -517,6 +517,21 @@ def test_fix_candidate_plan_requires_bounded_unique_candidates() -> None:
     assert flattened_candidate.evidence_ids == ["evidence-1"]
     assert flattened_candidate.regression_risks == ["Desktop capture must remain guarded."]
 
+    flattened_with_status = FixCandidatePlan.model_validate(
+        {
+            **flattened.model_dump(mode="json", exclude={"candidates"}),
+            "candidates": "",
+            "fix_id": "fix-flat-with-status",
+            "target": "src/components/Toolbar.tsx",
+            "scope": "gui",
+            "method": "gui_code",
+            "evidence_id": "evidence-1",
+            "verification_steps": ["Test desktop and ADB controllers."],
+        }
+    )
+    assert flattened_with_status.status is FixPlanningStatus.PROPOSED
+    assert flattened_with_status.candidates[0].fix_id == "fix-flat-with-status"
+
     with pytest.raises(ValidationError):
         FixCandidatePlan.model_validate(
             {

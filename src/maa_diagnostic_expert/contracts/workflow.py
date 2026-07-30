@@ -543,9 +543,16 @@ class FixCandidatePlan(ContractModel):
             "regression_risks",
             "verification_steps",
         }
-        allowed_keys = candidate_keys | {"api_version", "candidates"}
+        allowed_keys = candidate_keys | {"api_version", "status", "candidates"}
         required_keys = {"fix_id", "target", "scope", "method", "verification_steps"}
-        if "status" in data or not required_keys.issubset(data) or set(data) - allowed_keys:
+        status = data.get("status")
+        candidates = data.get("candidates")
+        if (
+            status not in {None, FixPlanningStatus.PROPOSED, FixPlanningStatus.PROPOSED.value}
+            or candidates not in (None, "")
+            or not required_keys.issubset(data)
+            or set(data) - allowed_keys
+        ):
             return data
         candidate = {key: item for key, item in data.items() if key in candidate_keys}
         rationale = data.get("rationale", data.get("rational"))
