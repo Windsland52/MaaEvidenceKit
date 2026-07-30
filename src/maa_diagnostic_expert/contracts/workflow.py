@@ -483,12 +483,14 @@ class FixCandidate(ContractModel):
             raise ValueError(
                 f"Pipeline fix method '{self.method.value}' cannot use scope '{self.scope.value}'"
             )
+        target = self.target.casefold()
+        code_target_markers = (*_SOURCE_CODE_SUFFIXES, "()", "::")
         if self.method is FixMethod.CONFIGURATION and any(
-            suffix in self.target.casefold() for suffix in _SOURCE_CODE_SUFFIXES
+            marker in target for marker in code_target_markers
         ):
             raise ValueError(
                 "Configuration fixes must target a configuration field or file, not a source "
-                "code path"
+                "code path or callable symbol"
             )
         return self
 

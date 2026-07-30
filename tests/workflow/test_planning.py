@@ -557,6 +557,16 @@ def test_fix_candidate_plan_requires_bounded_unique_candidates() -> None:
             evidence_ids=["evidence-1"],
             verification_steps=["Test the target."],
         )
+    with pytest.raises(ValidationError, match="callable symbol"):
+        FixCandidate(
+            fix_id="invalid-config-callable-target",
+            target="Toolbar.startInstance() / scheduleService trigger path",
+            scope=FixScope.NODE,
+            method=FixMethod.CONFIGURATION,
+            rationale="Changing a source symbol is not a configuration-only repair.",
+            evidence_ids=["evidence-1"],
+            verification_steps=["Test the target."],
+        )
 
     with pytest.raises(ValidationError, match="cannot use scope 'framework'"):
         FixCandidate(
