@@ -36,6 +36,11 @@ def test_configuration_keys_normalize_casing_and_separator_variants() -> None:
     assert extract_source_configuration_identifiers(
         "const transport_profile = settings.transportProfile; const retry = config['retry-budget'];"
     ) >= {"transportprofile", "retrybudget"}
+    identifiers = extract_source_configuration_identifiers(
+        "// hotkeys configure shortcuts\nconst theme = settings.theme;"
+    )
+    assert "theme" in identifiers
+    assert "hotkeys" not in identifiers
 
 
 def test_configuration_index_matches_only_identifiers_present_in_source(
@@ -109,3 +114,14 @@ def test_configuration_matching_prefers_source_window_containing_observed_messag
         [log, broad_match, message_owner],
         index,
     ) == {profile_config: {"transportprofile"}}
+
+    no_message_owner = message_owner.model_copy(
+        update={"content": "const profile = settings.transportProfile;"}
+    )
+    assert (
+        matching_configuration_identifiers(
+            [log, broad_match, no_message_owner],
+            index,
+        )
+        == {}
+    )

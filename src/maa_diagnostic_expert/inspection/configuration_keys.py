@@ -22,6 +22,7 @@ _KEY_LOOKUP = re.compile(
     r"([A-Za-z_$][A-Za-z0-9_$.-]*)[\"']",
     re.IGNORECASE,
 )
+_SOURCE_COMMENTS = re.compile(r"//[^\n]*|/\*.*?\*/|#[^\n]*", re.DOTALL)
 _UNINFORMATIVE_IDENTIFIERS = {
     "config",
     "configuration",
@@ -83,6 +84,7 @@ def extract_configuration_keys(content: str) -> dict[str, tuple[int, ...]]:
 
 def extract_source_configuration_identifiers(content: str) -> set[str]:
     """Extract lexical identifiers that can be intersected with actual configuration keys."""
+    content = _SOURCE_COMMENTS.sub("", content)
     candidates = {
         *(match.group(0) for match in _SOURCE_IDENTIFIER.finditer(content)),
         *(match.group(1) for match in _PROPERTY_ACCESS.finditer(content)),
@@ -120,7 +122,7 @@ def source_configuration_identifier_sets(evidence: list[Evidence]) -> dict[str, 
         for item in source_items
         if any(anchor.casefold() in item.content.casefold() for anchor in anchors)
     ]
-    if anchored_items:
+    if anchors:
         source_items = anchored_items
     return {
         item.id: extract_source_configuration_identifiers(item.content) for item in source_items
