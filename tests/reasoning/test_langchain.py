@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import cast
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from maa_diagnostic_expert.contracts.domain import (
     ContractModel,
@@ -165,6 +166,41 @@ def test_langchain_backend_includes_target_schema_in_json_mode() -> None:
     assert "Return only one JSON object" in rendered_input
     assert "Target type: DiagnosisDraft" in rendered_input
     assert '"conclusions"' in rendered_input
+
+
+def test_langchain_backend_preserves_message_prefix_for_followup_instruction() -> None:
+    draft = DiagnosisDraft(
+        status=DiagnosisStatus.INSUFFICIENT_EVIDENCE,
+        summary="No evidence.",
+    )
+    model = _ChatModel(draft, draft)
+    backend = LangChainReasoningBackend(
+        _config(StructuredOutputMethod.JSON_MODE),
+        model=model,
+    )
+    session = asyncio.run(backend.start(run_id="run-cache-prefix"))
+    context = build_reasoning_context("Diagnose.", [])
+    correction = replace(
+        context,
+        followup_instruction="Correction required: copy the exact evidence IDs.",
+    )
+
+    asyncio.run(session.reason(context, DiagnosisDraft))
+    asyncio.run(session.reason(correction, DiagnosisDraft))
+
+    first_messages = cast(list[BaseMessage], model.structured.inputs[0])
+    second_messages = cast(list[BaseMessage], model.structured.inputs[1])
+    followup_instruction = correction.followup_instruction
+    assert followup_instruction is not None
+    assert len(first_messages) == 2
+    assert len(second_messages) == 3
+    assert second_messages[:2] == first_messages
+    assert isinstance(second_messages[0], SystemMessage)
+    assert isinstance(second_messages[1], HumanMessage)
+    assert isinstance(second_messages[2], HumanMessage)
+    assert second_messages[2].content == followup_instruction
+    assert followup_instruction not in str(second_messages[0].content)
+    assert followup_instruction in correction.to_request().instruction
 
 
 def test_langchain_backend_uses_json_retry_feedback_in_json_mode() -> None:

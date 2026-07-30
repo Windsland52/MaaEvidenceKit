@@ -215,8 +215,8 @@ async def _reason_diagnosis_draft(
         )
         correction = ReasoningContext(
             stage=context.stage,
-            instruction=(
-                f"{context.instruction}\n\n"
+            instruction=context.instruction,
+            followup_instruction=(
                 f"Correction required: the previous diagnosis draft was invalid: "
                 f"{str(error)[:2000]}. Return the complete diagnosis draft again. Every "
                 "conclusion must copy complete evidence_id strings exactly from this citable "
@@ -261,8 +261,8 @@ async def _reason_incident_correlation(
         )
         correction = ReasoningContext(
             stage=context.stage,
-            instruction=(
-                f"{context.instruction}\n\n"
+            instruction=context.instruction,
+            followup_instruction=(
                 f"Correction required: the previous draft was invalid: {str(error)[:2000]}. "
                 "Return the complete draft again. Copy candidate IDs exactly from "
                 f"{json.dumps(candidate_ids, ensure_ascii=False)} and evidence IDs exactly from "
@@ -306,8 +306,8 @@ async def _reason_research_plan[
         )
         correction = ReasoningContext(
             stage=context.stage,
-            instruction=(
-                f"{context.instruction}\n\n"
+            instruction=context.instruction,
+            followup_instruction=(
                 "Correction required: the previous plan used unknown query.source_id values "
                 f"{json.dumps(sorted(unknown_sources), ensure_ascii=False)}. Return the complete "
                 "plan again using only these exact source_id strings: "
@@ -374,8 +374,8 @@ async def _reason_evidence_research_plan(
         )
         correction = ReasoningContext(
             stage=context.stage,
-            instruction=(
-                f"{context.instruction}\n\n"
+            instruction=context.instruction,
+            followup_instruction=(
                 "Correction required: the previous plan either used unauthorized source_path "
                 f"values {json.dumps(unknown_path_strings, ensure_ascii=False)} or omitted a "
                 "required configuration snapshot. "
@@ -460,8 +460,8 @@ async def _reason_fix_candidate_plan(
         )
         correction = ReasoningContext(
             stage=context.stage,
-            instruction=(
-                f"{context.instruction}\n\n"
+            instruction=context.instruction,
+            followup_instruction=(
                 f"Correction required: the previous repair plan was invalid: "
                 f"{str(error)[:2000]}. Return the complete plan again. For any code fix, copy "
                 "the exact component, file, and symbol from cited version-matched source "

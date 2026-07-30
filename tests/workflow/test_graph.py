@@ -1364,10 +1364,14 @@ def test_workflow_runs_model_planned_versioned_source_search(
         context for context in backend.contexts if context.stage == "correlate_incident"
     ]
     assert len(correlation_contexts) == 2
-    assert "Preserve every prefix, including 'incident:'" in correlation_contexts[1].instruction
+    assert correlation_contexts[1].instruction == correlation_contexts[0].instruction
+    assert "Preserve every prefix, including 'incident:'" in (
+        correlation_contexts[1].followup_instruction or ""
+    )
     reason_contexts = [context for context in backend.contexts if context.stage == "diagnose"]
     assert len(reason_contexts) == 2
-    assert "Preserve every prefix and colon" in reason_contexts[1].instruction
+    assert reason_contexts[1].instruction == reason_contexts[0].instruction
+    assert "Preserve every prefix and colon" in (reason_contexts[1].followup_instruction or "")
     for context in backend.contexts:
         assert "Reported issue:\nLoginTask stopped after LoginButton timed out." in (
             context.instruction
@@ -1440,8 +1444,11 @@ def test_workflow_runs_document_search_without_runtime_incident(tmp_path: Path) 
         context for context in backend.contexts if context.stage == "plan_knowledge_research"
     ]
     assert len(plan_contexts) == 2
-    assert 'unknown query.source_id values ["documentation"]' in plan_contexts[1].instruction
-    assert 'exact source_id strings: ["docs"]' in plan_contexts[1].instruction
+    assert plan_contexts[1].instruction == plan_contexts[0].instruction
+    assert 'unknown query.source_id values ["documentation"]' in (
+        plan_contexts[1].followup_instruction or ""
+    )
+    assert 'exact source_id strings: ["docs"]' in (plan_contexts[1].followup_instruction or "")
     diagnose_context = next(context for context in backend.contexts if context.stage == "diagnose")
     assert any(
         evidence.kind == "knowledge_document_match" for evidence in diagnose_context.evidence

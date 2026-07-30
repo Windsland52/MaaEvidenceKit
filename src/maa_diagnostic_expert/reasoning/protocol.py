@@ -23,8 +23,10 @@ class ReasoningContext:
 
     The authoritative evidence ledger stays outside this object. Construction
     selects a bounded copy for model consumption and records any omissions or
-    content truncation in the instruction. The serializable audit record is
-    produced via ``to_request``.
+    content truncation in the instruction. ``followup_instruction`` is sent as
+    a separate user message so a correction can preserve the original model
+    request as a cacheable prefix. The serializable audit record is produced
+    via ``to_request`` and includes both instructions.
     """
 
     stage: str
@@ -32,6 +34,7 @@ class ReasoningContext:
     evidence: list[Evidence] = field(default_factory=list[Evidence])
     incident_selection: IncidentSelection | None = None
     incident_comparison: IncidentComparison | None = None
+    followup_instruction: str | None = None
     available_evidence_count: int = field(init=False)
     omitted_evidence_count: int = field(init=False)
     truncated_evidence_count: int = field(init=False)
@@ -54,9 +57,12 @@ class ReasoningContext:
             object.__setattr__(self, "instruction", f"{self.instruction}\n\n{note}")
 
     def to_request(self) -> ReasoningRequest:
+        instruction = self.instruction
+        if self.followup_instruction is not None:
+            instruction = f"{instruction}\n\nFollow-up instruction:\n{self.followup_instruction}"
         return ReasoningRequest(
             stage=self.stage,
-            instruction=self.instruction,
+            instruction=instruction,
             evidence_ids=[item.id for item in self.evidence],
         )
 

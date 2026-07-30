@@ -184,6 +184,8 @@ class LangChainReasoningSession:
             SystemMessage(content=instruction),
             HumanMessage(content=render_evidence_block(context.evidence)),
         ]
+        if context.followup_instruction is not None:
+            base_messages.append(HumanMessage(content=context.followup_instruction))
         retry_error: Exception | None = None
         for attempt in range(self._structured_output_retries + 1):
             messages = list(base_messages)
