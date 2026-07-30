@@ -124,8 +124,21 @@ def source_configuration_identifier_sets(evidence: list[Evidence]) -> dict[str, 
     ]
     if anchors:
         source_items = anchored_items
+
+    def dependency_prefix(item: Evidence) -> str:
+        positions = [
+            (position, len(anchor))
+            for anchor in anchors
+            if (position := item.content.casefold().find(anchor.casefold())) >= 0
+        ]
+        if not positions:
+            return item.content
+        position, length = min(positions)
+        return item.content[: position + length]
+
     return {
-        item.id: extract_source_configuration_identifiers(item.content) for item in source_items
+        item.id: extract_source_configuration_identifiers(dependency_prefix(item))
+        for item in source_items
     }
 
 

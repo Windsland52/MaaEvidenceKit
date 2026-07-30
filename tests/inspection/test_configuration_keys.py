@@ -101,7 +101,7 @@ def test_configuration_matching_prefers_source_window_containing_observed_messag
         role=EvidenceRole.SIGNAL,
     )
     message_owner = _source(
-        'log.warn("retry budget exhausted"); use(transportProfile);',
+        'use(settings.transportProfile); log.warn("retry budget exhausted");',
         "ev:message-owner",
     )
     broad_match = _source("if (retryBudget > 0) retry();", "ev:broad-match")
@@ -114,6 +114,14 @@ def test_configuration_matching_prefers_source_window_containing_observed_messag
         [log, broad_match, message_owner],
         index,
     ) == {profile_config: {"transportprofile"}}
+
+    post_anchor_access = message_owner.model_copy(
+        update={
+            "id": "ev:post-anchor",
+            "content": 'log.warn("retry budget exhausted"); use(settings.retryBudget);',
+        }
+    )
+    assert matching_configuration_identifiers([log, post_anchor_access], index) == {}
 
     no_message_owner = message_owner.model_copy(
         update={"content": "const profile = settings.transportProfile;"}
