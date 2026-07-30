@@ -582,6 +582,16 @@ def test_fix_candidate_plan_requires_bounded_unique_candidates() -> None:
             evidence_ids=["evidence-1"],
             verification_steps=["Test the target."],
         )
+    with pytest.raises(ValidationError, match="Source code targets require"):
+        FixCandidate(
+            fix_id="invalid-pipeline-code-target",
+            target="src/components/Toolbar.tsx / isWorkstationLocked check",
+            scope=FixScope.NODE,
+            method=FixMethod.EXPECTED_REPLACE,
+            rationale="A pipeline replacement method cannot edit GUI source code.",
+            evidence_ids=["evidence-1"],
+            verification_steps=["Test the target."],
+        )
 
     with pytest.raises(ValidationError, match="cannot use scope 'framework'"):
         FixCandidate(

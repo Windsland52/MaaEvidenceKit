@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
@@ -32,20 +33,9 @@ _Rationale = Annotated[
         serialization_alias="rationale",
     ),
 ]
-_SOURCE_CODE_SUFFIXES = (
-    ".c",
-    ".cc",
-    ".cpp",
-    ".cs",
-    ".go",
-    ".h",
-    ".hpp",
-    ".js",
-    ".jsx",
-    ".py",
-    ".rs",
-    ".ts",
-    ".tsx",
+_SOURCE_CODE_TARGET = re.compile(
+    r"\.(?:c|cc|cpp|cs|go|h|hpp|js|jsx|py|rs|ts|tsx)(?=$|[\s:/#])",
+    re.IGNORECASE,
 )
 
 
@@ -464,6 +454,7 @@ class FixCandidate(ContractModel):
             FixMethod.GUI_CODE: FixScope.GUI,
             FixMethod.FRAMEWORK_CODE: FixScope.FRAMEWORK,
         }
+        code_methods = set(expected_scopes)
         expected_scope = expected_scopes.get(self.method)
         if expected_scope is not None and self.scope is not expected_scope:
             raise ValueError(
@@ -484,14 +475,16 @@ class FixCandidate(ContractModel):
                 f"Pipeline fix method '{self.method.value}' cannot use scope '{self.scope.value}'"
             )
         target = self.target.casefold()
-        code_target_markers = (*_SOURCE_CODE_SUFFIXES, "()", "::")
-        if self.method is FixMethod.CONFIGURATION and any(
-            marker in target for marker in code_target_markers
-        ):
+        is_code_target = _SOURCE_CODE_TARGET.search(target) is not None or any(
+            marker in target for marker in ("()", "::")
+        )
+        if self.method is FixMethod.CONFIGURATION and is_code_target:
             raise ValueError(
                 "Configuration fixes must target a configuration field or file, not a source "
                 "code path or callable symbol"
             )
+        if self.method not in code_methods and is_code_target:
+            raise ValueError("Source code targets require a project, GUI, or framework code method")
         return self
 
 
