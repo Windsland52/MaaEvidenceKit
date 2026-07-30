@@ -31,6 +31,15 @@
       "title": "ChatTemplateConfig",
       "type": "object"
     },
+    "FunctionToolChoiceFormat": {
+      "description": "Wire shape used to force a named function on compatible gateways.",
+      "enum": [
+        "chat_completions",
+        "responses"
+      ],
+      "title": "FunctionToolChoiceFormat",
+      "type": "string"
+    },
     "StructuredOutputMethod": {
       "enum": [
         "auto",
@@ -114,6 +123,20 @@
       "title": "Max Retries",
       "type": "integer"
     },
+    "max_output_tokens": {
+      "anyOf": [
+        {
+          "maximum": 131072,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Output Tokens"
+    },
     "structured_output_retries": {
       "default": 1,
       "maximum": 3,
@@ -124,6 +147,10 @@
     "structured_output_method": {
       "$ref": "#/$defs/StructuredOutputMethod",
       "default": "auto"
+    },
+    "function_tool_choice_format": {
+      "$ref": "#/$defs/FunctionToolChoiceFormat",
+      "default": "chat_completions"
     },
     "chat_template_kwargs": {
       "anyOf": [

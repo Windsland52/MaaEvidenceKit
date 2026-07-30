@@ -19,6 +19,7 @@ from maa_diagnostic_expert.reasoning import langchain
 from maa_diagnostic_expert.reasoning.langchain import LangChainReasoningBackend
 from maa_diagnostic_expert.reasoning.model_config import (
     ChatTemplateConfig,
+    FunctionToolChoiceFormat,
     ModelConfig,
     StructuredOutputMethod,
 )
@@ -120,6 +121,73 @@ def test_langchain_backend_forwards_an_explicit_structured_output_method() -> No
 
     assert result is draft
     assert model.arguments == {"method": "json_schema"}
+
+
+def test_langchain_backend_supports_top_level_function_tool_choice_name() -> None:
+    draft = DiagnosisDraft(
+        status=DiagnosisStatus.INSUFFICIENT_EVIDENCE,
+        summary="No evidence.",
+    )
+    model = _ChatModel(draft)
+    config = _config(StructuredOutputMethod.FUNCTION_CALLING).model_copy(
+        update={"function_tool_choice_format": FunctionToolChoiceFormat.RESPONSES}
+    )
+    backend = LangChainReasoningBackend(config, model=model)
+    session = asyncio.run(backend.start(run_id="run-responses-tool-choice"))
+
+    result = asyncio.run(session.reason(build_reasoning_context("Diagnose.", []), DiagnosisDraft))
+
+    assert result is draft
+    assert model.arguments == {
+        "method": "function_calling",
+        "tool_choice": {"type": "function", "name": "DiagnosisDraft"},
+    }
+
+
+def test_langchain_backend_includes_target_schema_in_json_mode() -> None:
+    draft = DiagnosisDraft(
+        status=DiagnosisStatus.INSUFFICIENT_EVIDENCE,
+        summary="No evidence.",
+    )
+    model = _ChatModel(draft)
+    backend = LangChainReasoningBackend(
+        _config(StructuredOutputMethod.JSON_MODE),
+        model=model,
+    )
+    session = asyncio.run(backend.start(run_id="run-json-mode"))
+
+    result = asyncio.run(session.reason(build_reasoning_context("Diagnose.", []), DiagnosisDraft))
+
+    assert result is draft
+    assert model.arguments == {"method": "json_mode"}
+    assert model.structured.input is not None
+    rendered_input = str(model.structured.input)
+    assert "Return only one JSON object" in rendered_input
+    assert "Target type: DiagnosisDraft" in rendered_input
+    assert '"conclusions"' in rendered_input
+
+
+def test_langchain_backend_uses_json_retry_feedback_in_json_mode() -> None:
+    model = _ChatModel(
+        None,
+        {
+            "status": "insufficient_evidence",
+            "summary": "No evidence.",
+            "conclusions": [],
+            "missing_evidence": [],
+        },
+    )
+    backend = LangChainReasoningBackend(
+        _config(StructuredOutputMethod.JSON_MODE),
+        model=model,
+    )
+    session = asyncio.run(backend.start(run_id="run-json-retry"))
+
+    result = asyncio.run(session.reason(build_reasoning_context("Diagnose.", []), DiagnosisDraft))
+
+    assert result.status is DiagnosisStatus.INSUFFICIENT_EVIDENCE
+    assert "previous JSON response was invalid" in str(model.structured.inputs[1])
+    assert "structured output tool" not in str(model.structured.inputs[1])
 
 
 def test_langchain_backend_retries_missing_structured_output_with_validation_feedback() -> None:
@@ -231,6 +299,7 @@ def test_langchain_backend_passes_direct_api_key_to_provider(
             model="test-model",
             api_key="direct-secret",
             base_url="https://example.invalid/v1",
+            max_output_tokens=8192,
             chat_template_kwargs=ChatTemplateConfig(
                 thinking=True,
                 reasoning_effort="high",
@@ -248,6 +317,7 @@ def test_langchain_backend_passes_direct_api_key_to_provider(
                 "max_retries": 2,
                 "api_key": "direct-secret",
                 "base_url": "https://example.invalid/v1",
+                "max_tokens": 8192,
                 "extra_body": {
                     "chat_template_kwargs": {
                         "thinking": True,

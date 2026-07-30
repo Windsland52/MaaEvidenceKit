@@ -1,7 +1,12 @@
 import pytest
 from pydantic import ValidationError
 
-from maa_diagnostic_expert.reasoning.model_config import ChatTemplateConfig, ModelConfig
+from maa_diagnostic_expert.reasoning.model_config import (
+    ChatTemplateConfig,
+    FunctionToolChoiceFormat,
+    ModelConfig,
+    StructuredOutputMethod,
+)
 
 
 def test_model_config_normalizes_base_url_with_a_direct_key() -> None:
@@ -62,4 +67,27 @@ def test_model_config_bounds_structured_output_retries() -> None:
             provider="openai",
             model="test-model",
             structured_output_retries=4,
+        )
+
+
+def test_model_config_accepts_function_tool_choice_and_output_limit() -> None:
+    config = ModelConfig(
+        provider="openai",
+        model="gateway-model",
+        max_output_tokens=8192,
+        structured_output_method=StructuredOutputMethod.FUNCTION_CALLING,
+        function_tool_choice_format=FunctionToolChoiceFormat.RESPONSES,
+    )
+
+    assert config.max_output_tokens == 8192
+    assert config.function_tool_choice_format is FunctionToolChoiceFormat.RESPONSES
+
+
+def test_model_config_rejects_custom_tool_choice_outside_function_calling() -> None:
+    with pytest.raises(ValidationError, match="requires function_calling"):
+        ModelConfig(
+            provider="openai",
+            model="gateway-model",
+            structured_output_method=StructuredOutputMethod.JSON_MODE,
+            function_tool_choice_format=FunctionToolChoiceFormat.RESPONSES,
         )

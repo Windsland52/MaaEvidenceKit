@@ -211,6 +211,7 @@ provider with a custom `base_url`.
   "temperature": 0,
   "timeout_seconds": 120,
   "max_retries": 2,
+  "max_output_tokens": 8192,
   "structured_output_retries": 1,
   "structured_output_method": "auto"
 }
@@ -240,6 +241,12 @@ Use them only with endpoints that document the corresponding chat-template param
 `max_retries` controls provider transport/API retries. `structured_output_retries` separately
 controls bounded retries when a successful model response omits the required tool call or fails
 Pydantic validation; retry feedback includes the validation failure but never creates evidence.
+`max_output_tokens` optionally raises or lowers the provider completion limit. Gateways that expose
+function calling through a Responses-style top-level function name can set
+`"function_tool_choice_format": "responses"` together with
+`"structured_output_method": "function_calling"`; the default `chat_completions` format keeps the
+standard nested function name. With `json_mode`, MDE includes the target Pydantic JSON Schema in
+the model instruction because JSON mode itself constrains syntax but does not transmit a schema.
 
 `validate-result` requires the inspection that established the evidence ledger. Pass every cited
 raw `EvidenceWindow` with a repeated `--evidence-window` option. Validation rejects invented IDs,

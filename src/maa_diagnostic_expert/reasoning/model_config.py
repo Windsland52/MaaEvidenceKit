@@ -16,6 +16,13 @@ class StructuredOutputMethod(StrEnum):
     JSON_MODE = "json_mode"
 
 
+class FunctionToolChoiceFormat(StrEnum):
+    """Wire shape used to force a named function on compatible gateways."""
+
+    CHAT_COMPLETIONS = "chat_completions"
+    RESPONSES = "responses"
+
+
 class ChatTemplateConfig(ContractModel):
     """Provider chat-template controls passed with each model request."""
 
@@ -40,9 +47,24 @@ class ModelConfig(ContractModel):
     temperature: float | None = Field(default=None, ge=0, le=2)
     timeout_seconds: float = Field(default=120, gt=0, le=600)
     max_retries: int = Field(default=2, ge=0, le=10)
+    max_output_tokens: int | None = Field(default=None, ge=1, le=131_072)
     structured_output_retries: int = Field(default=1, ge=0, le=3)
     structured_output_method: StructuredOutputMethod = StructuredOutputMethod.AUTO
+    function_tool_choice_format: FunctionToolChoiceFormat = (
+        FunctionToolChoiceFormat.CHAT_COMPLETIONS
+    )
     chat_template_kwargs: ChatTemplateConfig | None = None
+
+    @model_validator(mode="after")
+    def require_function_calling_for_custom_tool_choice(self) -> ModelConfig:
+        if (
+            self.function_tool_choice_format is not FunctionToolChoiceFormat.CHAT_COMPLETIONS
+            and self.structured_output_method is not StructuredOutputMethod.FUNCTION_CALLING
+        ):
+            raise ValueError(
+                "function_tool_choice_format requires function_calling structured output"
+            )
+        return self
 
     @field_validator("model")
     @classmethod

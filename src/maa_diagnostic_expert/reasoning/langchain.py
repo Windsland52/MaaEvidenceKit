@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Mapping
 from typing import NotRequired, Protocol, TypedDict, cast
 
@@ -8,7 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from maa_diagnostic_expert.contracts.domain import ContractModel
 
-from .model_config import ModelConfig, StructuredOutputMethod
+from .model_config import FunctionToolChoiceFormat, ModelConfig, StructuredOutputMethod
 from .prompts import render_evidence_block
 from .protocol import ReasoningContext
 
@@ -42,6 +43,7 @@ class _ModelArguments(TypedDict, total=False):
     api_key: str
     base_url: str
     temperature: float
+    max_tokens: int
     extra_body: _ExtraBody
 
 
@@ -56,6 +58,8 @@ def _model_arguments(config: ModelConfig) -> _ModelArguments:
         arguments["base_url"] = config.base_url
     if config.temperature is not None:
         arguments["temperature"] = config.temperature
+    if config.max_output_tokens is not None:
+        arguments["max_tokens"] = config.max_output_tokens
     if config.chat_template_kwargs is not None:
         template_arguments: _ChatTemplateArguments = {
             "thinking": config.chat_template_kwargs.thinking,
@@ -131,10 +135,12 @@ class LangChainReasoningSession:
         model: _ChatModel,
         output_method: StructuredOutputMethod,
         structured_output_retries: int,
+        function_tool_choice_format: FunctionToolChoiceFormat,
     ) -> None:
         self._model = model
         self._output_method = output_method
         self._structured_output_retries = structured_output_retries
+        self._function_tool_choice_format = function_tool_choice_format
         self._closed = False
 
     async def reason[ResultT: ContractModel](
@@ -147,26 +153,53 @@ class LangChainReasoningSession:
         output_arguments: dict[str, object] = {}
         if self._output_method is not StructuredOutputMethod.AUTO:
             output_arguments["method"] = self._output_method.value
+        if (
+            self._output_method is StructuredOutputMethod.FUNCTION_CALLING
+            and self._function_tool_choice_format is FunctionToolChoiceFormat.RESPONSES
+        ):
+            output_arguments["tool_choice"] = {
+                "type": "function",
+                "name": result_type.__name__,
+            }
         structured = self._model.with_structured_output(
             result_type,
             include_raw=True,
             **output_arguments,
         )
+        instruction = context.instruction
+        if self._output_method is StructuredOutputMethod.JSON_MODE:
+            schema = json.dumps(
+                result_type.model_json_schema(),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            instruction = (
+                f"{instruction}\n\n"
+                "Return only one JSON object that validates against the following JSON Schema. "
+                "Do not wrap it in Markdown or add text before or after the object. Preserve "
+                "JSON null, boolean, number, array, and object types exactly; do not encode them "
+                f"as strings. Target type: {result_type.__name__}. JSON Schema: {schema}"
+            )
         base_messages = [
-            SystemMessage(content=context.instruction),
+            SystemMessage(content=instruction),
             HumanMessage(content=render_evidence_block(context.evidence)),
         ]
         retry_error: Exception | None = None
         for attempt in range(self._structured_output_retries + 1):
             messages = list(base_messages)
             if retry_error is not None:
+                retry_instruction = (
+                    "The previous JSON response was invalid. Return the complete JSON object "
+                    "again, satisfying every schema rule."
+                    if self._output_method is StructuredOutputMethod.JSON_MODE
+                    else (
+                        "The previous structured response was invalid. Call the required "
+                        "structured output tool again and satisfy every schema rule."
+                    )
+                )
                 messages.append(
                     HumanMessage(
-                        content=(
-                            "The previous structured response was invalid. Call the required "
-                            f"structured output tool again and satisfy every schema rule. "
-                            f"Validation error: {str(retry_error)[:2000]}"
-                        )
+                        content=(f"{retry_instruction} Validation error: {str(retry_error)[:2000]}")
                     )
                 )
             envelope = await structured.ainvoke(messages)
@@ -187,8 +220,13 @@ class LangChainReasoningSession:
                 if isinstance(parsed, result_type):
                     return parsed
                 if parsed is None:
+                    expected_output = (
+                        "JSON object"
+                        if self._output_method is StructuredOutputMethod.JSON_MODE
+                        else "structured tool call"
+                    )
                     raise ValueError(
-                        f"Provider returned no {result_type.__name__} structured tool call"
+                        f"Provider returned no {result_type.__name__} {expected_output}"
                     )
                 return result_type.model_validate(parsed)
             except (TypeError, ValueError) as error:
@@ -219,6 +257,7 @@ class LangChainReasoningBackend:
             self._model,
             self._config.structured_output_method,
             self._config.structured_output_retries,
+            self._config.function_tool_choice_format,
         )
 
 
