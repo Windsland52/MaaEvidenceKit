@@ -55,9 +55,14 @@ from maa_diagnostic_expert.inspection.adaptive_evidence import (
     available_evidence_query_paths,
     execute_evidence_research,
 )
+from maa_diagnostic_expert.inspection.configuration_keys import (
+    index_configuration_keys,
+    matching_configuration_identifiers,
+)
 from maa_diagnostic_expert.inspection.incident_comparison import (
     compare_incident_execution,
 )
+from maa_diagnostic_expert.inspection.log_anchors import source_search_anchor_terms
 from maa_diagnostic_expert.inspection.log_overview import (
     LogOverviewCollection,
     build_log_overviews,
@@ -92,7 +97,6 @@ from maa_diagnostic_expert.reasoning.prompts import (
     build_reported_context,
     build_source_research_context,
     build_verification_plan_context,
-    source_search_anchor_terms,
 )
 from maa_diagnostic_expert.reasoning.protocol import (
     ReasoningBackend,
@@ -104,6 +108,7 @@ from .planning import plan_initial_investigation
 from .validation import (
     collect_inspection_evidence,
     collect_missing_evidence_codes,
+    configuration_evidence_bridges,
     finalize_diagnosis_draft,
     requires_configuration_evidence,
     validate_configuration_bridge_citation,
@@ -126,6 +131,21 @@ _KNOWLEDGE_SOURCE_ROLES = {
 _IMPLEMENTATION_SOURCE_ROLES = {SourceRole.GUI, SourceRole.MAA_FRAMEWORK}
 
 
+def _matched_source_anchors(
+    inspection: DeterministicInspection,
+    evidence: list[Evidence],
+) -> list[str]:
+    anchors = source_search_anchor_terms(evidence, limit=3)
+    return [
+        anchor
+        for anchor in anchors
+        if any(
+            anchor.casefold() in match.content.casefold()
+            for match in inspection.source_search_matches
+        )
+    ]
+
+
 async def _reason_diagnosis_draft(
     session: ReasoningSession,
     context: ReasoningContext,
@@ -142,12 +162,55 @@ async def _reason_diagnosis_draft(
         citable_ids = sorted(
             item.id for item in context.evidence if item.kind != "wiki_navigation_match"
         )
+        evidence_by_id = {item.id: item for item in context.evidence}
+        bridge_details: list[dict[str, JsonValue]] = []
+        for bridge in configuration_evidence_bridges(
+            context.evidence,
+            configuration_paths,
+        ):
+            source = evidence_by_id[bridge.source_evidence_id]
+            configuration = evidence_by_id[bridge.configuration_evidence_id]
+            bridge_details.append(
+                {
+                    "source_evidence_id": bridge.source_evidence_id,
+                    "source_component": source.source_component,
+                    "source_path": source.source_path,
+                    "configuration_evidence_id": bridge.configuration_evidence_id,
+                    "configuration_path": configuration.source_path,
+                    "shared_identifiers": cast(JsonValue, sorted(bridge.identifiers)),
+                    "configuration_excerpt": configuration.content[:2000],
+                }
+            )
+        bridge_correction = (
+            " The deterministic validator found these exact source/configuration evidence "
+            "bridges: "
+            f"{json.dumps(bridge_details, ensure_ascii=False)}. A conclusion that explains "
+            "configuration-dependent behavior must cite both IDs from the same bridge, state "
+            "the exact observed configuration value, and explain how that value selects or "
+            "changes the source control path. Shared identifiers establish a lexical link, "
+            "not root cause by themselves; interpret the cited contents."
+            if bridge_details
+            else ""
+        )
         _emit(
             _WorkflowUpdate(
                 kind=DiagnosticEventKind.MODEL_REQUESTED,
                 stage="reason",
                 message="Retrying diagnostic reasoning with exact evidence IDs",
-                data={"validation_error": str(error)[:2000]},
+                data={
+                    "validation_error": str(error)[:2000],
+                    "configuration_bridges": cast(
+                        JsonValue,
+                        [
+                            {
+                                key: value
+                                for key, value in detail.items()
+                                if key != "configuration_excerpt"
+                            }
+                            for detail in bridge_details
+                        ],
+                    ),
+                },
             )
         )
         correction = ReasoningContext(
@@ -158,10 +221,8 @@ async def _reason_diagnosis_draft(
                 f"{str(error)[:2000]}. Return the complete diagnosis draft again. Every "
                 "conclusion must copy complete evidence_id strings exactly from this citable "
                 f"list: {json.dumps(citable_ids, ensure_ascii=False)}. Preserve every prefix "
-                "and colon. If the validation error identifies a configuration/source bridge, "
-                "the suspected-trigger conclusion must cite both the version-matched source "
-                "evidence and the artifact configuration window, state the exact observed "
-                "configuration value, and explain why that value changes guard applicability."
+                "and colon."
+                f"{bridge_correction}"
             ),
             evidence=context.evidence,
             incident_selection=context.incident_selection,
@@ -224,43 +285,15 @@ async def _reason_research_plan[
     result_type: type[PlanT],
     source_ids: set[str],
     plan_name: str,
-    required_terms_by_source: dict[str, set[str]] | None = None,
 ) -> PlanT:
     plan = await session.reason(context, result_type)
     unknown_sources = {query.source_id for query in plan.queries} - source_ids
-    requirements = required_terms_by_source or {}
-
-    def missing_required_queries(candidate: PlanT) -> dict[str, list[str]]:
-        return {
-            source_id: sorted(
-                term
-                for term in terms
-                if not any(
-                    query.source_id == source_id and term in query.terms
-                    for query in candidate.queries
-                )
-            )
-            for source_id, terms in requirements.items()
-            if any(
-                not any(
-                    query.source_id == source_id and term in query.terms
-                    for query in candidate.queries
-                )
-                for term in terms
-            )
-        }
-
-    missing_queries = missing_required_queries(plan)
-    if unknown_sources or missing_queries:
+    if unknown_sources:
         _emit(
             _WorkflowUpdate(
                 kind=DiagnosticEventKind.MODEL_REQUESTED,
                 stage=context.stage,
-                message=(
-                    f"Retrying {plan_name.lower()} with required source queries"
-                    if missing_queries
-                    else f"Retrying {plan_name.lower()} with valid source IDs"
-                ),
+                message=f"Retrying {plan_name.lower()} with valid source IDs",
                 data={
                     "unknown_source_ids": [
                         cast(JsonValue, source_id) for source_id in sorted(unknown_sources)
@@ -268,7 +301,6 @@ async def _reason_research_plan[
                     "available_source_ids": [
                         cast(JsonValue, source_id) for source_id in sorted(source_ids)
                     ],
-                    "missing_required_queries": cast(JsonValue, missing_queries),
                 },
             )
         )
@@ -277,14 +309,10 @@ async def _reason_research_plan[
             instruction=(
                 f"{context.instruction}\n\n"
                 "Correction required: the previous plan used unknown query.source_id values "
-                f"{json.dumps(sorted(unknown_sources), ensure_ascii=False)} or omitted required "
-                "exact observed-message queries "
-                f"{json.dumps(missing_queries, ensure_ascii=False)}. Return the complete plan "
-                "again using only these exact source_id strings: "
+                f"{json.dumps(sorted(unknown_sources), ensure_ascii=False)}. Return the complete "
+                "plan again using only these exact source_id strings: "
                 f"{json.dumps(sorted(source_ids), ensure_ascii=False)}. Do not use source role "
-                "labels as IDs. For every source_id/term pair in the missing query map, include "
-                "a query with that exact source_id and exact term; combine terms only when the "
-                "five-query plan bound remains satisfied."
+                "labels as IDs."
             ),
             evidence=context.evidence,
             incident_selection=context.incident_selection,
@@ -292,16 +320,10 @@ async def _reason_research_plan[
         )
         plan = await session.reason(correction, result_type)
         unknown_sources = {query.source_id for query in plan.queries} - source_ids
-        missing_queries = missing_required_queries(plan)
     if unknown_sources:
         raise ValueError(
             f"{plan_name} references unknown source IDs after correction: "
             + ", ".join(sorted(unknown_sources))
-        )
-    if missing_queries:
-        raise ValueError(
-            f"{plan_name} omitted required exact observed-message queries after correction: "
-            + json.dumps(missing_queries, ensure_ascii=False)
         )
     return plan
 
@@ -310,9 +332,7 @@ async def _reason_evidence_research_plan(
     session: ReasoningSession,
     context: ReasoningContext,
     authorized_paths: set[Path],
-    configuration_paths: set[Path],
-    *,
-    require_configuration: bool,
+    required_configuration_paths: set[Path],
 ) -> EvidenceResearchPlan:
     plan = await session.reason(context, EvidenceResearchPlan)
     unknown_paths = {
@@ -320,17 +340,19 @@ async def _reason_evidence_research_plan(
         for query in plan.queries
         if query.source_path.resolve() not in authorized_paths
     }
-    missing_configuration = require_configuration and not any(
-        query.source_path.resolve() in configuration_paths for query in plan.queries
+    missing_configuration = bool(required_configuration_paths) and not any(
+        query.source_path.resolve() in required_configuration_paths for query in plan.queries
     )
     if unknown_paths or missing_configuration:
         unknown_path_strings = [str(path) for path in sorted(unknown_paths, key=str)]
         authorized_path_strings = [str(path) for path in sorted(authorized_paths, key=str)]
-        configuration_path_strings = [str(path) for path in sorted(configuration_paths, key=str)]
+        configuration_path_strings = [
+            str(path) for path in sorted(required_configuration_paths, key=str)
+        ]
         configuration_correction = (
-            " Version-matched source in the evidence uses a controller/resource/device "
-            "configuration field whose effective value is not established yet, so include at "
-            "least one focused query using one of these exact configuration paths: "
+            " Version-matched source identifiers intersect actual configuration keys whose "
+            "effective values are not established yet, so include at least one focused query "
+            "using one of these exact matching configuration paths: "
             f"{json.dumps(configuration_path_strings, ensure_ascii=False)}."
             if missing_configuration
             else " If no authorized path is justified, use status='skip' and queries=[]."
@@ -343,7 +365,10 @@ async def _reason_evidence_research_plan(
                 data={
                     "unauthorized_paths": [cast(JsonValue, path) for path in unknown_path_strings],
                     "authorized_paths": [cast(JsonValue, path) for path in authorized_path_strings],
-                    "configuration_required": require_configuration,
+                    "configuration_required": bool(required_configuration_paths),
+                    "matching_configuration_paths": [
+                        cast(JsonValue, path) for path in configuration_path_strings
+                    ],
                 },
             )
         )
@@ -369,8 +394,8 @@ async def _reason_evidence_research_plan(
             for query in plan.queries
             if query.source_path.resolve() not in authorized_paths
         }
-        missing_configuration = require_configuration and not any(
-            query.source_path.resolve() in configuration_paths for query in plan.queries
+        missing_configuration = bool(required_configuration_paths) and not any(
+            query.source_path.resolve() in required_configuration_paths for query in plan.queries
         )
     if unknown_paths:
         raise ValueError(
@@ -1236,9 +1261,6 @@ class DiagnosticWorkflow:
                 previous_plan=previous_plan,
             )
             anchor_terms = source_search_anchor_terms(context.evidence, limit=1)
-            required_terms_by_source = {
-                source_id: set(anchor_terms) for source_id in source_ids[:5] if anchor_terms
-            }
             _emit(
                 _WorkflowUpdate(
                     kind=DiagnosticEventKind.MODEL_REQUESTED,
@@ -1248,7 +1270,7 @@ class DiagnosticWorkflow:
                         "round": round_number,
                         "sources": len(source_ids),
                         "evidence_count": len(context.evidence),
-                        "required_anchor_terms": cast(JsonValue, anchor_terms),
+                        "anchor_terms": cast(JsonValue, anchor_terms),
                     },
                 )
             )
@@ -1260,7 +1282,6 @@ class DiagnosticWorkflow:
                     SourceResearchPlan,
                     set(source_ids),
                     "Source research plan",
-                    required_terms_by_source,
                 )
             finally:
                 await session.close()
@@ -1321,6 +1342,10 @@ class DiagnosticWorkflow:
             inspection = execute_source_research(inspection, plan)
             inspection = synthesize_inspection_evidence(inspection)
             evidence = collect_inspection_evidence(inspection)
+            matched_anchors = _matched_source_anchors(
+                inspection,
+                state.get("evidence", []),
+            )
         except Exception as error:  # noqa: BLE001
             return _failure_update("search_source", error)
 
@@ -1353,6 +1378,7 @@ class DiagnosticWorkflow:
                             )
                         ),
                     ),
+                    "matched_message_anchors": cast(JsonValue, matched_anchors),
                     "evidence": len(evidence),
                 },
             )
@@ -1367,11 +1393,22 @@ class DiagnosticWorkflow:
             return "fail"
         inspection = state.get("inspection")
         plan = state.get("source_research_plan")
+        evidence = state.get("evidence", [])
+        anchor_terms = source_search_anchor_terms(evidence, limit=3)
+        missing_anchor_origin = (
+            bool(anchor_terms)
+            and not _matched_source_anchors(
+                inspection,
+                evidence,
+            )
+            if inspection is not None
+            else False
+        )
         if (
             inspection is not None
             and plan is not None
             and plan.status is SourceResearchStatus.RUN
-            and not inspection.source_search_matches
+            and (not inspection.source_search_matches or missing_anchor_origin)
             and state.get("source_research_round", 0) < _MAX_SOURCE_RESEARCH_ROUNDS
         ):
             return "plan_source_research"
@@ -1490,18 +1527,19 @@ class DiagnosticWorkflow:
         return "fail" if "error_message" in state else "reason"
 
     async def _reason_node(self, state: DiagnosticState) -> _DiagnosticStateUpdate:
+        inspection = state.get("inspection")
+        evidence = state.get("evidence", [])
         try:
             if self.run_id in self._cancelled:
                 raise RuntimeError("workflow cancelled before reasoning")
-            inspection = state.get("inspection")
             if inspection is None:
                 raise RuntimeError("reasoning requires deterministic inspection")
             session = await self.reasoning_backend.start(run_id=self.run_id)
             try:
-                evidence = state.get("evidence", [])
                 available_paths = available_evidence_query_paths(inspection.prepared)
                 authorized_paths = {path.resolve() for path in available_paths}
-                configuration_paths = available_configuration_query_paths(inspection.prepared)
+                configuration_index = index_configuration_keys(inspection.prepared)
+                configuration_paths = set(configuration_index)
                 for round_number in range(1, _MAX_ADAPTIVE_EVIDENCE_ROUNDS + 1):
                     if not available_paths:
                         break
@@ -1527,10 +1565,18 @@ class DiagnosticWorkflow:
                         session,
                         research_context,
                         authorized_paths,
-                        configuration_paths,
-                        require_configuration=requires_configuration_evidence(
-                            evidence,
-                            configuration_paths,
+                        (
+                            set(
+                                matching_configuration_identifiers(
+                                    evidence,
+                                    configuration_index,
+                                )
+                            )
+                            if requires_configuration_evidence(
+                                evidence,
+                                configuration_index,
+                            )
+                            else set()
                         ),
                     )
                     _emit(
@@ -1595,7 +1641,11 @@ class DiagnosticWorkflow:
             finally:
                 await session.close()
         except Exception as error:  # noqa: BLE001
-            return _failure_update("reason", error)
+            update = _failure_update("reason", error)
+            if inspection is not None:
+                update["inspection"] = inspection
+            update["evidence"] = evidence
+            return update
 
         _emit(
             _WorkflowUpdate(

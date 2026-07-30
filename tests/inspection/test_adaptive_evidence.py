@@ -61,7 +61,7 @@ def test_available_configuration_query_paths_classifies_discovered_files(
     tmp_path: Path,
 ) -> None:
     config = tmp_path / "settings.json"
-    config.write_text('{"controllerName": "ADB"}\n', encoding="utf-8")
+    config.write_text('{"retryPolicy": "bounded"}\n', encoding="utf-8")
     log = tmp_path / "agent.log"
     log.write_text("started\n", encoding="utf-8")
     prepared = prepare_analysis(

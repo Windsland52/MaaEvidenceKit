@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 from maa_diagnostic_expert.contracts.domain import (
@@ -23,6 +23,12 @@ from maa_diagnostic_expert.contracts.workflow import (
     VerificationPlanningStatus,
     VerificationPlanSet,
 )
+from maa_diagnostic_expert.inspection.configuration_keys import (
+    ConfigurationKeyIndex,
+    extract_configuration_keys,
+    matching_configuration_identifiers,
+    source_configuration_identifier_sets,
+)
 from maa_diagnostic_expert.inspection.log_overview import (
     LogOverviewCollection,
     collect_log_overview_missing_evidence,
@@ -36,12 +42,41 @@ _CODE_FIX_SOURCE_ROLES = {
     FixMethod.FRAMEWORK_CODE: SourceRole.MAA_FRAMEWORK,
 }
 
-_CONFIGURATION_DEPENDENT_SOURCE_PATTERN = re.compile(
-    r"\b(?:controller(?:Name|Type|Id)|controller_(?:name|type|id)|"
-    r"resource(?:Name|Type|Id)|resource_(?:name|type|id)|"
-    r"device(?:Name|Type|Id)|device_(?:name|type|id)|"
-    r"taskConfig|task_config)\b"
-)
+
+@dataclass(frozen=True, slots=True)
+class ConfigurationEvidenceBridge:
+    """One lexical source/configuration dependency backed by two evidence records."""
+
+    source_evidence_id: str
+    configuration_evidence_id: str
+    identifiers: frozenset[str]
+
+
+def configuration_evidence_bridges(
+    evidence: Iterable[Evidence],
+    configuration_paths: set[Path],
+) -> list[ConfigurationEvidenceBridge]:
+    """Find exact source/configuration evidence pairs and their shared identifiers."""
+    items = list(evidence)
+    source_identifiers = source_configuration_identifier_sets(items)
+    configuration_identifiers = {
+        item.id: set(extract_configuration_keys(item.content))
+        for item in items
+        if item.kind == "text_line_window"
+        and Path(item.source_path).resolve() in configuration_paths
+    }
+    bridges: list[ConfigurationEvidenceBridge] = []
+    for source_id, identifiers in source_identifiers.items():
+        for configuration_id, keys in configuration_identifiers.items():
+            if shared := identifiers.intersection(keys):
+                bridges.append(
+                    ConfigurationEvidenceBridge(
+                        source_evidence_id=source_id,
+                        configuration_evidence_id=configuration_id,
+                        identifiers=frozenset(shared),
+                    )
+                )
+    return bridges
 
 
 def configuration_bridge_evidence_ids(
@@ -49,35 +84,29 @@ def configuration_bridge_evidence_ids(
     configuration_paths: set[Path],
 ) -> tuple[set[str], set[str]]:
     """Find source and artifact evidence that establish one configuration dependency."""
-    items = list(evidence)
-    source_ids = {
-        item.id
-        for item in items
-        if item.kind == "source_search_match"
-        and _CONFIGURATION_DEPENDENT_SOURCE_PATTERN.search(item.content) is not None
-    }
-    configuration_ids = {
-        item.id
-        for item in items
-        if item.kind == "text_line_window"
-        and Path(item.source_path).resolve() in configuration_paths
-        and _CONFIGURATION_DEPENDENT_SOURCE_PATTERN.search(item.content) is not None
-    }
-    return source_ids, configuration_ids
+    bridges = configuration_evidence_bridges(evidence, configuration_paths)
+    return (
+        {bridge.source_evidence_id for bridge in bridges},
+        {bridge.configuration_evidence_id for bridge in bridges},
+    )
 
 
 def requires_configuration_evidence(
     evidence: Iterable[Evidence],
-    configuration_paths: set[Path],
+    configuration_index: ConfigurationKeyIndex,
 ) -> bool:
     """Return whether source behavior depends on an uninspected configuration value."""
-    if not configuration_paths:
+    items = list(evidence)
+    if not configuration_index:
         return False
-    source_ids, configuration_ids = configuration_bridge_evidence_ids(
-        evidence,
-        configuration_paths,
+    matches = matching_configuration_identifiers(items, configuration_index)
+    if not matches:
+        return False
+    _, configuration_ids = configuration_bridge_evidence_ids(
+        items,
+        set(matches),
     )
-    return bool(source_ids and not configuration_ids)
+    return not configuration_ids
 
 
 def validate_configuration_bridge_citation(
@@ -88,16 +117,17 @@ def validate_configuration_bridge_citation(
     """Require one conclusion to connect dependent source to effective configuration."""
     if draft.status is not DiagnosisStatus.COMPLETE:
         return
-    source_ids, configuration_ids = configuration_bridge_evidence_ids(
+    bridges = configuration_evidence_bridges(
         evidence,
         configuration_paths,
     )
-    if not source_ids or not configuration_ids:
+    if not bridges:
         return
     if any(
-        set(conclusion.evidence_ids).intersection(source_ids)
-        and set(conclusion.evidence_ids).intersection(configuration_ids)
+        bridge.source_evidence_id in conclusion.evidence_ids
+        and bridge.configuration_evidence_id in conclusion.evidence_ids
         for conclusion in draft.conclusions
+        for bridge in bridges
     ):
         return
     raise ValueError(

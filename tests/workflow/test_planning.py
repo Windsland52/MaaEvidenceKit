@@ -693,10 +693,10 @@ def test_source_plan_accepts_json_encoded_query_array(
     plan_type: type[SourceResearchPlan] | type[KnowledgeResearchPlan],
 ) -> None:
     query = SourceSearchQuery(
-        query_id="lock-warning",
+        query_id="retry-warning",
         source_id="gui",
-        terms=["检测到电脑处于锁屏状态，取消启动"],
-        reason="Locate the observed warning.",
+        terms=["retry budget exhausted"],
+        reason="Locate the observed worker warning.",
     )
 
     plan = plan_type.model_validate(

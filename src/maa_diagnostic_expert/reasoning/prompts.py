@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import cast
 
@@ -39,6 +38,11 @@ from maa_diagnostic_expert.inspection.adaptive_evidence import (
     available_configuration_query_paths,
     available_evidence_query_paths,
 )
+from maa_diagnostic_expert.inspection.configuration_keys import (
+    index_configuration_keys,
+    matching_configuration_identifiers,
+)
+from maa_diagnostic_expert.inspection.log_anchors import source_search_anchor_terms
 
 from .evidence_budget import render_model_evidence_item
 from .protocol import ReasoningContext
@@ -55,16 +59,6 @@ _REASONING_ROLE_ORDER: dict[EvidenceRole, int] = {
     EvidenceRole.CONTEXT: 2,
 }
 
-_LOG_MESSAGE_PREFIX = re.compile(
-    r"^(?:\d{4}[-/.]\d{2}[-/.]\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?\s+)?"
-    r"(?:TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|CRITICAL)\s+(?:\[[^]]+\]\s+)?",
-    re.IGNORECASE,
-)
-_DYNAMIC_LOG_FRAGMENT = re.compile(
-    r"(?:实例|instance|\b(?:task|index|id|name)\s*=|[\"']|\d{2,})",
-    re.IGNORECASE,
-)
-
 
 def order_evidence_for_reasoning(evidence: list[Evidence]) -> list[Evidence]:
     """Order direct failures before signals and context, then by provenance quality."""
@@ -76,33 +70,6 @@ def order_evidence_for_reasoning(evidence: list[Evidence]) -> list[Evidence]:
             item.id,
         ),
     )
-
-
-def source_search_anchor_terms(evidence: list[Evidence], *, limit: int = 3) -> list[str]:
-    """Extract stable message suffixes from observed log occurrences for source lookup."""
-    candidates: dict[str, int] = {}
-    for item in evidence:
-        if not item.kind.startswith("log_occurrence:"):
-            continue
-        for raw_line in reversed(item.content.splitlines()):
-            message = _LOG_MESSAGE_PREFIX.sub("", raw_line.strip())
-            if " | " in message:
-                message = message.rsplit(" | ", 1)[1]
-            fragments = [fragment.strip().strip("\"'") for fragment in message.split(": ")]
-            stable = [fragment for fragment in fragments if 8 <= len(fragment) <= 160]
-            if stable:
-                best = max(
-                    stable,
-                    key=lambda fragment: (
-                        len(fragment) - 30 * len(_DYNAMIC_LOG_FRAGMENT.findall(fragment)),
-                        len(fragment),
-                    ),
-                )
-                score = len(best) - 30 * len(_DYNAMIC_LOG_FRAGMENT.findall(best))
-                candidates[best] = max(candidates.get(best, score), score)
-                break
-    ranked = sorted(candidates, key=lambda candidate: (-candidates[candidate], -len(candidate)))
-    return ranked[:limit]
 
 
 def _order_evidence_for_diagnosis(
@@ -267,10 +234,9 @@ def render_instruction(
         "12. Attribute implementation behavior to the exact source_component and source",
         "    locator. Code under a GUI source is not MaaFramework behavior unless separate",
         "    framework source evidence proves the divergence occurs in the framework.",
-        "13. Check the order of guards relative to controller/resource resolution. If artifact",
-        "    configuration identifies a non-desktop controller such as ADB, do not assume a",
-        "    workstation-lock guard is applicable to it; explain an unconditional pre-controller",
-        "    guard as a suspected trigger when the evidence supports that sequence.",
+        "13. When a conclusion depends on control-flow order, cite source evidence that shows",
+        "    that order. When applicability depends on a runtime or configuration value, cite",
+        "    artifact evidence establishing the effective value instead of assuming it.",
     ]
     lines.extend(
         _render_missing_evidence(
@@ -379,10 +345,24 @@ def build_evidence_research_context(
 ) -> ReasoningContext:
     paths = available_evidence_query_paths(prepared)
     configuration_paths = available_configuration_query_paths(prepared)
+    configuration_index = index_configuration_keys(prepared)
+    identifier_matches = matching_configuration_identifiers(evidence, configuration_index)
 
     def render_path(path: Path) -> str:
         media_kind = "configuration" if path in configuration_paths else "text/log"
         return f"- [{media_kind}] {path}"
+
+    def render_identifier_match(path: Path, identifiers: set[str]) -> str:
+        rendered: list[str] = []
+        for identifier in sorted(identifiers):
+            line_numbers = ",".join(str(line) for line in configuration_index[path][identifier])
+            rendered.append(f"{identifier}@{line_numbers}")
+        return f"- {path}: {', '.join(rendered)}"
+
+    rendered_identifier_matches = [
+        render_identifier_match(path, identifiers)
+        for path, identifiers in sorted(identifier_matches.items(), key=lambda item: str(item[0]))
+    ] or ["- none"]
 
     lines = [
         "Decide whether focused raw artifact windows are needed before diagnosis.",
@@ -403,12 +383,11 @@ def build_evidence_research_context(
         "   only with queries=[].",
         "5. Use skip when current evidence is sufficient or no focused window is justified.",
         "6. Query results are evidence, not automatic root-cause conclusions.",
-        "7. When version-matched source shows behavior depending on a controller, resource,",
-        "   device, task, or configuration value that is not established by current evidence,",
-        "   request a focused window from the listed configuration artifacts before diagnosis.",
-        "8. A filename or warning does not establish the effective controller. If source uses",
-        "   a concrete field such as controllerName, resourceName, deviceName, or their",
-        "   snake_case variants, query a configuration snapshot containing that exact field.",
+        "7. Source/property names and configuration keys are indexed deterministically. When",
+        "   the intersections listed below are relevant to a proposed explanation, request a",
+        "   focused window around the listed key lines before diagnosis.",
+        "Source/configuration key intersections:",
+        *rendered_identifier_matches,
     ]
     return ReasoningContext(
         stage="plan_evidence_research",
@@ -518,12 +497,10 @@ def build_source_research_context(
         "8. Use skip when focused source search is unlikely to add useful evidence.",
         "9. Applicable source_guidance evidence must be respected when choosing paths for its",
         "   project source; GUI/MaaFramework queries may search implementation files.",
-        "10. For localized user-facing messages, search both short distinctive message",
-        "   fragments and likely English identifiers or translation keys. The stable observed",
-        "   message suffixes listed below are evidence-derived, not guessed: include each exact",
-        "   suffix as a term for every available implementation source so ownership is tested,",
-        "   then use identifiers such as lock, workstation, controller, schedule, or cancel.",
-        f"Required exact observed-message suffixes: {json.dumps(anchor_terms, ensure_ascii=False)}",
+        "10. Evidence-derived message anchors are high-value literal search terms. Search the",
+        "   most plausible source first, then try shorter fragments, translation keys, symbols,",
+        "   or an unsearched source when an exact literal has no match.",
+        f"Evidence-derived message anchors: {json.dumps(anchor_terms, ensure_ascii=False)}",
     ]
     if previous_plan is not None and previous_plan.status is SourceResearchStatus.RUN:
         searched_source_ids = {query.source_id for query in previous_plan.queries}
@@ -533,7 +510,8 @@ def build_source_research_context(
         lines.extend(
             [
                 "",
-                "Previous source queries returned no matches. Do not repeat them unchanged:",
+                "Previous source queries returned no exact message-origin match or no matches.",
+                "Do not repeat them unchanged:",
                 *(
                     f"- query_id={query.query_id!r}; source_id={query.source_id!r}; "
                     f"terms={json.dumps(query.terms, ensure_ascii=False)}; "
@@ -673,12 +651,11 @@ def build_fix_candidate_context(
         "13. Do not invent a configuration field, environment variable, file, or symbol.",
         "    A configuration fix must cite artifact evidence containing the exact field; adding",
         "    a new option is a code change and must use the matching code method and scope.",
-        "14. Prefer narrowing an existing guard to the controller types that require it over",
-        "    disabling the guard globally or adding a speculative bypass setting.",
-        "15. When configuration evidence identifies the affected controller type, use that",
-        "    exact value. Do not replace it with a guessed category such as Dummy, headless,",
-        "    interactive, or scheduled. Keep a desktop-only guard for controller types that",
-        "    actually depend on the desktop instead of removing or bypassing it globally.",
+        "14. Prefer the smallest condition or branch change supported by evidence. Do not",
+        "    disable a broader safeguard globally unless evidence shows it is invalid in every",
+        "    affected path; preserve adjacent behavior that remains valid.",
+        "15. Use exact observed configuration values when they define the affected path. Do",
+        "    not replace them with guessed categories or invent an unobserved bypass mode.",
         "16. Propose one candidate unless the evidence independently supports genuinely",
         "    distinct alternatives; do not fill the maximum candidate count speculatively.",
     ]

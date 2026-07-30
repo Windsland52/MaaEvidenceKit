@@ -42,6 +42,7 @@ from maa_diagnostic_expert.contracts.workflow import (
     VerificationPlanSet,
 )
 from maa_diagnostic_expert.discovery.preparation import prepare_analysis
+from maa_diagnostic_expert.inspection.log_anchors import source_search_anchor_terms
 from maa_diagnostic_expert.reasoning.evidence_budget import (
     MODEL_EVIDENCE_MAX_CHARACTERS,
     MODEL_EVIDENCE_MAX_ITEM_CHARACTERS,
@@ -61,7 +62,6 @@ from maa_diagnostic_expert.reasoning.prompts import (
     order_evidence_for_reasoning,
     render_evidence_block,
     render_instruction,
-    source_search_anchor_terms,
 )
 
 
@@ -284,14 +284,13 @@ def test_evidence_research_context_lists_only_queryable_text_artifacts(tmp_path:
     assert "Adaptive evidence round: 1 of 2" in context.instruction
     assert "at most three windows" in context.instruction
     assert "Never infer a filename" in context.instruction
-    assert "controller, resource" in context.instruction
-    assert "controllerName" in context.instruction
+    assert "Source/property names and configuration keys" in context.instruction
     assert context.evidence[0].id == "versioned-source"
 
 
 def test_evidence_research_context_labels_configuration_paths(tmp_path: Path) -> None:
     config = tmp_path / "settings.json"
-    config.write_text('{"controllerName": "ADB"}\n', encoding="utf-8")
+    config.write_text('{\n  "transport_profile": "sandbox"\n}\n', encoding="utf-8")
     prepared = prepare_analysis(
         AnalysisRequest(
             question="Inspect the effective controller.",
@@ -299,9 +298,15 @@ def test_evidence_research_context_labels_configuration_paths(tmp_path: Path) ->
         )
     )
 
+    source = _evidence(
+        "versioned-source",
+        EvidenceReliability.SECONDARY,
+        kind="source_search_match",
+        content="const profile = settings.transportProfile;",
+    )
     context = build_evidence_research_context(
-        "Inspect the controller-dependent guard.",
-        [],
+        "Inspect the configuration-dependent branch.",
+        [source],
         prepared,
         round_number=1,
         max_rounds=2,
@@ -309,6 +314,7 @@ def test_evidence_research_context_labels_configuration_paths(tmp_path: Path) ->
 
     assert f"[configuration] {config.resolve()}" in context.instruction
     assert "bracketed media kind is not part of the path" in context.instruction
+    assert "transportprofile@2" in context.instruction
 
 
 def test_reasoning_context_bounds_model_evidence_count_and_reports_omissions() -> None:
@@ -627,7 +633,7 @@ def test_source_research_context_focuses_comparison_and_guidance() -> None:
     assert "queries=[]" in context.instruction
 
 
-def test_source_research_context_requires_exact_observed_message_suffix() -> None:
+def test_source_research_context_exposes_observed_message_anchor() -> None:
     warning = _evidence(
         "warning",
         EvidenceReliability.PRIMARY,
@@ -669,10 +675,22 @@ def test_source_research_context_requires_exact_observed_message_suffix() -> Non
         "定时任务启动失败或跳过",
     ]
     assert (
-        'Required exact observed-message suffixes: ["检测到电脑处于锁屏状态，取消启动"]'
+        'Evidence-derived message anchors: ["检测到电脑处于锁屏状态，取消启动"]'
         in context.instruction
     )
-    assert "for every available implementation source" in context.instruction
+    assert "most plausible source first" in context.instruction
+
+
+def test_source_search_anchor_terms_are_language_neutral() -> None:
+    warning = _evidence(
+        "english-warning",
+        EvidenceReliability.PRIMARY,
+        kind="log_occurrence:warning",
+        role=EvidenceRole.SIGNAL,
+        content=('2026-07-27 08:00:16 WARN [Worker] Operation "nightly": retry budget exhausted'),
+    )
+
+    assert source_search_anchor_terms([warning]) == ["retry budget exhausted"]
 
 
 def test_source_research_context_reports_zero_match_queries_for_replanning() -> None:
@@ -680,30 +698,30 @@ def test_source_research_context_reports_zero_match_queries_for_replanning() -> 
         status=SourceResearchStatus.RUN,
         queries=[
             SourceSearchQuery(
-                query_id="localized-lock",
-                source_id="framework",
-                terms=["检测到电脑处于锁屏状态，取消启动"],
-                paths=["src/components"],
-                reason="Locate the lock-screen guard.",
+                query_id="worker-retry-message",
+                source_id="engine",
+                terms=["retry budget exhausted"],
+                paths=["src/worker"],
+                reason="Locate the observed worker failure message.",
             )
         ],
-        rationale="Search the reported message.",
+        rationale="Search the observed message in the initially plausible source.",
     )
 
     context = build_source_research_context(
-        "A scheduled task was cancelled while locked.",
+        "A background operation exhausted its retry budget.",
         [],
         IncidentComparison(status=IncidentComparisonStatus.PARTIAL),
-        ["framework", "gui"],
+        ["engine", "client"],
         previous_plan=previous,
     )
 
-    assert "Previous source queries returned no matches" in context.instruction
-    assert "localized-lock" in context.instruction
+    assert "Previous source queries returned no exact message-origin match" in context.instruction
+    assert "worker-retry-message" in context.instruction
     assert "Do not repeat them unchanged" in context.instruction
     assert "translation-aware terms" in context.instruction
     assert "strong distinctive" in context.instruction
-    assert 'Unsearched available source IDs: ["gui"]' in context.instruction
+    assert 'Unsearched available source IDs: ["client"]' in context.instruction
 
 
 def test_stub_backend_skips_semantic_source_research() -> None:

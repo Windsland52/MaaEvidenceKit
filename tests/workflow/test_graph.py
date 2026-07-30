@@ -49,6 +49,8 @@ from maa_diagnostic_expert.reasoning.prompts import StubReasoningBackend
 from maa_diagnostic_expert.reasoning.protocol import ReasoningContext
 from maa_diagnostic_expert.workflow.graph import DiagnosticWorkflow
 from maa_diagnostic_expert.workflow.validation import (
+    ConfigurationEvidenceBridge,
+    configuration_evidence_bridges,
     requires_configuration_evidence,
     validate_configuration_bridge_citation,
     validate_fix_configuration_bridge,
@@ -522,6 +524,8 @@ class _AdaptiveEvidenceSession:
             )
         if result_type is DiagnosisDraft:
             window = next(item for item in context.evidence if item.kind == "text_line_window")
+            if self.backend.fail_diagnosis:
+                raise RuntimeError("diagnosis model failed after evidence query")
             return cast(
                 ResultT,
                 DiagnosisDraft(
@@ -610,12 +614,14 @@ class _AdaptiveEvidenceBackend:
         omit_regression_checks: bool = False,
         invent_evidence_path_once: bool = False,
         invent_code_target_once: bool = False,
+        fail_diagnosis: bool = False,
     ) -> None:
         self.log_path = log_path
         self.invent_fix_evidence = invent_fix_evidence
         self.omit_regression_checks = omit_regression_checks
         self.invent_evidence_path_once = invent_evidence_path_once
         self.invent_code_target_once = invent_code_target_once
+        self.fail_diagnosis = fail_diagnosis
         self.plan_calls = 0
         self.fix_calls = 0
 
@@ -985,35 +991,47 @@ def test_workflow_adaptively_queries_focused_raw_evidence(tmp_path: Path) -> Non
 
 def test_configuration_dependent_source_requires_artifact_evidence(tmp_path: Path) -> None:
     config = (tmp_path / "settings.json").resolve()
+    configuration_index = {config: {"transportprofile": (1,)}}
     source = Evidence(
         id="ev:source",
         kind="source_search_match",
         source_component="source:gui",
-        source_path="git:gui@revision:Toolbar.tsx",
-        content="const controller = settings.controllerName;",
+        source_path="git:gui@revision:Workflow.ts",
+        content="const profile = settings.transportProfile;",
         role=EvidenceRole.CONTEXT,
     )
 
-    assert requires_configuration_evidence([source], {config}) is True
+    assert requires_configuration_evidence([source], configuration_index) is True
 
     queried = Evidence(
         id="ev:configuration",
         kind="text_line_window",
         source_component="diagnostic-artifact",
         source_path=str(config),
-        content='{"controllerName": "ADB"}',
+        content='{"transport_profile": "sandbox"}',
         line_start=1,
         line_end=1,
         role=EvidenceRole.CONTEXT,
     )
-    assert requires_configuration_evidence([source, queried], {config}) is False
+    assert requires_configuration_evidence([source, queried], configuration_index) is False
+    assert configuration_evidence_bridges([source, queried], {config}) == [
+        ConfigurationEvidenceBridge(
+            source_evidence_id=source.id,
+            configuration_evidence_id=queried.id,
+            identifiers=frozenset({"transportprofile"}),
+        )
+    ]
+    unrelated = source.model_copy(
+        update={"id": "ev:unrelated", "content": "const retry = settings.retryBudget;"}
+    )
+    assert requires_configuration_evidence([unrelated], configuration_index) is False
 
     source_only_draft = DiagnosisDraft(
         status=DiagnosisStatus.COMPLETE,
-        summary="The guard depends on a configured controller.",
+        summary="The branch depends on a configured execution profile.",
         conclusions=[
             Conclusion(
-                statement="The source reads the configured controller.",
+                statement="The source reads the configured execution profile.",
                 evidence_ids=[source.id],
                 confidence=0.8,
             )
@@ -1030,7 +1048,7 @@ def test_configuration_dependent_source_requires_artifact_evidence(tmp_path: Pat
         update={
             "conclusions": [
                 Conclusion(
-                    statement="The configured ADB controller reaches the unconditional guard.",
+                    statement="The sandbox profile reaches the unconditional branch.",
                     evidence_ids=[source.id, queried.id],
                     confidence=0.9,
                 )
@@ -1039,18 +1057,47 @@ def test_configuration_dependent_source_requires_artifact_evidence(tmp_path: Pat
     )
     validate_configuration_bridge_citation(bridged_draft, [source, queried], {config})
 
+    alternate_config = (tmp_path / "limits.json").resolve()
+    alternate_source = source.model_copy(
+        update={"id": "ev:alternate-source", "content": "use(settings.retryBudget);"}
+    )
+    alternate_queried = queried.model_copy(
+        update={
+            "id": "ev:alternate-configuration",
+            "source_path": str(alternate_config),
+            "content": '{"retry_budget": 3}',
+        }
+    )
+    crossed_draft = source_only_draft.model_copy(
+        update={
+            "conclusions": [
+                Conclusion(
+                    statement="The execution profile reaches the branch.",
+                    evidence_ids=[source.id, alternate_queried.id],
+                    confidence=0.8,
+                )
+            ]
+        }
+    )
+    with pytest.raises(ValueError, match="both version-matched source evidence"):
+        validate_configuration_bridge_citation(
+            crossed_draft,
+            [source, queried, alternate_source, alternate_queried],
+            {config, alternate_config},
+        )
+
     source_only_fix = FixCandidatePlan(
         status=FixPlanningStatus.PROPOSED,
-        rationale="Narrow the controller-dependent guard.",
+        rationale="Narrow the configuration-dependent branch.",
         candidates=[
             FixCandidate(
                 fix_id="narrow-guard",
-                target="Toolbar.tsx:startTask",
+                target="Workflow.ts:startOperation",
                 scope=FixScope.GUI,
                 method=FixMethod.GUI_CODE,
-                rationale="Apply the guard only where the desktop is required.",
+                rationale="Apply the condition only to the affected execution profile.",
                 evidence_ids=[source.id],
-                verification_steps=["Exercise ADB and desktop controllers while locked."],
+                verification_steps=["Exercise affected and adjacent execution profiles."],
             )
         ],
     )
@@ -1107,6 +1154,29 @@ def test_workflow_retries_evidence_plan_with_an_exact_authorized_path(
         and event.message == "Retrying evidence research plan with authorized paths"
         for event in events
     )
+
+
+def test_reason_failure_preserves_adaptively_queried_evidence(tmp_path: Path) -> None:
+    log = tmp_path / "agent.log"
+    log.write_text(
+        "operation started\nretry exhausted\noperation failed\n",
+        encoding="utf-8",
+    )
+    workflow = DiagnosticWorkflow(
+        _ToolCaller(),
+        _AdaptiveEvidenceBackend(log.resolve(), fail_diagnosis=True),
+    )
+    request = AnalysisRequest(
+        question="Why did the custom operation fail?",
+        artifacts=[ArtifactInput(path=log, kind=ArtifactKind.FILE)],
+    )
+
+    events = _collect_events(workflow, request)
+
+    assert events[-1].kind is DiagnosticEventKind.RUN_FAILED
+    assert workflow.result is not None
+    assert workflow.result.status is DiagnosisStatus.FAILED
+    assert any(item.kind == "text_line_window" for item in workflow.result.evidence)
 
 
 def test_workflow_rejects_fix_candidate_with_invented_evidence(tmp_path: Path) -> None:
@@ -1277,7 +1347,10 @@ def test_workflow_runs_model_planned_versioned_source_search(
         context for context in backend.contexts if context.stage == "plan_source_research"
     ]
     assert len(source_plan_contexts) == 2
-    assert "Previous source queries returned no matches" in source_plan_contexts[1].instruction
+    assert (
+        "Previous source queries returned no exact message-origin match"
+        in source_plan_contexts[1].instruction
+    )
     assert any(event.stage == "search_source" for event in events)
     diagnose_context = next(context for context in backend.contexts if context.stage == "diagnose")
     assert any(evidence.kind == "source_search_match" for evidence in diagnose_context.evidence)
