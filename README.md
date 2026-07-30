@@ -203,21 +203,42 @@ provider with a custom `base_url`.
 
 ```json
 {
-  "api_version": "model-config/v1",
-  "provider": "openai",
-  "model": "model-name",
-  "api_key": "your-api-key",
-  "base_url": "https://example.invalid/v1",
-  "temperature": 0,
-  "timeout_seconds": 120,
-  "max_retries": 2,
-  "max_output_tokens": 8192,
-  "structured_output_retries": 1,
-  "structured_output_method": "auto"
+  "api_version": "model-config/v2",
+  "models": {
+    "planner": {
+      "provider": "openai",
+      "model": "fast-model",
+      "api_key": "your-api-key",
+      "base_url": "https://example.invalid/v1",
+      "structured_output_method": "json_mode"
+    },
+    "reasoner": {
+      "provider": "openai",
+      "model": "strong-model",
+      "api_key": "your-api-key",
+      "base_url": "https://example.invalid/v1",
+      "max_output_tokens": 8192,
+      "structured_output_method": "json_mode"
+    }
+  },
+  "default_model": "reasoner",
+  "routes": {
+    "correlate_incident": "planner",
+    "plan_source_research": "planner",
+    "plan_knowledge_research": "planner",
+    "plan_evidence_research": "planner"
+  }
 }
 ```
 
-`api_key` is passed directly to the selected provider. Model configuration is not written to
+`models` is a named model registry. `default_model` handles every stage not explicitly
+overridden by `routes`; route keys must be known exact stage names, so configuration typos fail
+validation. Routable stages are `correlate_incident`, `plan_source_research`,
+`plan_knowledge_research`, `plan_evidence_research`, `diagnose`, `propose_fix`,
+`plan_verification`, `plan_fix_execution`, `verify_fix`, and `benchmark_judge`.
+
+Each model entry accepts the provider settings below. `api_key` is passed directly to that
+provider. Model configuration is not written to
 workflow state, events, diagnosis results, or benchmark artifacts. Keep credential-bearing files
 outside version control. Omit the field when the provider uses another credential chain, such as
 AWS credentials for Bedrock.
@@ -330,8 +351,9 @@ Copy-Item docs/examples/model.local.json.example model.local.json
 uv run maa-studio
 ```
 
-`model.local.json` is ignored by Git and uses the public `ModelConfig`, including its optional
-`api_key` field. `maa-studio` discovers the local file automatically; an existing
+`model.local.json` is ignored by Git and uses the public `ModelRouterConfig`; each named
+`ModelConfig` may include an optional `api_key`. `maa-studio` discovers the local file
+automatically; an existing
 `MDE_MODEL_CONFIG` takes precedence, and
 `--model-config another.json` overrides both. Use `uv run maa-studio --stub` to force a
 credential-free run. Common Agent Server options are available directly, for example `uv run

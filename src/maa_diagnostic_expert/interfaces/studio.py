@@ -15,7 +15,7 @@ from maa_diagnostic_expert.interfaces.tool_adapter import (
     default_tool_adapter_path,
 )
 from maa_diagnostic_expert.reasoning.langchain import make_langchain_backend
-from maa_diagnostic_expert.reasoning.model_config import ModelConfig
+from maa_diagnostic_expert.reasoning.model_config import parse_model_configuration_json
 from maa_diagnostic_expert.reasoning.prompts import make_stub_backend
 from maa_diagnostic_expert.reasoning.protocol import ReasoningBackend
 from maa_diagnostic_expert.workflow.graph import DiagnosticState, DiagnosticWorkflow
@@ -35,7 +35,7 @@ def _reasoning_backend() -> ReasoningBackend:
     if configured is None or not configured.strip():
         return make_stub_backend()
     path = Path(configured).expanduser().resolve()
-    config = ModelConfig.model_validate_json(path.read_text(encoding="utf-8"))
+    config = parse_model_configuration_json(path.read_text(encoding="utf-8"))
     return make_langchain_backend(config)
 
 

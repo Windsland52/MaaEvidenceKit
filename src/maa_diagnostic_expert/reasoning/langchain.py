@@ -9,7 +9,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from maa_diagnostic_expert.contracts.domain import ContractModel
 
-from .model_config import FunctionToolChoiceFormat, ModelConfig, StructuredOutputMethod
+from .model_config import (
+    FunctionToolChoiceFormat,
+    ModelConfig,
+    ModelRouterConfig,
+    StructuredOutputMethod,
+)
 from .prompts import render_evidence_block
 from .protocol import ReasoningContext
 
@@ -263,5 +268,56 @@ class LangChainReasoningBackend:
         )
 
 
-def make_langchain_backend(config: ModelConfig) -> LangChainReasoningBackend:
-    return LangChainReasoningBackend(config)
+class RoutedReasoningSession:
+    """Lazily starts the configured model session selected for each reasoning stage."""
+
+    def __init__(
+        self,
+        run_id: str,
+        backends: dict[str, LangChainReasoningBackend],
+        config: ModelRouterConfig,
+    ) -> None:
+        self._run_id = run_id
+        self._backends = backends
+        self._config = config
+        self._sessions: dict[str, LangChainReasoningSession] = {}
+        self._closed = False
+
+    async def reason[ResultT: ContractModel](
+        self,
+        context: ReasoningContext,
+        result_type: type[ResultT],
+    ) -> ResultT:
+        if self._closed:
+            raise RuntimeError("reasoning session is closed")
+        alias = self._config.model_alias_for_stage(context.stage)
+        session = self._sessions.get(alias)
+        if session is None:
+            session = await self._backends[alias].start(run_id=self._run_id)
+            self._sessions[alias] = session
+        return await session.reason(context, result_type)
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        for session in self._sessions.values():
+            await session.close()
+
+
+class RoutedReasoningBackend:
+    """Routes reasoning stages to named LangChain model backends."""
+
+    def __init__(self, config: ModelRouterConfig) -> None:
+        self._config = config
+        self._backends = {
+            alias: LangChainReasoningBackend(model_config)
+            for alias, model_config in config.models.items()
+        }
+
+    async def start(self, *, run_id: str) -> RoutedReasoningSession:
+        return RoutedReasoningSession(run_id, self._backends, self._config)
+
+
+def make_langchain_backend(config: ModelRouterConfig) -> RoutedReasoningBackend:
+    return RoutedReasoningBackend(config)

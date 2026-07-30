@@ -12,7 +12,7 @@ from typing import cast
 
 from pydantic import ValidationError
 
-from maa_diagnostic_expert.reasoning.model_config import ModelConfig
+from maa_diagnostic_expert.reasoning.model_config import parse_model_configuration_json
 
 from .studio import MODEL_CONFIG_ENV
 
@@ -46,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument(
         "--model-config",
         type=Path,
-        help=f"ModelConfig JSON; defaults to {LOCAL_MODEL_CONFIG} when present.",
+        help=f"Routed model configuration JSON; defaults to {LOCAL_MODEL_CONFIG} when present.",
     )
     model.add_argument(
         "--stub",
@@ -86,7 +86,7 @@ def _validated_model_config(path: Path, *, relative_to: Path) -> Path:
     resolved = candidate.resolve()
     if not resolved.is_file():
         raise ValueError(f"Model configuration does not exist: {resolved}")
-    ModelConfig.model_validate_json(resolved.read_text(encoding="utf-8"))
+    parse_model_configuration_json(resolved.read_text(encoding="utf-8"))
     return resolved
 
 

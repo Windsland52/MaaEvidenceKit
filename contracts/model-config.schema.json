@@ -40,6 +40,138 @@
       "title": "FunctionToolChoiceFormat",
       "type": "string"
     },
+    "ModelConfig": {
+      "additionalProperties": false,
+      "description": "One named model's provider connection and structured-output settings.",
+      "properties": {
+        "provider": {
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "title": "Provider",
+          "type": "string"
+        },
+        "model": {
+          "minLength": 1,
+          "title": "Model",
+          "type": "string"
+        },
+        "api_key": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Url"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature"
+        },
+        "timeout_seconds": {
+          "default": 120,
+          "exclusiveMinimum": 0,
+          "maximum": 600,
+          "title": "Timeout Seconds",
+          "type": "number"
+        },
+        "max_retries": {
+          "default": 2,
+          "maximum": 10,
+          "minimum": 0,
+          "title": "Max Retries",
+          "type": "integer"
+        },
+        "max_output_tokens": {
+          "anyOf": [
+            {
+              "maximum": 131072,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Output Tokens"
+        },
+        "structured_output_retries": {
+          "default": 1,
+          "maximum": 3,
+          "minimum": 0,
+          "title": "Structured Output Retries",
+          "type": "integer"
+        },
+        "structured_output_method": {
+          "$ref": "#/$defs/StructuredOutputMethod",
+          "default": "auto"
+        },
+        "function_tool_choice_format": {
+          "$ref": "#/$defs/FunctionToolChoiceFormat",
+          "default": "chat_completions"
+        },
+        "chat_template_kwargs": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChatTemplateConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "provider",
+        "model"
+      ],
+      "title": "ModelConfig",
+      "type": "object"
+    },
+    "ReasoningStage": {
+      "description": "Model-facing stages that may be assigned to different model aliases.",
+      "enum": [
+        "correlate_incident",
+        "plan_source_research",
+        "plan_knowledge_research",
+        "plan_evidence_research",
+        "diagnose",
+        "propose_fix",
+        "plan_verification",
+        "plan_fix_execution",
+        "verify_fix",
+        "benchmark_judge"
+      ],
+      "title": "ReasoningStage",
+      "type": "string"
+    },
     "StructuredOutputMethod": {
       "enum": [
         "auto",
@@ -52,122 +184,42 @@
     }
   },
   "additionalProperties": false,
-  "description": "Serializable model selection and provider connection settings.",
+  "description": "Complete model registry with exact reasoning-stage routes.",
   "properties": {
     "api_version": {
-      "const": "model-config/v1",
-      "default": "model-config/v1",
+      "const": "model-config/v2",
+      "default": "model-config/v2",
       "title": "Api Version",
       "type": "string"
     },
-    "provider": {
-      "pattern": "^[a-z][a-z0-9_-]*$",
-      "title": "Provider",
-      "type": "string"
+    "models": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ModelConfig"
+      },
+      "minProperties": 1,
+      "title": "Models",
+      "type": "object"
     },
-    "model": {
+    "default_model": {
       "minLength": 1,
-      "title": "Model",
+      "title": "Default Model",
       "type": "string"
     },
-    "api_key": {
-      "anyOf": [
-        {
-          "minLength": 1,
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Api Key"
-    },
-    "base_url": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Base Url"
-    },
-    "temperature": {
-      "anyOf": [
-        {
-          "maximum": 2,
-          "minimum": 0,
-          "type": "number"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Temperature"
-    },
-    "timeout_seconds": {
-      "default": 120,
-      "exclusiveMinimum": 0,
-      "maximum": 600,
-      "title": "Timeout Seconds",
-      "type": "number"
-    },
-    "max_retries": {
-      "default": 2,
-      "maximum": 10,
-      "minimum": 0,
-      "title": "Max Retries",
-      "type": "integer"
-    },
-    "max_output_tokens": {
-      "anyOf": [
-        {
-          "maximum": 131072,
-          "minimum": 1,
-          "type": "integer"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Max Output Tokens"
-    },
-    "structured_output_retries": {
-      "default": 1,
-      "maximum": 3,
-      "minimum": 0,
-      "title": "Structured Output Retries",
-      "type": "integer"
-    },
-    "structured_output_method": {
-      "$ref": "#/$defs/StructuredOutputMethod",
-      "default": "auto"
-    },
-    "function_tool_choice_format": {
-      "$ref": "#/$defs/FunctionToolChoiceFormat",
-      "default": "chat_completions"
-    },
-    "chat_template_kwargs": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/ChatTemplateConfig"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
+    "routes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/ReasoningStage"
+      },
+      "title": "Routes",
+      "type": "object"
     }
   },
   "required": [
-    "provider",
-    "model"
+    "models",
+    "default_model"
   ],
-  "title": "ModelConfig",
+  "title": "ModelRouterConfig",
   "type": "object"
 }

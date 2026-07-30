@@ -10,7 +10,7 @@ from langgraph_sdk.runtime import ServerRuntime
 from maa_diagnostic_expert.contracts.domain import AnalysisRequest, DiagnosisStatus
 from maa_diagnostic_expert.interfaces import studio
 from maa_diagnostic_expert.interfaces.tool_adapter import JsonlToolAdapterClient
-from maa_diagnostic_expert.reasoning.model_config import ModelConfig
+from maa_diagnostic_expert.reasoning.model_config import ModelConfig, ModelRouterConfig
 from maa_diagnostic_expert.reasoning.prompts import StubReasoningBackend, make_stub_backend
 from maa_diagnostic_expert.reasoning.protocol import ReasoningBackend
 from maa_diagnostic_expert.workflow.graph import DiagnosticState
@@ -35,13 +35,16 @@ def test_studio_workflow_loads_model_config_from_environment(
 ) -> None:
     config_path = tmp_path / "model.json"
     config_path.write_text(
-        ModelConfig(provider="openai", model="test-model").model_dump_json(),
+        ModelRouterConfig(
+            models={"default": ModelConfig(provider="openai", model="test-model")},
+            default_model="default",
+        ).model_dump_json(),
         encoding="utf-8",
     )
-    captured: list[ModelConfig] = []
+    captured: list[ModelRouterConfig] = []
     backend = make_stub_backend()
 
-    def fake_backend(config: ModelConfig) -> ReasoningBackend:
+    def fake_backend(config: ModelRouterConfig) -> ReasoningBackend:
         captured.append(config)
         return backend
 
@@ -51,7 +54,12 @@ def test_studio_workflow_loads_model_config_from_environment(
     workflow = studio.build_studio_workflow()
 
     assert workflow.reasoning_backend is backend
-    assert captured == [ModelConfig(provider="openai", model="test-model")]
+    assert captured == [
+        ModelRouterConfig(
+            models={"default": ModelConfig(provider="openai", model="test-model")},
+            default_model="default",
+        )
+    ]
 
 
 def test_studio_workflow_loads_direct_api_key_from_local_config(
@@ -60,17 +68,22 @@ def test_studio_workflow_loads_direct_api_key_from_local_config(
 ) -> None:
     config_path = tmp_path / "model.local.json"
     config_path.write_text(
-        ModelConfig(
-            provider="openai",
-            model="test-model",
-            api_key="local-secret",
+        ModelRouterConfig(
+            models={
+                "default": ModelConfig(
+                    provider="openai",
+                    model="test-model",
+                    api_key="local-secret",
+                )
+            },
+            default_model="default",
         ).model_dump_json(),
         encoding="utf-8",
     )
-    captured: list[ModelConfig] = []
+    captured: list[ModelRouterConfig] = []
     backend = make_stub_backend()
 
-    def fake_backend(config: ModelConfig) -> ReasoningBackend:
+    def fake_backend(config: ModelRouterConfig) -> ReasoningBackend:
         captured.append(config)
         return backend
 
@@ -80,7 +93,18 @@ def test_studio_workflow_loads_direct_api_key_from_local_config(
     workflow = studio.build_studio_workflow()
 
     assert workflow.reasoning_backend is backend
-    assert captured == [ModelConfig(provider="openai", model="test-model", api_key="local-secret")]
+    assert captured == [
+        ModelRouterConfig(
+            models={
+                "default": ModelConfig(
+                    provider="openai",
+                    model="test-model",
+                    api_key="local-secret",
+                )
+            },
+            default_model="default",
+        )
+    ]
 
 
 def test_studio_graph_validates_serialized_analysis_request(

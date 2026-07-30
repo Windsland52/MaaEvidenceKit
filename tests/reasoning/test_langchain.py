@@ -22,6 +22,8 @@ from maa_diagnostic_expert.reasoning.model_config import (
     ChatTemplateConfig,
     FunctionToolChoiceFormat,
     ModelConfig,
+    ModelRouterConfig,
+    ReasoningStage,
     StructuredOutputMethod,
 )
 from maa_diagnostic_expert.reasoning.prompts import build_reasoning_context
@@ -329,7 +331,7 @@ def test_langchain_backend_passes_direct_api_key_to_provider(
 
     monkeypatch.setattr(langchain, "init_chat_model", fake_init_chat_model)
 
-    backend = langchain.make_langchain_backend(
+    backend = langchain.LangChainReasoningBackend(
         ModelConfig(
             provider="openai",
             model="test-model",
@@ -363,3 +365,73 @@ def test_langchain_backend_passes_direct_api_key_to_provider(
             },
         )
     ]
+
+
+def test_routed_backend_selects_models_by_stage_and_uses_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    planner = _ChatModel(
+        DiagnosisDraft(
+            status=DiagnosisStatus.INSUFFICIENT_EVIDENCE,
+            summary="Planner result.",
+        )
+    )
+    reasoner = _ChatModel(
+        DiagnosisDraft(
+            status=DiagnosisStatus.INSUFFICIENT_EVIDENCE,
+            summary="Reasoner result.",
+        ),
+        DiagnosisDraft(
+            status=DiagnosisStatus.INSUFFICIENT_EVIDENCE,
+            summary="Default result.",
+        ),
+    )
+    initialized: list[str] = []
+
+    def fake_init_chat_model(
+        name: str,
+        *,
+        model_provider: str,
+        **kwargs: object,
+    ) -> _ChatModel:
+        del model_provider, kwargs
+        initialized.append(name)
+        return planner if name == "fast-model" else reasoner
+
+    monkeypatch.setattr(langchain, "init_chat_model", fake_init_chat_model)
+    backend = langchain.make_langchain_backend(
+        ModelRouterConfig(
+            models={
+                "planner": ModelConfig(provider="openai", model="fast-model"),
+                "reasoner": ModelConfig(provider="openai", model="strong-model"),
+            },
+            default_model="reasoner",
+            routes={ReasoningStage.PLAN_SOURCE_RESEARCH: "planner"},
+        )
+    )
+    session = asyncio.run(backend.start(run_id="routed-run"))
+
+    planned = asyncio.run(
+        session.reason(
+            replace(
+                build_reasoning_context("Plan.", []),
+                stage="plan_source_research",
+            ),
+            DiagnosisDraft,
+        )
+    )
+    diagnosed = asyncio.run(
+        session.reason(build_reasoning_context("Diagnose.", []), DiagnosisDraft)
+    )
+    future = asyncio.run(
+        session.reason(
+            replace(build_reasoning_context("Future.", []), stage="future_stage"),
+            DiagnosisDraft,
+        )
+    )
+    asyncio.run(session.close())
+
+    assert initialized == ["fast-model", "strong-model"]
+    assert planned.summary == "Planner result."
+    assert diagnosed.summary == "Reasoner result."
+    assert future.summary == "Default result."

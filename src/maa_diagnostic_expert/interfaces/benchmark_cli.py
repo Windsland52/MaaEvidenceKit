@@ -15,7 +15,7 @@ from maa_diagnostic_expert.benchmark import (
 )
 from maa_diagnostic_expert.contracts.domain import DiagnosisResult
 from maa_diagnostic_expert.reasoning.langchain import make_langchain_backend
-from maa_diagnostic_expert.reasoning.model_config import ModelConfig
+from maa_diagnostic_expert.reasoning.model_config import parse_model_configuration_json
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,7 +37,7 @@ def _run(args: argparse.Namespace) -> None:
     case = _load(args.case, BenchmarkCase)
     annotation = _load(args.annotation, BenchmarkAnnotation)
     diagnosis = _load(args.diagnosis, DiagnosisResult)
-    config = _load(args.judge_model_config, ModelConfig)
+    config = parse_model_configuration_json(args.judge_model_config.read_text(encoding="utf-8"))
     result = asyncio.run(
         evaluate_benchmark_diagnosis(
             run_id=f"benchmark-{annotation.case_id}",

@@ -32,7 +32,7 @@ from maa_diagnostic_expert.knowledge.catalog import (
     resolve_wiki_catalog,
 )
 from maa_diagnostic_expert.reasoning.langchain import make_langchain_backend
-from maa_diagnostic_expert.reasoning.model_config import ModelConfig
+from maa_diagnostic_expert.reasoning.model_config import parse_model_configuration_json
 from maa_diagnostic_expert.reasoning.prompts import make_stub_backend
 from maa_diagnostic_expert.workflow.graph import DiagnosticWorkflow
 from maa_diagnostic_expert.workflow.validation import validate_result_against_inspection
@@ -114,7 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
     diagnose.add_argument(
         "--model-config",
         type=Path,
-        help="Optional ModelConfig JSON; omit to use the deterministic stub backend.",
+        help="Routed model configuration JSON; omit for the deterministic stub backend.",
     )
     diagnose.add_argument(
         "--format",
@@ -259,7 +259,9 @@ def _run_diagnose(args: argparse.Namespace) -> None:
     adapter_path = _resolve_adapter_path(cast(Path | None, args.tool_adapter))
     model_config_path = cast(Path | None, args.model_config)
     reasoning_backend = (
-        make_langchain_backend(_load_model(model_config_path, ModelConfig))
+        make_langchain_backend(
+            parse_model_configuration_json(model_config_path.read_text(encoding="utf-8"))
+        )
         if model_config_path is not None
         else make_stub_backend()
     )

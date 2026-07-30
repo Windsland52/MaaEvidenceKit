@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from maa_diagnostic_expert.inspection.log_overview import LogOverviewCollection
 from maa_diagnostic_expert.inspection.models import DeterministicInspection
-from maa_diagnostic_expert.reasoning.model_config import ModelConfig
+from maa_diagnostic_expert.reasoning.model_config import ModelRouterConfig
 
 from .benchmark import (
     BenchmarkAnnotation,
@@ -84,7 +84,7 @@ CONTRACT_MODELS: dict[str, type[BaseModel]] = {
     "mla-runtime-inspection.schema.json": MlaRuntimeInspectionResult,
     "mse-project-preflight.schema.json": MseProjectPreflightResult,
     "mse-task-resolution.schema.json": MseTaskResolutionResult,
-    "model-config.schema.json": ModelConfig,
+    "model-config.schema.json": ModelRouterConfig,
     "artifact-source-inventory.schema.json": ArtifactSourceInventory,
     "log-overview.schema.json": LogOverviewCollection,
     "runtime-identity.schema.json": RuntimeIdentity,

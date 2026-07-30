@@ -23,6 +23,21 @@ class FunctionToolChoiceFormat(StrEnum):
     RESPONSES = "responses"
 
 
+class ReasoningStage(StrEnum):
+    """Model-facing stages that may be assigned to different model aliases."""
+
+    CORRELATE_INCIDENT = "correlate_incident"
+    PLAN_SOURCE_RESEARCH = "plan_source_research"
+    PLAN_KNOWLEDGE_RESEARCH = "plan_knowledge_research"
+    PLAN_EVIDENCE_RESEARCH = "plan_evidence_research"
+    DIAGNOSE = "diagnose"
+    PROPOSE_FIX = "propose_fix"
+    PLAN_VERIFICATION = "plan_verification"
+    PLAN_FIX_EXECUTION = "plan_fix_execution"
+    VERIFY_FIX = "verify_fix"
+    BENCHMARK_JUDGE = "benchmark_judge"
+
+
 class ChatTemplateConfig(ContractModel):
     """Provider chat-template controls passed with each model request."""
 
@@ -37,9 +52,8 @@ class ChatTemplateConfig(ContractModel):
 
 
 class ModelConfig(ContractModel):
-    """Serializable model selection and provider connection settings."""
+    """One named model's provider connection and structured-output settings."""
 
-    api_version: Literal["model-config/v1"] = "model-config/v1"
     provider: str = Field(pattern=r"^[a-z][a-z0-9_-]*$")
     model: str = Field(min_length=1)
     api_key: str | None = Field(default=None, min_length=1)
@@ -93,3 +107,61 @@ class ModelConfig(ContractModel):
         if parsed.query or parsed.fragment:
             raise ValueError("Model base_url must not contain a query or fragment")
         return normalized
+
+
+class ModelRouterConfig(ContractModel):
+    """Complete model registry with exact reasoning-stage routes."""
+
+    api_version: Literal["model-config/v2"] = "model-config/v2"
+    models: dict[str, ModelConfig] = Field(min_length=1)
+    default_model: str = Field(min_length=1)
+    routes: dict[ReasoningStage, str] = Field(default_factory=dict[ReasoningStage, str])
+
+    @field_validator("models")
+    @classmethod
+    def validate_model_aliases(cls, value: dict[str, ModelConfig]) -> dict[str, ModelConfig]:
+        for alias in value:
+            if not alias or not alias.replace("-", "_").isalnum():
+                raise ValueError(
+                    "Model aliases must contain only letters, numbers, underscores, or hyphens"
+                )
+        return value
+
+    @field_validator("default_model")
+    @classmethod
+    def normalize_default_model(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("routes")
+    @classmethod
+    def normalize_routes(cls, value: dict[ReasoningStage, str]) -> dict[ReasoningStage, str]:
+        normalized: dict[ReasoningStage, str] = {}
+        for stage, alias in value.items():
+            resolved_alias = alias.strip()
+            if not resolved_alias:
+                raise ValueError("Model route aliases must not be blank")
+            normalized[stage] = resolved_alias
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_route_targets(self) -> ModelRouterConfig:
+        referenced = {self.default_model, *self.routes.values()}
+        unknown = referenced - self.models.keys()
+        if unknown:
+            raise ValueError(
+                "Model routes reference unknown aliases: " + ", ".join(sorted(unknown))
+            )
+        return self
+
+    def model_alias_for_stage(self, stage: str) -> str:
+        try:
+            routed_stage = ReasoningStage(stage)
+        except ValueError:
+            return self.default_model
+        return self.routes.get(routed_stage, self.default_model)
+
+
+def parse_model_configuration_json(serialized: str) -> ModelRouterConfig:
+    """Validate the routed model configuration accepted by CLI and Studio."""
+
+    return ModelRouterConfig.model_validate_json(serialized)

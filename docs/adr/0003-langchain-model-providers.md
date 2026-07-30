@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-07-20
-- Updated: 2026-07-29
+- Updated: 2026-07-30
 
 ## Context
 
@@ -18,8 +18,13 @@ available as optional project extras; other LangChain integrations can be instal
 OpenAI-compatible services use the OpenAI provider with a configured `base_url`. LiteLLM is not a
 project dependency.
 
-`ModelConfig` records the provider, model, endpoint, optional direct `api_key`, timeouts, retry
-policy, and structured-output method. The configuration remains an input-only provider boundary:
+`ModelRouterConfig` holds named `ModelConfig` entries, a default model alias, and exact
+reasoning-stage routes. This lets inexpensive models handle bounded correlation and planning while
+stronger models handle diagnosis, repair, and verification. Unknown route keys fail validation;
+new runtime stages use the configured default model.
+
+Each `ModelConfig` records the provider, model, endpoint, optional direct `api_key`, timeouts,
+retry policy, and structured-output method. The configuration remains an input-only provider boundary:
 it must not enter graph state, diagnostic events, results, or benchmark artifacts. Credential-bearing
 configuration files must remain outside version control. Providers with their own credential chain
 may omit `api_key`.
@@ -38,6 +43,7 @@ not control graph transitions and cannot write to the evidence ledger.
 ## Consequences
 
 - MDE can add or upgrade provider packages without changing LangGraph nodes or diagnosis contracts.
+- Deployments can allocate model cost and latency by reasoning stage without changing workflow code.
 - Users install only the provider extras they need; the model-free stub remains the CLI default.
 - Provider differences in structured output remain explicit through `structured_output_method`.
 - Provider chat-template reasoning modes remain explicit through `chat_template_kwargs`.

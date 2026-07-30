@@ -207,9 +207,18 @@ from .knowledge.catalog import (
 from .reasoning.langchain import (
     LangChainReasoningBackend,
     LangChainReasoningSession,
+    RoutedReasoningBackend,
+    RoutedReasoningSession,
     make_langchain_backend,
 )
-from .reasoning.model_config import ChatTemplateConfig, ModelConfig, StructuredOutputMethod
+from .reasoning.model_config import (
+    ChatTemplateConfig,
+    ModelConfig,
+    ModelRouterConfig,
+    ReasoningStage,
+    StructuredOutputMethod,
+    parse_model_configuration_json,
+)
 from .reasoning.prompts import (
     StubReasoningBackend,
     StubReasoningSession,
@@ -346,7 +355,10 @@ __all__ = [
     "MissingEvidence",
     "LangChainReasoningBackend",
     "LangChainReasoningSession",
+    "RoutedReasoningBackend",
+    "RoutedReasoningSession",
     "ModelConfig",
+    "ModelRouterConfig",
     "LogClassificationMatch",
     "LogArtifactOverview",
     "LogOccurrence",
@@ -360,6 +372,8 @@ __all__ = [
     "ReasoningBackend",
     "ReasoningContext",
     "ReasoningRequest",
+    "ReasoningStage",
+    "parse_model_configuration_json",
     "MlaCompatibility",
     "MlaArtifactInspection",
     "MlaCompatibilityStatus",

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from maa_diagnostic_expert.interfaces import studio_cli
-from maa_diagnostic_expert.reasoning.model_config import ModelConfig
+from maa_diagnostic_expert.reasoning.model_config import ModelConfig, ModelRouterConfig
 
 
 def _project_root(path: Path) -> Path:
@@ -32,10 +32,15 @@ def test_prepare_launch_discovers_local_model_config(tmp_path: Path) -> None:
     root = _project_root(tmp_path / "project")
     model_path = root / studio_cli.LOCAL_MODEL_CONFIG
     model_path.write_text(
-        ModelConfig(
-            provider="openai",
-            model="test-model",
-            api_key="local-secret",
+        ModelRouterConfig(
+            models={
+                "default": ModelConfig(
+                    provider="openai",
+                    model="test-model",
+                    api_key="local-secret",
+                )
+            },
+            default_model="default",
         ).model_dump_json(),
         encoding="utf-8",
     )
