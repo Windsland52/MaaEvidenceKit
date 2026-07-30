@@ -246,6 +246,25 @@ def test_code_fix_candidate_requires_versioned_source_from_its_component() -> No
             {"mxu": SourceRole.GUI},
         )
 
+    invented_symbol = code_plan(FixMethod.GUI_CODE).model_copy(
+        update={
+            "candidates": [
+                code_plan(FixMethod.GUI_CODE)
+                .candidates[0]
+                .model_copy(
+                    update={"target": "src/components/Toolbar.tsx: function handleStartTask"}
+                )
+            ]
+        }
+    )
+    with pytest.raises(ValueError, match="symbols absent.*handlestarttask"):
+        validate_fix_candidate_plan(
+            invented_symbol,
+            draft,
+            [source],
+            {"mxu": SourceRole.GUI},
+        )
+
     without_source = source.model_copy(update={"kind": "text_line_window"})
     with pytest.raises(ValueError, match="version-matched source evidence"):
         validate_fix_candidate_plan(

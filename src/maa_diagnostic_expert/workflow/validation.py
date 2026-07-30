@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,6 +42,10 @@ _CODE_FIX_SOURCE_ROLES = {
     FixMethod.GUI_CODE: SourceRole.GUI,
     FixMethod.FRAMEWORK_CODE: SourceRole.MAA_FRAMEWORK,
 }
+_EXPLICIT_CODE_SYMBOL = re.compile(
+    r"\b(?:class|function|method|symbol)\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,6 +268,16 @@ def validate_fix_candidate_plan(
         if not source_evidence:
             raise ValueError(
                 f"Code fix candidate '{candidate.fix_id}' must cite version-matched source evidence"
+            )
+        explicit_symbols = {
+            match.group(1).casefold() for match in _EXPLICIT_CODE_SYMBOL.finditer(candidate.target)
+        }
+        source_content = "\n".join(item.content for item in source_evidence).casefold()
+        unknown_symbols = {symbol for symbol in explicit_symbols if symbol not in source_content}
+        if unknown_symbols:
+            raise ValueError(
+                f"Code fix candidate '{candidate.fix_id}' references source symbols absent from "
+                "its cited evidence: " + ", ".join(sorted(unknown_symbols))
             )
         if source_roles is None:
             continue
