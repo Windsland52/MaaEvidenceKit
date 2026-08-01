@@ -48,6 +48,19 @@ _EXPLICIT_CODE_SYMBOL = re.compile(
 )
 
 
+def _versioned_source_file_identity(evidence: Evidence) -> tuple[str, str] | None:
+    """Return a stable component/file key without assigning meaning to a repository layout."""
+    if not evidence.source_component.startswith("source:"):
+        return None
+    locator_parts = evidence.source_path.split(":", maxsplit=2)
+    if len(locator_parts) != 3 or locator_parts[0] != "git":
+        return None
+    return (
+        evidence.source_component,
+        locator_parts[2].replace("\\", "/").casefold(),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ConfigurationEvidenceBridge:
     """One lexical source/configuration dependency backed by two evidence records."""
@@ -260,15 +273,36 @@ def validate_fix_candidate_plan(
         expected_source_role = _CODE_FIX_SOURCE_ROLES.get(candidate.method)
         if expected_source_role is None:
             continue
-        source_evidence = [
+        diagnostic_source_evidence = [
             ledger[evidence_id]
             for evidence_id in referenced_ids
             if ledger[evidence_id].kind == "source_search_match"
         ]
-        if not source_evidence:
+        if not diagnostic_source_evidence:
             raise ValueError(
                 f"Code fix candidate '{candidate.fix_id}' must cite version-matched source evidence"
             )
+        diagnosed_files = {
+            identity
+            for item in diagnostic_source_evidence
+            if (identity := _versioned_source_file_identity(item)) is not None
+        }
+        available_update_ids = {
+            item.id
+            for item in ledger.values()
+            if item.kind == "source_update_match"
+            and _versioned_source_file_identity(item) in diagnosed_files
+        }
+        if available_update_ids and not referenced_ids.intersection(available_update_ids):
+            raise ValueError(
+                f"Code fix candidate '{candidate.fix_id}' must assess and cite a Git-confirmed "
+                "descendant change from the same diagnosed source file"
+            )
+        source_evidence = [
+            ledger[evidence_id]
+            for evidence_id in referenced_ids
+            if ledger[evidence_id].kind in {"source_search_match", "source_update_match"}
+        ]
         explicit_symbols = {
             match.group(1).casefold() for match in _EXPLICIT_CODE_SYMBOL.finditer(candidate.target)
         }
@@ -285,7 +319,7 @@ def validate_fix_candidate_plan(
             item.source_component.startswith("source:")
             and source_roles.get(item.source_component.removeprefix("source:"))
             is expected_source_role
-            for item in source_evidence
+            for item in diagnostic_source_evidence
         )
         if not matching_role:
             raise ValueError(

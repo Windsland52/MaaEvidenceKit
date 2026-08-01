@@ -15,6 +15,7 @@ from maa_diagnostic_expert.contracts.domain import (
     EvidenceReliability,
     EvidenceRole,
     MissingEvidence,
+    RevisionResolutionStatus,
     SourceRevisionBackend,
     SourceRole,
     SourceSnapshot,
@@ -34,6 +35,7 @@ from .evidence_query import query_evidence
 from .models import DeterministicInspection, SourceSearchMatch
 
 _MAX_TOTAL_MATCHES = 50
+_MAX_SOURCE_UPDATE_MATCHES = 20
 _MAX_QUERY_CANDIDATES = 5_000
 _MAX_FOLLOWUP_IDENTIFIERS = 4
 _MAX_FOLLOWUP_MATCHES = 20
@@ -65,6 +67,7 @@ _DEFAULT_FRAMEWORK_DOCUMENTATION_PATHS = [
 _MAX_WIKI_ORIGINAL_QUERIES = 5
 _MARKDOWN_GITHUB_LINK = re.compile(r"\]\((https://github\.com/[^\s)]+)\)")
 _COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+_GIT_DIFF_HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@")
 
 type _SearchEvidenceMode = Literal["source", "knowledge"]
 
@@ -93,8 +96,11 @@ def _search_evidence_id(
     *,
     mode: _SearchEvidenceMode,
     role: SourceRole,
+    revision_scope: Literal["diagnostic", "available_update"] = "diagnostic",
 ) -> str:
-    if mode == "source":
+    if mode == "source" and revision_scope == "available_update":
+        kind = "source_update_match"
+    elif mode == "source":
         kind = "source_search_match"
     elif role is SourceRole.WIKI:
         kind = "wiki_navigation_match"
@@ -370,6 +376,22 @@ def execute_source_research(
                 )
             )
             continue
+        diagnostic_revision = source_snapshot_object_revision(
+            snapshot,
+            require_requested_revision=inspection.prepared.request.issue is not None,
+        )
+        if diagnostic_revision is None:
+            missing.append(
+                MissingEvidence(
+                    code="source_search_source_unavailable",
+                    message=(
+                        f"Source search query '{query.query_id}' has no readable diagnostic "
+                        f"revision for source '{query.source_id}'."
+                    ),
+                    source_id=query.source_id,
+                )
+            )
+            continue
         try:
             grep_matches, query_truncated = _grep_lines(snapshot, query)
         except ValueError as error:
@@ -567,6 +589,8 @@ def execute_source_research(
                         mode=evidence_mode,
                         role=snapshot.role,
                     ),
+                    revision_scope="diagnostic",
+                    revision=diagnostic_revision,
                 )
             )
 
@@ -574,6 +598,301 @@ def execute_source_research(
         update={
             "prepared": inspection.prepared.model_copy(update={"missing_evidence": missing}),
             "source_search_matches": matches,
+        }
+    )
+
+
+def _available_update_snapshot(snapshot: SourceSnapshot) -> SourceSnapshot | None:
+    """Return an immutable descendant checkout snapshot usable only for fix assessment."""
+    if snapshot.revision_backend is not SourceRevisionBackend.GIT:
+        return None
+    baseline = snapshot.resolved_revision
+    current = snapshot.current_revision
+    if baseline is None or current is None or baseline == current:
+        return None
+    ancestry = _git(snapshot.path, "merge-base", "--is-ancestor", baseline, current)
+    if ancestry.returncode != 0:
+        return None
+    update = snapshot.model_copy(
+        update={
+            "requested_revision": None,
+            "resolved_revision": None,
+            "resolution_status": RevisionResolutionStatus.NOT_REQUESTED,
+        }
+    )
+    if not source_snapshot_supports_object_read(
+        update,
+        require_requested_revision=False,
+    ):
+        return None
+    return update
+
+
+def _changed_descendant_line_ranges(
+    snapshot: SourceSnapshot,
+    baseline_revision: str,
+    update_revision: str,
+    relative_path: str,
+) -> list[tuple[int, int]]:
+    """Return new-side line ranges proved changed by Git for one source-root path."""
+    repository_root = _repository_root(snapshot)
+    source_prefix = snapshot.path.resolve().relative_to(repository_root).as_posix()
+    repository_path = f"{source_prefix}/{relative_path}" if source_prefix else relative_path
+    result = _git(
+        repository_root,
+        "diff",
+        "--unified=0",
+        "--no-ext-diff",
+        "--no-renames",
+        baseline_revision,
+        update_revision,
+        "--",
+        f":(literal){repository_path}",
+    )
+    if result.returncode != 0:
+        message = result.stderr.strip() or "git diff failed"
+        raise ValueError(message)
+    ranges: list[tuple[int, int]] = []
+    for line in result.stdout.splitlines():
+        match = _GIT_DIFF_HUNK.match(line)
+        if match is None:
+            continue
+        start = int(match.group("start"))
+        count_text = match.group("count")
+        count = 1 if count_text is None else int(count_text)
+        if count > 0:
+            ranges.append((start, start + count - 1))
+    return ranges
+
+
+def _changed_lines_in_window(
+    ranges: list[tuple[int, int]],
+    line_start: int,
+    line_end: int,
+) -> list[int]:
+    return sorted(
+        {
+            line
+            for start, end in ranges
+            for line in range(max(start, line_start), min(end, line_end) + 1)
+        }
+    )
+
+
+def execute_source_update_research(
+    inspection: DeterministicInspection,
+    plan: SourceResearchPlan,
+) -> DeterministicInspection:
+    """Compare matched issue paths with a captured descendant revision for existing fixes.
+
+    The diagnostic revision remains authoritative for historical behavior. These bounded
+    matches are separately labelled so model stages may assess an available repair without
+    using newer source to deny what the issue-time source did.
+    """
+    if inspection.prepared.request.issue is None:
+        return inspection
+
+    snapshots = {snapshot.source_id: snapshot for snapshot in inspection.prepared.source_snapshots}
+    diagnostic_paths_by_query: dict[tuple[str, str], set[str]] = {}
+    for match in inspection.source_search_matches:
+        if match.revision_scope != "diagnostic":
+            continue
+        diagnostic_paths_by_query.setdefault((match.query_id, match.source_id), set()).add(
+            match.relative_path
+        )
+    if not diagnostic_paths_by_query:
+        return inspection
+
+    missing = list(inspection.prepared.missing_evidence)
+    update_matches: list[SourceSearchMatch] = []
+    for query in plan.queries:
+        if len(update_matches) >= _MAX_SOURCE_UPDATE_MATCHES:
+            missing.append(
+                MissingEvidence(
+                    code="source_update_search_truncated",
+                    message=(
+                        "Available-update source matches were truncated at "
+                        f"{_MAX_SOURCE_UPDATE_MATCHES} records."
+                    ),
+                    required=False,
+                )
+            )
+            break
+        diagnostic_paths = diagnostic_paths_by_query.get((query.query_id, query.source_id))
+        if not diagnostic_paths:
+            continue
+        baseline_snapshot = snapshots.get(query.source_id)
+        if baseline_snapshot is None:
+            continue
+        update_snapshot = _available_update_snapshot(baseline_snapshot)
+        if update_snapshot is None:
+            continue
+        baseline_revision = baseline_snapshot.resolved_revision
+        update_revision = update_snapshot.current_revision
+        if baseline_revision is None or update_revision is None:
+            continue
+
+        try:
+            grep_matches, query_truncated = _grep_lines(
+                update_snapshot,
+                query.model_copy(update={"paths": sorted(diagnostic_paths)}),
+            )
+        except ValueError as error:
+            missing.append(
+                MissingEvidence(
+                    code="source_update_search_failed",
+                    message=str(error),
+                    source_id=baseline_snapshot.source_id,
+                    source_path=baseline_snapshot.path,
+                    required=False,
+                )
+            )
+            continue
+        if query_truncated:
+            missing.append(
+                MissingEvidence(
+                    code="source_update_query_truncated",
+                    message=(
+                        f"Available-update search query '{query.query_id}' was truncated at "
+                        f"{query.max_results} matches."
+                    ),
+                    source_id=baseline_snapshot.source_id,
+                    source_path=baseline_snapshot.path,
+                    required=False,
+                )
+            )
+        if not grep_matches:
+            missing.append(
+                MissingEvidence(
+                    code="source_update_no_matches",
+                    message=(f"Available-update search query '{query.query_id}' found no matches."),
+                    source_id=baseline_snapshot.source_id,
+                    source_path=baseline_snapshot.path,
+                    required=False,
+                )
+            )
+            continue
+
+        prepared_for_update = inspection.prepared.model_copy(
+            update={
+                "source_snapshots": [
+                    update_snapshot if item.source_id == update_snapshot.source_id else item
+                    for item in inspection.prepared.source_snapshots
+                ]
+            }
+        )
+        query_added_match = False
+        changed_ranges_by_path: dict[str, list[tuple[int, int]]] = {}
+        for source_path, line_number, matched_line in grep_matches:
+            if len(update_matches) >= _MAX_SOURCE_UPDATE_MATCHES:
+                break
+            line_start = max(1, line_number - query.context_lines)
+            line_end = line_number + query.context_lines
+            relative_path = source_path.relative_to(baseline_snapshot.path.resolve()).as_posix()
+            try:
+                if relative_path not in changed_ranges_by_path:
+                    changed_ranges_by_path[relative_path] = _changed_descendant_line_ranges(
+                        baseline_snapshot,
+                        baseline_revision,
+                        update_revision,
+                        relative_path,
+                    )
+                changed_ranges = changed_ranges_by_path[relative_path]
+            except ValueError as error:
+                missing.append(
+                    MissingEvidence(
+                        code="source_update_diff_failed",
+                        message=str(error),
+                        source_id=baseline_snapshot.source_id,
+                        source_path=source_path,
+                        required=False,
+                    )
+                )
+                continue
+            folded_line = matched_line.casefold()
+            matched_terms = [term for term in query.terms if term.casefold() in folded_line]
+            if not matched_terms:
+                matched_terms = list(query.terms)
+            try:
+                window = query_evidence(
+                    prepared_for_update,
+                    EvidenceQuery(
+                        source_path=source_path,
+                        line_start=line_start,
+                        line_end=line_end,
+                        reason=(
+                            f"Compare diagnostic revision {baseline_revision} with available "
+                            f"descendant revision {update_revision}: {query.reason}"
+                        ),
+                    ),
+                )
+            except (OSError, ValueError) as error:
+                missing.append(
+                    MissingEvidence(
+                        code="source_update_window_failed",
+                        message=str(error),
+                        source_id=baseline_snapshot.source_id,
+                        source_path=source_path,
+                        required=False,
+                    )
+                )
+                continue
+            actual_line_start = window.evidence.line_start or line_start
+            actual_line_end = window.evidence.line_end or line_end
+            changed_lines = _changed_lines_in_window(
+                changed_ranges,
+                actual_line_start,
+                actual_line_end,
+            )
+            if not changed_lines:
+                continue
+            update_matches.append(
+                SourceSearchMatch(
+                    query_id=query.query_id,
+                    source_id=baseline_snapshot.source_id,
+                    source_role=baseline_snapshot.role,
+                    relative_path=relative_path,
+                    source_locator=window.evidence.source_path,
+                    line=line_number,
+                    matched_terms=matched_terms,
+                    content=window.evidence.content,
+                    line_start=actual_line_start,
+                    line_end=actual_line_end,
+                    evidence_id=_search_evidence_id(
+                        window.evidence.id,
+                        mode="source",
+                        role=baseline_snapshot.role,
+                        revision_scope="available_update",
+                    ),
+                    revision_scope="available_update",
+                    revision=update_revision,
+                    baseline_revision=baseline_revision,
+                    changed_lines=changed_lines,
+                )
+            )
+            query_added_match = True
+        if not query_added_match:
+            missing.append(
+                MissingEvidence(
+                    code="source_update_no_changed_matches",
+                    message=(
+                        f"Available descendant search query '{query.query_id}' had no matching "
+                        "window intersecting a Git-confirmed changed line."
+                    ),
+                    source_id=baseline_snapshot.source_id,
+                    source_path=baseline_snapshot.path,
+                    required=False,
+                )
+            )
+
+    combined = [
+        match for match in inspection.source_search_matches if match.revision_scope == "diagnostic"
+    ]
+    combined.extend(update_matches)
+    return inspection.model_copy(
+        update={
+            "prepared": inspection.prepared.model_copy(update={"missing_evidence": missing}),
+            "source_search_matches": combined,
         }
     )
 
@@ -849,14 +1168,25 @@ def synthesize_source_search_evidence(
 ) -> list[Evidence]:
     evidence_by_id: dict[str, Evidence] = {}
     for match in matches:
+        is_update = match.revision_scope == "available_update"
+        content = match.content
+        if is_update:
+            content = (
+                "Available descendant source comparison for fix assessment only. "
+                "Do not use this later source to deny issue-time behavior.\n"
+                f"diagnostic_revision={match.baseline_revision}; "
+                f"available_revision={match.revision}\n"
+                f"git_changed_lines={match.changed_lines}\n"
+                f"{match.content}"
+            )
         evidence_by_id.setdefault(
             match.evidence_id,
             Evidence(
                 id=match.evidence_id,
-                kind="source_search_match",
+                kind=("source_update_match" if is_update else "source_search_match"),
                 source_component=f"source:{match.source_id}",
                 source_path=match.source_locator,
-                content=match.content,
+                content=content,
                 line_start=match.line_start,
                 line_end=match.line_end,
                 role=EvidenceRole.CONTEXT,

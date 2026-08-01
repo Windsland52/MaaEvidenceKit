@@ -238,6 +238,57 @@ def test_code_fix_candidate_requires_versioned_source_from_its_component() -> No
         ).status
         is FixPlanningStatus.PROPOSED
     )
+    update_source = source.model_copy(
+        update={
+            "id": "ev:mxu-update",
+            "kind": "source_update_match",
+            "source_path": "git:mxu@def:src/components/Toolbar.tsx",
+            "content": (
+                "if (requiresUnlockedWorkstation(controller.type) && "
+                "await maaService.isWorkstationLocked()) { return false; }"
+            ),
+        }
+    )
+    unrelated_update = update_source.model_copy(
+        update={
+            "id": "ev:mxu-unrelated-update",
+            "source_path": "git:mxu@def:src/services/telemetryService.ts",
+        }
+    )
+    assert (
+        validate_fix_candidate_plan(
+            code_plan(FixMethod.GUI_CODE),
+            draft,
+            [source, unrelated_update],
+            {"mxu": SourceRole.GUI},
+        ).status
+        is FixPlanningStatus.PROPOSED
+    )
+    with pytest.raises(ValueError, match="same diagnosed source file"):
+        validate_fix_candidate_plan(
+            code_plan(FixMethod.GUI_CODE),
+            draft,
+            [source, update_source],
+            {"mxu": SourceRole.GUI},
+        )
+    update_aware_plan = code_plan(FixMethod.GUI_CODE).model_copy(
+        update={
+            "candidates": [
+                code_plan(FixMethod.GUI_CODE)
+                .candidates[0]
+                .model_copy(update={"evidence_ids": [source.id, update_source.id]})
+            ]
+        }
+    )
+    assert (
+        validate_fix_candidate_plan(
+            update_aware_plan,
+            draft,
+            [source, update_source],
+            {"mxu": SourceRole.GUI},
+        ).status
+        is FixPlanningStatus.PROPOSED
+    )
     with pytest.raises(ValueError, match="role 'maa_framework'"):
         validate_fix_candidate_plan(
             code_plan(FixMethod.FRAMEWORK_CODE),

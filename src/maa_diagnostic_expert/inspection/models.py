@@ -1,7 +1,7 @@
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from maa_diagnostic_expert.contracts.domain import (
     ContractModel,
@@ -75,6 +75,28 @@ class SourceSearchMatch(ContractModel):
     line_start: int = Field(ge=1)
     line_end: int = Field(ge=1)
     evidence_id: str = Field(min_length=1)
+    revision_scope: Literal["diagnostic", "available_update"]
+    revision: str = Field(min_length=1)
+    baseline_revision: str | None = None
+    changed_lines: list[int] = Field(default_factory=list[int])
+
+    @model_validator(mode="after")
+    def constrain_revision_comparison(self) -> Self:
+        if self.revision_scope == "diagnostic":
+            if self.baseline_revision is not None or self.changed_lines:
+                raise ValueError(
+                    "Diagnostic source matches cannot carry descendant change metadata"
+                )
+            return self
+        if self.baseline_revision is None:
+            raise ValueError("Available-update source matches require a baseline revision")
+        if self.baseline_revision == self.revision:
+            raise ValueError("Available-update source matches require a different revision")
+        if not self.changed_lines:
+            raise ValueError("Available-update source matches require diff-confirmed changed lines")
+        if any(line < self.line_start or line > self.line_end for line in self.changed_lines):
+            raise ValueError("Changed source lines must fall within the captured evidence window")
+        return self
 
 
 def _new_mla_preflights() -> list[MlaArtifactInspection]:
@@ -114,7 +136,7 @@ def _new_incident_comparison() -> IncidentComparison:
 
 
 class DeterministicInspection(ContractModel):
-    api_version: Literal["deterministic-inspection/v17"] = "deterministic-inspection/v17"
+    api_version: Literal["deterministic-inspection/v19"] = "deterministic-inspection/v19"
     prepared: PreparedAnalysis
     artifact_evidence: list[Evidence] = Field(default_factory=_new_synthesized_evidence)
     queried_evidence: list[Evidence] = Field(default_factory=_new_synthesized_evidence)

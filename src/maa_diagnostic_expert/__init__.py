@@ -190,6 +190,7 @@ from .inspection.source_guidance import (
 from .inspection.source_search import (
     execute_knowledge_research,
     execute_source_research,
+    execute_source_update_research,
     resolve_wiki_original_sources,
     synthesize_knowledge_search_evidence,
     synthesize_source_search_evidence,
@@ -452,6 +453,7 @@ __all__ = [
     "generate_incident_selection",
     "extract_runtime_identity",
     "execute_source_research",
+    "execute_source_update_research",
     "evaluate_benchmark_diagnosis",
     "execute_knowledge_research",
     "make_stub_backend",

@@ -12,7 +12,12 @@ from maa_diagnostic_expert.inspection.configuration_keys import (
     extract_configuration_keys,
     extract_source_configuration_identifiers,
     index_configuration_keys,
+    index_configuration_values,
+    matching_configuration_applicability_identifiers,
     matching_configuration_identifiers,
+    matching_reported_configuration_values,
+    unresolved_configuration_missing_evidence,
+    unresolved_configuration_research_locations,
 )
 
 
@@ -87,6 +92,104 @@ def test_configuration_key_extraction_ignores_generic_object_fields() -> None:
     assert keys == {"customlimit": (1,)}
 
 
+def test_configuration_values_cover_multiple_serialized_scalar_styles(tmp_path: Path) -> None:
+    config = tmp_path / "service.yaml"
+    config.write_text(
+        "profile: tenant-blue\n"
+        "retry_count = 4\n"
+        "circuit_open: false\n"
+        'routing: {"region": "eu-west-2", "quota": 0}\n',
+        encoding="utf-8",
+    )
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            issue="tenant-blue in eu-west-2 had retry_count 4 with circuit_open false.",
+            artifacts=[ArtifactInput(path=config, kind=ArtifactKind.FILE)],
+        )
+    )
+
+    values = index_configuration_values(prepared)
+
+    assert {
+        "tenant-blue": (1,),
+        "4": (2,),
+        "false": (3,),
+        "eu-west-2": (4,),
+        "0": (4,),
+    }.items() <= values[config.resolve()].items()
+    assert matching_reported_configuration_values(
+        "tenant-blue in eu-west-2 had retry_count 4 with circuit_open false.",
+        [],
+        values,
+        index_configuration_keys(prepared),
+    )[config.resolve()] == {
+        "tenant-blue": (1,),
+        "4": (2,),
+        "false": (3,),
+        "eu-west-2": (4,),
+    }
+
+
+def test_configuration_windows_do_not_create_new_reported_value_targets(tmp_path: Path) -> None:
+    config = tmp_path / "service.json"
+    config.write_text(
+        '{\n  "tenant": "reported-blue",\n  "profile": "unreported-shadow"\n}\n',
+        encoding="utf-8",
+    )
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            issue="reported-blue received a stale response.",
+            artifacts=[ArtifactInput(path=config, kind=ArtifactKind.FILE)],
+        )
+    )
+    queried_config = Evidence(
+        id="ev:queried-config",
+        kind="text_line_window",
+        source_component="diagnostic-artifact",
+        source_path=str(config.resolve()),
+        content='"profile": "unreported-shadow"',
+        line_start=3,
+        line_end=3,
+        role=EvidenceRole.CONTEXT,
+    )
+
+    assert matching_reported_configuration_values(
+        "reported-blue received a stale response.",
+        [queried_config],
+        index_configuration_values(prepared),
+        index_configuration_keys(prepared),
+    ) == {config.resolve(): {"reported-blue": (2,)}}
+
+
+def test_configuration_targets_scope_repeated_values_to_reported_entity_block(
+    tmp_path: Path,
+) -> None:
+    config = (tmp_path / "profiles.yaml").resolve()
+    warning = Evidence(
+        id="ev:warning",
+        kind="log_occurrence:error",
+        source_component="log-overview:service",
+        source_path="service.log",
+        content="reported-beta failed in shared mode",
+        role=EvidenceRole.SIGNAL,
+    )
+    source = _source("if (settings.backendMode === requestedMode) route();")
+    key_index = {config: {"backendmode": (3, 50, 100)}}
+    value_index = {
+        config: {
+            "reported-beta": (49,),
+            "shared": (3, 50, 100),
+        }
+    }
+
+    assert unresolved_configuration_research_locations(
+        "reported-beta failed in shared mode",
+        [warning, source],
+        key_index,
+        value_index,
+    ) == {config: {49, 50}}
+
+
 def test_configuration_matching_prefers_source_window_containing_observed_message(
     tmp_path: Path,
 ) -> None:
@@ -130,6 +233,94 @@ def test_configuration_matching_prefers_source_window_containing_observed_messag
         matching_configuration_identifiers(
             [log, broad_match, no_message_owner],
             index,
+        )
+        == {}
+    )
+
+
+def test_configuration_research_locates_reported_target_and_guard_applicability(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "mxu.json"
+    config.write_text(
+        '{\n  "name": "日常-活动",\n  "controllerName": "ADB"\n}\n',
+        encoding="utf-8",
+    )
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            issue="The 日常-活动 scheduled instance was cancelled while locked.",
+            artifacts=[ArtifactInput(path=config, kind=ArtifactKind.FILE)],
+        )
+    )
+    warning = Evidence(
+        id="ev:warning",
+        kind="log_occurrence:warning",
+        source_component="log-overview:gui",
+        source_path="gui.log",
+        content="实例 日常-活动: workstation locked, cancel start",
+        role=EvidenceRole.SIGNAL,
+    )
+    source = _source(
+        "if (isWorkstationLocked()) { warn('workstation locked, cancel start'); }\n"
+        "const controller = controllers.find(c => c.name === controllerName);"
+    )
+    key_index = index_configuration_keys(prepared)
+    value_index = index_configuration_values(prepared)
+
+    assert matching_configuration_applicability_identifiers(
+        [warning, source],
+        key_index,
+    ) == {config.resolve(): {"controllername"}}
+    assert matching_reported_configuration_values(
+        "The 日常-活动 scheduled instance was cancelled.",
+        [warning, source],
+        value_index,
+        key_index,
+    ) == {config.resolve(): {"日常-活动": (2,)}}
+    assert unresolved_configuration_research_locations(
+        "The 日常-活动 scheduled instance was cancelled.",
+        [warning, source],
+        key_index,
+        value_index,
+    ) == {config.resolve(): {2, 3}}
+
+    partially_queried = Evidence(
+        id="ev:config-name",
+        kind="text_line_window",
+        source_component="diagnostic-artifact",
+        source_path=str(config.resolve()),
+        content='"name": "日常-活动"',
+        line_start=2,
+        line_end=2,
+        role=EvidenceRole.CONTEXT,
+    )
+    assert unresolved_configuration_research_locations(
+        "The 日常-活动 scheduled instance was cancelled.",
+        [warning, source, partially_queried],
+        key_index,
+        value_index,
+    ) == {config.resolve(): {3}}
+    [missing] = unresolved_configuration_missing_evidence({config.resolve(): {3, 7}})
+    assert missing.code == "configuration_applicability_unresolved"
+    assert missing.source_path == config.resolve()
+    assert "[3, 7]" in missing.message
+
+    queried = Evidence(
+        id="ev:config",
+        kind="text_line_window",
+        source_component="diagnostic-artifact",
+        source_path=str(config.resolve()),
+        content='"name": "日常-活动",\n"controllerName": "ADB"',
+        line_start=2,
+        line_end=3,
+        role=EvidenceRole.CONTEXT,
+    )
+    assert (
+        unresolved_configuration_research_locations(
+            "The 日常-活动 scheduled instance was cancelled.",
+            [warning, source, queried],
+            key_index,
+            value_index,
         )
         == {}
     )

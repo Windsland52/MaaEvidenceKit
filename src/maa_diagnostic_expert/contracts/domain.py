@@ -215,6 +215,7 @@ _LEGACY_CONTEXT_EVIDENCE_KINDS = frozenset(
         "session_summary",
         "source_guidance",
         "source_search_match",
+        "source_update_match",
         "task_execution_summary",
         "text_line_window",
         "wiki_navigation_match",

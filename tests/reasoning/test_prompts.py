@@ -315,6 +315,7 @@ def test_evidence_research_context_labels_configuration_paths(tmp_path: Path) ->
     assert f"[configuration] {config.resolve()}" in context.instruction
     assert "bracketed media kind is not part of the path" in context.instruction
     assert "transportprofile@2" in context.instruction
+    assert "Source/configuration applicability intersections" in context.instruction
 
 
 def test_reasoning_context_bounds_model_evidence_count_and_reports_omissions() -> None:
@@ -624,7 +625,7 @@ def test_source_research_context_focuses_comparison_and_guidance() -> None:
         "guidance",
     ]
     assert (
-        "Available project/GUI/framework source IDs "
+        "Available project/GUI/framework/agent source IDs "
         '(copy exactly into query.source_id): ["project"]' in context.instruction
     )
     assert "not a diagnosis" in context.instruction
@@ -803,6 +804,15 @@ def test_fix_candidate_context_separates_proposal_from_execution() -> None:
         EvidenceReliability.SECONDARY,
         kind="source_search_match",
     )
+    update = _evidence(
+        "gui-update",
+        EvidenceReliability.SECONDARY,
+        kind="source_update_match",
+        content=(
+            "Git-confirmed descendant change uses a tenant-scoped cache key. "
+            "git_changed_lines=[41, 42]"
+        ),
+    )
     unrelated = [
         _evidence(
             f"unrelated-{index:03d}",
@@ -814,7 +824,7 @@ def test_fix_candidate_context_separates_proposal_from_execution() -> None:
 
     context = build_fix_candidate_context(
         "Why was the label missed?",
-        [*unrelated, source, failure],
+        [*unrelated, source, update, failure],
         diagnosis,
         IncidentComparison(status=IncidentComparisonStatus.PARTIAL),
     )
@@ -827,7 +837,14 @@ def test_fix_candidate_context_separates_proposal_from_execution() -> None:
     assert "GUI source" in context.instruction
     assert "Do not flatten one candidate" in context.instruction
     assert "Do not invent a configuration field" in context.instruction
-    assert [item.id for item in context.evidence[:2]] == ["failure", "gui-source"]
+    assert "assess that existing strategy before inventing a different split" in context.instruction
+    assert "manual/scheduled" not in context.instruction
+    assert "orthogonal" not in context.instruction
+    assert [item.id for item in context.evidence[:3]] == [
+        "failure",
+        "gui-update",
+        "gui-source",
+    ]
 
 
 def test_stub_backend_skips_semantic_fix_planning() -> None:

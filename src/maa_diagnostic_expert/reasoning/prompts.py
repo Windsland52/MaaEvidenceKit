@@ -40,7 +40,10 @@ from maa_diagnostic_expert.inspection.adaptive_evidence import (
 )
 from maa_diagnostic_expert.inspection.configuration_keys import (
     index_configuration_keys,
+    index_configuration_values,
+    matching_configuration_applicability_identifiers,
     matching_configuration_identifiers,
+    matching_reported_configuration_values,
 )
 from maa_diagnostic_expert.inspection.log_anchors import source_search_anchor_terms
 
@@ -95,7 +98,8 @@ def _order_evidence_for_diagnosis(
     focused_kind_order = {
         "text_line_window": 1,
         "source_search_match": 2,
-        "knowledge_document_match": 3,
+        "source_update_match": 3,
+        "knowledge_document_match": 4,
     }
     return sorted(
         evidence,
@@ -237,6 +241,14 @@ def render_instruction(
         "13. When a conclusion depends on control-flow order, cite source evidence that shows",
         "    that order. When applicability depends on a runtime or configuration value, cite",
         "    artifact evidence establishing the effective value instead of assuming it.",
+        "14. source_update_match is a Git-diff-confirmed descendant window for fix assessment",
+        "    only. Its git_changed_lines identify changed new-side lines in that window.",
+        "    Never use later source to deny issue-time behavior. Compare it with the matching",
+        "    source_search_match and describe an existing fix only when the changed condition",
+        "    is supported by the observed runtime/configuration value.",
+        "15. Distinguish the immediate observed event that activated a failing path from the",
+        "    earlier software or configuration state that made that path applicable. Do not",
+        "    promote temporal proximity into an initiating cause without cited evidence.",
     ]
     lines.extend(
         _render_missing_evidence(
@@ -346,7 +358,18 @@ def build_evidence_research_context(
     paths = available_evidence_query_paths(prepared)
     configuration_paths = available_configuration_query_paths(prepared)
     configuration_index = index_configuration_keys(prepared)
+    configuration_value_index = index_configuration_values(prepared)
     identifier_matches = matching_configuration_identifiers(evidence, configuration_index)
+    applicability_matches = matching_configuration_applicability_identifiers(
+        evidence,
+        configuration_index,
+    )
+    reported_value_matches = matching_reported_configuration_values(
+        reported_context,
+        evidence,
+        configuration_value_index,
+        configuration_index,
+    )
 
     def render_path(path: Path) -> str:
         media_kind = "configuration" if path in configuration_paths else "text/log"
@@ -362,6 +385,24 @@ def build_evidence_research_context(
     rendered_identifier_matches = [
         render_identifier_match(path, identifiers)
         for path, identifiers in sorted(identifier_matches.items(), key=lambda item: str(item[0]))
+    ] or ["- none"]
+    rendered_applicability_matches = [
+        render_identifier_match(path, identifiers)
+        for path, identifiers in sorted(
+            applicability_matches.items(),
+            key=lambda item: str(item[0]),
+        )
+    ] or ["- none"]
+    rendered_value_matches = [
+        f"- {path}: "
+        + ", ".join(
+            f"{json.dumps(value, ensure_ascii=False)}@" + ",".join(str(line) for line in lines)
+            for value, lines in sorted(values.items())
+        )
+        for path, values in sorted(
+            reported_value_matches.items(),
+            key=lambda item: str(item[0]),
+        )
     ] or ["- none"]
 
     lines = [
@@ -388,6 +429,16 @@ def build_evidence_research_context(
         "   focused window around the listed key lines before diagnosis.",
         "Source/configuration key intersections:",
         *rendered_identifier_matches,
+        "8. The applicability intersections below are broader than causal dependencies. They",
+        "   do not prove root cause, but when an exact configured value decides whether a",
+        "   guard should apply, request its listed line before choosing a repair scope.",
+        "Source/configuration applicability intersections:",
+        *rendered_applicability_matches,
+        "9. Exact reported/runtime strings found in configuration identify high-value target",
+        "   lines. Request a focused window covering the listed line rather than guessing a",
+        "   broad file prefix.",
+        "Reported/configuration exact-value matches:",
+        *rendered_value_matches,
     ]
     return ReasoningContext(
         stage="plan_evidence_research",
@@ -398,7 +449,7 @@ def build_evidence_research_context(
                 0
                 if item.kind == "text_line_window"
                 else 1
-                if item.kind == "source_search_match"
+                if item.kind in {"source_search_match", "source_update_match"}
                 else 2,
                 _REASONING_ROLE_ORDER[item.role],
                 _REASONING_RELIABILITY_ORDER[item.reliability],
@@ -479,7 +530,7 @@ def build_source_research_context(
         "",
         "Reported diagnostic context:",
         reported_context,
-        "Available project/GUI/framework source IDs (copy exactly into query.source_id): "
+        "Available project/GUI/framework/agent source IDs (copy exactly into query.source_id): "
         f"{json.dumps(source_ids, ensure_ascii=False)}",
         f"Actual/expected comparison status: {incident_comparison.status.value}",
         "",
@@ -658,6 +709,11 @@ def build_fix_candidate_context(
         "    not replace them with guessed categories or invent an unobserved bypass mode.",
         "16. Propose one candidate unless the evidence independently supports genuinely",
         "    distinct alternatives; do not fill the maximum candidate count speculatively.",
+        "17. When source_update_match shows a descendant revision changed the same diagnosed",
+        "    branch, assess that existing strategy before inventing a different split. Cite",
+        "    the update evidence and the issue-time source together. Do not introduce any new",
+        "    applicability dimension unless cited evidence demonstrates that it is the intended",
+        "    boundary.",
     ]
     diagnosis_evidence_ids = {
         evidence_id
@@ -670,10 +726,12 @@ def build_fix_candidate_context(
             0
             if item.id in diagnosis_evidence_ids
             else 1
-            if item.kind == "source_search_match"
+            if item.kind == "source_update_match"
             else 2
+            if item.kind == "source_search_match"
+            else 3
             if item.kind == "text_line_window"
-            else 3,
+            else 4,
             _REASONING_ROLE_ORDER[item.role],
             _REASONING_RELIABILITY_ORDER[item.reliability],
             item.id,
@@ -749,7 +807,7 @@ def build_fix_execution_context(
             item
             for item in evidence
             if item.id in candidate.evidence_ids
-            or item.kind in {"source_guidance", "source_search_match"}
+            or item.kind in {"source_guidance", "source_search_match", "source_update_match"}
         ]
     )
     lines = [

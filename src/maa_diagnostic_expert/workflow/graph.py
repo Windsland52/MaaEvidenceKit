@@ -57,7 +57,9 @@ from maa_diagnostic_expert.inspection.adaptive_evidence import (
 )
 from maa_diagnostic_expert.inspection.configuration_keys import (
     index_configuration_keys,
-    matching_configuration_identifiers,
+    index_configuration_values,
+    unresolved_configuration_missing_evidence,
+    unresolved_configuration_research_locations,
 )
 from maa_diagnostic_expert.inspection.incident_comparison import (
     compare_incident_execution,
@@ -85,6 +87,7 @@ from maa_diagnostic_expert.inspection.source_guidance import (
 from maa_diagnostic_expert.inspection.source_search import (
     execute_knowledge_research,
     execute_source_research,
+    execute_source_update_research,
 )
 from maa_diagnostic_expert.inspection.time_ranges import collect_time_range_missing_evidence
 from maa_diagnostic_expert.inspection.tooling import ToolCaller
@@ -110,7 +113,6 @@ from .validation import (
     collect_missing_evidence_codes,
     configuration_evidence_bridges,
     finalize_diagnosis_draft,
-    requires_configuration_evidence,
     validate_configuration_bridge_citation,
     validate_fix_candidate_plan,
     validate_fix_configuration_bridge,
@@ -128,7 +130,12 @@ _KNOWLEDGE_SOURCE_ROLES = {
     SourceRole.WIKI,
 }
 
-_IMPLEMENTATION_SOURCE_ROLES = {SourceRole.GUI, SourceRole.MAA_FRAMEWORK}
+_IMPLEMENTATION_SOURCE_ROLES = {
+    SourceRole.PROJECT,
+    SourceRole.GUI,
+    SourceRole.MAA_FRAMEWORK,
+    SourceRole.AGENT,
+}
 
 
 def _matched_source_anchors(
@@ -142,6 +149,7 @@ def _matched_source_anchors(
         if any(
             anchor.casefold() in match.content.casefold()
             for match in inspection.source_search_matches
+            if match.revision_scope == "diagnostic"
         )
     ]
 
@@ -332,28 +340,44 @@ async def _reason_evidence_research_plan(
     session: ReasoningSession,
     context: ReasoningContext,
     authorized_paths: set[Path],
-    required_configuration_paths: set[Path],
+    required_configuration_locations: dict[Path, set[int]],
 ) -> EvidenceResearchPlan:
+    def covers_required_configuration(plan: EvidenceResearchPlan) -> bool:
+        return any(
+            query.source_path.resolve() == path
+            and any(query.line_start <= line <= query.line_end for line in lines)
+            for query in plan.queries
+            for path, lines in required_configuration_locations.items()
+        )
+
     plan = await session.reason(context, EvidenceResearchPlan)
     unknown_paths = {
         query.source_path.resolve()
         for query in plan.queries
         if query.source_path.resolve() not in authorized_paths
     }
-    missing_configuration = bool(required_configuration_paths) and not any(
-        query.source_path.resolve() in required_configuration_paths for query in plan.queries
-    )
+    missing_configuration = bool(
+        required_configuration_locations
+    ) and not covers_required_configuration(plan)
     if unknown_paths or missing_configuration:
         unknown_path_strings = [str(path) for path in sorted(unknown_paths, key=str)]
         authorized_path_strings = [str(path) for path in sorted(authorized_paths, key=str)]
-        configuration_path_strings = [
-            str(path) for path in sorted(required_configuration_paths, key=str)
+        configuration_targets = [
+            {
+                "source_path": str(path),
+                "required_lines": sorted(lines),
+            }
+            for path, lines in sorted(
+                required_configuration_locations.items(),
+                key=lambda item: str(item[0]),
+            )
         ]
         configuration_correction = (
             " Version-matched source identifiers intersect actual configuration keys whose "
             "effective values are not established yet, so include at least one focused query "
             "using one of these exact matching configuration paths: "
-            f"{json.dumps(configuration_path_strings, ensure_ascii=False)}."
+            f"{json.dumps(configuration_targets, ensure_ascii=False)}. The query line range "
+            "must cover at least one listed required line."
             if missing_configuration
             else " If no authorized path is justified, use status='skip' and queries=[]."
         )
@@ -365,10 +389,8 @@ async def _reason_evidence_research_plan(
                 data={
                     "unauthorized_paths": [cast(JsonValue, path) for path in unknown_path_strings],
                     "authorized_paths": [cast(JsonValue, path) for path in authorized_path_strings],
-                    "configuration_required": bool(required_configuration_paths),
-                    "matching_configuration_paths": [
-                        cast(JsonValue, path) for path in configuration_path_strings
-                    ],
+                    "configuration_required": bool(required_configuration_locations),
+                    "matching_configuration_targets": cast(JsonValue, configuration_targets),
                 },
             )
         )
@@ -394,9 +416,9 @@ async def _reason_evidence_research_plan(
             for query in plan.queries
             if query.source_path.resolve() not in authorized_paths
         }
-        missing_configuration = bool(required_configuration_paths) and not any(
-            query.source_path.resolve() in required_configuration_paths for query in plan.queries
-        )
+        missing_configuration = bool(
+            required_configuration_locations
+        ) and not covers_required_configuration(plan)
     if unknown_paths:
         raise ValueError(
             "Evidence research plan references unauthorized paths after correction: "
@@ -434,11 +456,12 @@ async def _reason_fix_candidate_plan(
         source_evidence = [
             {
                 "evidence_id": item.id,
+                "evidence_kind": item.kind,
                 "source_component": item.source_component,
                 "source_path": item.source_path,
             }
             for item in context.evidence
-            if item.kind == "source_search_match"
+            if item.kind in {"source_search_match", "source_update_match"}
         ]
         configuration_evidence = [
             {
@@ -465,7 +488,9 @@ async def _reason_fix_candidate_plan(
                 f"Correction required: the previous repair plan was invalid: "
                 f"{str(error)[:2000]}. Return the complete plan again. For any code fix, copy "
                 "the exact component, file, and symbol from cited version-matched source "
-                "evidence and cite that evidence ID. Do not invent a scheduler class, file, "
+                "evidence and cite that evidence ID. When available descendant source evidence "
+                "exists for that component, assess and cite it together with issue-time source. "
+                "Do not invent a scheduler class, file, "
                 "configuration field, environment variable, or framework ownership. Adding a "
                 "new option is a code change, not a configuration-only fix. Available source "
                 "locators: "
@@ -1340,6 +1365,7 @@ class DiagnosticWorkflow:
                     "source search requires deterministic inspection and research plan"
                 )
             inspection = execute_source_research(inspection, plan)
+            inspection = execute_source_update_research(inspection, plan)
             inspection = synthesize_inspection_evidence(inspection)
             evidence = collect_inspection_evidence(inspection)
             matched_anchors = _matched_source_anchors(
@@ -1357,6 +1383,14 @@ class DiagnosticWorkflow:
                 data={
                     "queries": len(plan.queries),
                     "matches": len(inspection.source_search_matches),
+                    "diagnostic_matches": sum(
+                        match.revision_scope == "diagnostic"
+                        for match in inspection.source_search_matches
+                    ),
+                    "available_update_matches": sum(
+                        match.revision_scope == "available_update"
+                        for match in inspection.source_search_matches
+                    ),
                     "matches_by_source": cast(
                         JsonValue,
                         {
@@ -1539,6 +1573,7 @@ class DiagnosticWorkflow:
                 available_paths = available_evidence_query_paths(inspection.prepared)
                 authorized_paths = {path.resolve() for path in available_paths}
                 configuration_index = index_configuration_keys(inspection.prepared)
+                configuration_value_index = index_configuration_values(inspection.prepared)
                 configuration_paths = set(configuration_index)
                 for round_number in range(1, _MAX_ADAPTIVE_EVIDENCE_ROUNDS + 1):
                     if not available_paths:
@@ -1565,18 +1600,11 @@ class DiagnosticWorkflow:
                         session,
                         research_context,
                         authorized_paths,
-                        (
-                            set(
-                                matching_configuration_identifiers(
-                                    evidence,
-                                    configuration_index,
-                                )
-                            )
-                            if requires_configuration_evidence(
-                                evidence,
-                                configuration_index,
-                            )
-                            else set()
+                        unresolved_configuration_research_locations(
+                            _reported_context(state["request"]),
+                            evidence,
+                            configuration_index,
+                            configuration_value_index,
                         ),
                     )
                     _emit(
@@ -1613,6 +1641,31 @@ class DiagnosticWorkflow:
                                 "queried": len(inspection.queried_evidence),
                             },
                         )
+                    )
+
+                unresolved_configuration = unresolved_configuration_research_locations(
+                    _reported_context(state["request"]),
+                    evidence,
+                    configuration_index,
+                    configuration_value_index,
+                )
+                if unresolved_configuration:
+                    added_missing = unresolved_configuration_missing_evidence(
+                        unresolved_configuration
+                    )
+                    existing_missing = list(inspection.prepared.missing_evidence)
+                    known_missing = {(item.code, item.source_path) for item in existing_missing}
+                    existing_missing.extend(
+                        item
+                        for item in added_missing
+                        if (item.code, item.source_path) not in known_missing
+                    )
+                    inspection = inspection.model_copy(
+                        update={
+                            "prepared": inspection.prepared.model_copy(
+                                update={"missing_evidence": existing_missing}
+                            )
+                        }
                     )
 
                 context: ReasoningContext = build_reasoning_context(

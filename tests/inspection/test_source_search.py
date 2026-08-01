@@ -22,6 +22,7 @@ from maa_diagnostic_expert.inspection.models import DeterministicInspection
 from maa_diagnostic_expert.inspection.source_search import (
     execute_knowledge_research,
     execute_source_research,
+    execute_source_update_research,
     synthesize_knowledge_search_evidence,
     synthesize_source_search_evidence,
 )
@@ -179,6 +180,8 @@ def test_source_search_reads_requested_revision_not_dirty_worktree(
     assert "committed" in match.content
     assert "dirty" not in match.content
     assert match.source_locator == (f"git:project@{revision}:src/login.py")
+    assert match.revision_scope == "diagnostic"
+    assert match.revision == revision
     assert len(evidence) == 1
     assert evidence[0].reliability is EvidenceReliability.SECONDARY
 
@@ -294,6 +297,195 @@ def test_source_search_reads_requested_revision_when_head_has_advanced(
     [match] = inspection.source_search_matches
     assert "committed" in match.content
     assert "requested_revision_not_checked_out" in {
+        item.code for item in inspection.prepared.missing_evidence
+    }
+
+
+def test_source_update_search_labels_descendant_fix_without_rewriting_issue_source(
+    tmp_path: Path,
+) -> None:
+    repository, _ = _repository(tmp_path)
+    toolbar = repository / "src" / "toolbar.py"
+    toolbar.write_text(
+        "if is_workstation_locked():\n"
+        "    warn('workstation locked, cancel start')\n"
+        "    return False\n",
+        encoding="utf-8",
+    )
+    _git(repository, "add", ".")
+    _git(repository, "commit", "-m", "add broad lock guard")
+    issue_revision = _git(repository, "rev-parse", "HEAD")
+    toolbar.write_text(
+        "if requires_unlocked_workstation(controller.type) and is_workstation_locked():\n"
+        "    warn('workstation locked, cancel start')\n"
+        "    return False\n",
+        encoding="utf-8",
+    )
+    _git(repository, "add", ".")
+    _git(repository, "commit", "-m", "scope lock guard by controller")
+    update_revision = _git(repository, "rev-parse", "HEAD")
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            issue="Scheduled ADB start was cancelled while the workstation was locked.",
+            sources=[
+                SourceInput(
+                    source_id="gui",
+                    role=SourceRole.GUI,
+                    path=repository,
+                    revision=issue_revision,
+                )
+            ],
+        )
+    )
+    plan = SourceResearchPlan(
+        status=SourceResearchStatus.RUN,
+        rationale="Locate the observed warning and compare an available fix.",
+        queries=[
+            SourceSearchQuery(
+                query_id="lock-warning",
+                source_id="gui",
+                terms=["workstation locked, cancel start"],
+                paths=["src/toolbar.py"],
+                reason="Locate the guard that emits the observed warning.",
+                context_lines=2,
+                max_results=5,
+            )
+        ],
+    )
+
+    inspection = execute_source_research(DeterministicInspection(prepared=prepared), plan)
+    inspection = execute_source_update_research(inspection, plan)
+    evidence = synthesize_source_search_evidence(inspection.source_search_matches)
+
+    diagnostic = next(
+        match for match in inspection.source_search_matches if match.revision_scope == "diagnostic"
+    )
+    update = next(
+        match
+        for match in inspection.source_search_matches
+        if match.revision_scope == "available_update"
+    )
+    assert diagnostic.revision == issue_revision
+    assert "requires_unlocked_workstation" not in diagnostic.content
+    assert update.revision == update_revision
+    assert update.baseline_revision == issue_revision
+    assert update.changed_lines == [1]
+    assert "requires_unlocked_workstation(controller.type)" in update.content
+    update_evidence = next(item for item in evidence if item.kind == "source_update_match")
+    assert "fix assessment only" in update_evidence.content
+    assert "Do not use this later source to deny issue-time behavior" in update_evidence.content
+    assert "git_changed_lines=[1]" in update_evidence.content
+
+
+def test_source_update_search_is_generic_for_project_cache_isolation(
+    tmp_path: Path,
+) -> None:
+    repository, _ = _repository(tmp_path)
+    cache = repository / "src" / "cache.py"
+    cache.write_text(
+        "if cache_key in entries:\n    log('cache collision')\n    return entries[cache_key]\n",
+        encoding="utf-8",
+    )
+    _git(repository, "add", ".")
+    _git(repository, "commit", "-m", "add shared cache lookup")
+    issue_revision = _git(repository, "rev-parse", "HEAD")
+    cache.write_text(
+        "scoped_key = f'{tenant_id}:{cache_key}'\n"
+        "if scoped_key in entries:\n"
+        "    log('cache collision')\n"
+        "    return entries[scoped_key]\n",
+        encoding="utf-8",
+    )
+    _git(repository, "add", ".")
+    _git(repository, "commit", "-m", "scope cache keys by tenant")
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            issue="Tenant beta received a stale response from tenant alpha's cache entry.",
+            sources=[
+                SourceInput(
+                    source_id="service",
+                    role=SourceRole.PROJECT,
+                    path=repository,
+                    revision=issue_revision,
+                )
+            ],
+        )
+    )
+    plan = SourceResearchPlan(
+        status=SourceResearchStatus.RUN,
+        rationale="Locate the observed cache collision path.",
+        queries=[
+            SourceSearchQuery(
+                query_id="cache-collision",
+                source_id="service",
+                terms=["cache collision"],
+                paths=["src/cache.py"],
+                reason="Locate the branch that returned a shared cache entry.",
+                context_lines=3,
+                max_results=5,
+            )
+        ],
+    )
+
+    inspection = execute_source_research(DeterministicInspection(prepared=prepared), plan)
+    inspection = execute_source_update_research(inspection, plan)
+
+    [update] = [
+        match
+        for match in inspection.source_search_matches
+        if match.revision_scope == "available_update"
+    ]
+    assert update.source_role is SourceRole.PROJECT
+    assert update.relative_path == "src/cache.py"
+    assert update.changed_lines
+    assert "tenant_id" in update.content
+
+
+def test_source_update_search_ignores_changes_outside_the_matched_window(tmp_path: Path) -> None:
+    repository, issue_revision = _repository(tmp_path)
+    (repository / "src" / "login.py").write_text(
+        "def LoginButton():\n"
+        "    return 'committed'\n\n"
+        "def LogoutButton():\n"
+        "    return 'new and unrelated'\n",
+        encoding="utf-8",
+    )
+    _git(repository, "add", ".")
+    _git(repository, "commit", "-m", "add unrelated logout implementation")
+    prepared = prepare_analysis(
+        AnalysisRequest(
+            issue="The login action returned the committed fallback.",
+            sources=[
+                SourceInput(
+                    source_id="service",
+                    role=SourceRole.PROJECT,
+                    path=repository,
+                    revision=issue_revision,
+                )
+            ],
+        )
+    )
+    plan = SourceResearchPlan(
+        status=SourceResearchStatus.RUN,
+        rationale="Locate the implementation named by runtime evidence.",
+        queries=[
+            SourceSearchQuery(
+                query_id="login-symbol",
+                source_id="service",
+                terms=["LoginButton"],
+                paths=["src/login.py"],
+                reason="Inspect the login implementation.",
+                context_lines=1,
+                max_results=5,
+            )
+        ],
+    )
+
+    inspection = execute_source_research(DeterministicInspection(prepared=prepared), plan)
+    inspection = execute_source_update_research(inspection, plan)
+
+    assert {match.revision_scope for match in inspection.source_search_matches} == {"diagnostic"}
+    assert "source_update_no_changed_matches" in {
         item.code for item in inspection.prepared.missing_evidence
     }
 

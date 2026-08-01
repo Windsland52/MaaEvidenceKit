@@ -185,6 +185,14 @@ The reasoning backend produces a `DiagnosisDraft` without evidence objects; the 
 only cited evidence from the deterministic inspection ledger. The default deterministic stub
 keeps incident candidates ambiguous and reports that free-form correlation was unavailable.
 
+For issue diagnosis, planned implementation-source searches always read the requested issue
+revision. When the captured current revision is a Git descendant, the same bounded queries also
+produce separately labelled `source_update_match` evidence only for windows intersecting
+Git-confirmed changed lines in the same diagnosed file. Later-source evidence may assess an
+already available fix but may not deny issue-time behavior. Source/configuration identifier and
+exact reported-value matches also identify focused configuration lines that must be inspected
+when possible; targets left after the bounded research rounds are reported as missing evidence.
+
 MaaFramework logs have a built-in classifier; files under a `custom/` directory receive a
 conservative custom-log classification. Known GUI and project formats plug in through
 `LogSourceProfile`, while unmatched logs remain `unknown` instead of being guessed or sent to MLA.
