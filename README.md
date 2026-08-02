@@ -106,7 +106,10 @@ const window = await queryEvidenceWindow(runtime, {
 
 [`skills/maa-evidence/SKILL.md`](skills/maa-evidence/SKILL.md) 指导外部 agent 按需选择 MLA、
 MSE、证据窗口和文本视图。Skill 不要求每个问题都运行完整检查；Sentry 调查也由 harness
-直接使用 Sentry MCP 或 CLI 完成。
+直接使用 Sentry MCP 或 CLI 完成。Sentry 默认用于聚类错误、衡量影响范围和版本趋势；若
+Issue/本地日志与 Sentry 没有共享 `event_id` 或隐私安全的 `run_id`，不得仅凭时间和版本将
+两者认定为同一次事件。详细规则见
+[`skills/maa-evidence/references/sentry.md`](skills/maa-evidence/references/sentry.md)。
 
 ## 遥测与反馈
 

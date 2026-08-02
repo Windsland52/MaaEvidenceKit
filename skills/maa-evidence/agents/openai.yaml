@@ -1,4 +1,4 @@
 interface:
   display_name: "Maa Evidence"
-  short_description: "Extract traceable MaaFramework diagnostic evidence"
-  default_prompt: "Use $maa-evidence to inspect the supplied MaaFramework materials and cite the relevant evidence."
+  short_description: "Correlate Maa evidence and Sentry safely"
+  default_prompt: "Use $maa-evidence to inspect the supplied Maa materials, assess relevant Sentry clusters, and report traceable evidence without overclaiming correlation."

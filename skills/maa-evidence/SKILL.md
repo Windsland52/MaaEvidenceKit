@@ -1,6 +1,6 @@
 ---
 name: maa-evidence
-description: Extract traceable MaaFramework runtime and static evidence with MaaEvidenceKit. Use when diagnosing Maa application issues from extracted log folders, MaaFramework logs, Maa project source, pipeline tasks, Interface configuration, or when a focused source window or task-flow view is needed. Use the CLI selectively from an external harness; it does not generate root-cause conclusions.
+description: Extract and correlate traceable MaaFramework evidence with MaaEvidenceKit. Use when diagnosing Maa application issues from extracted log folders, MaaFramework logs, Maa project source, pipeline tasks, Interface configuration, focused source windows, task-flow views, or Sentry error clusters. Use the CLI selectively from an external harness, and combine application Sentry telemetry without claiming an Issue-to-event identity unless shared correlation evidence exists.
 ---
 
 # Maa Evidence
@@ -16,8 +16,9 @@ Sentry investigation, source research, and diagnostic judgment in the host harne
 - When both supported logs and project source are present, run `maa-evidence inspect <folder>`.
 - For GUI/custom logs only, inspect them with host tools. Derive a timestamp or task name, then call
   MEK only if MaaFramework evidence is needed.
-- For application telemetry, use Sentry MCP or CLI directly. Use findings such as timestamp and task
-  name to focus MEK; MEK does not query Sentry.
+- For application telemetry, use Sentry MCP or CLI directly. Read
+  [references/sentry.md](references/sentry.md) before querying or correlating Sentry. MEK does not
+  query application Sentry projects.
 
 Do not run the complete MEK inspection merely because the command exists.
 
@@ -86,6 +87,11 @@ Use `maa-evidence view --input inspection.json --format text` when the host cann
 - Do not claim MSE static configuration caused runtime behavior without runtime evidence.
 - Keep competing explanations when evidence does not distinguish them.
 - State missing evidence instead of guessing around it.
+
+When Sentry is available, keep its error-cluster evidence separate from the single-run evidence
+above. Use it first to measure recurrence, affected users, release concentration, and regressions.
+Do not infer that a Sentry event belongs to an Issue from timestamp and release alone. Require the
+correlation levels and reporting rules in [references/sentry.md](references/sentry.md).
 
 ## Report an extraction gap
 
