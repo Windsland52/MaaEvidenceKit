@@ -1,14 +1,16 @@
-packages:
-  - "packages/*"
+packages: []
+
 allowBuilds:
   esbuild: true
+
 minimumReleaseAgeExclude:
-  - '@nekosu/maa-locale'
-  - '@nekosu/maa-pipeline-manager'
-  - '@nekosu/maa-tasker'
-  - '@nekosu/simple-parser'
-  - '@windsland52/maa-log-adapter'
-  - '@windsland52/maa-log-kernel'
-  - '@windsland52/maa-log-parser'
-  - '@windsland52/maa-log-runtime'
-  - '@windsland52/maa-log-tools'
+  - "@nekosu/maa-locale"
+  - "@nekosu/maa-pipeline-manager"
+  - "@nekosu/maa-tasker"
+  - "@nekosu/simple-parser"
+  - "@sentry/node"
+  - "@windsland52/maa-log-adapter"
+  - "@windsland52/maa-log-kernel"
+  - "@windsland52/maa-log-parser"
+  - "@windsland52/maa-log-runtime"
+  - "@windsland52/maa-log-tools"

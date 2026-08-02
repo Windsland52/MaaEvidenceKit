@@ -1,0 +1,4 @@
+interface:
+  display_name: "Maa Evidence"
+  short_description: "Extract traceable MaaFramework diagnostic evidence"
+  default_prompt: "Use $maa-evidence to inspect the supplied MaaFramework materials and cite the relevant evidence."

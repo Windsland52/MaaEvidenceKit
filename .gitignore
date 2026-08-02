@@ -1,4 +1,4 @@
-# Python
+# Legacy local environments and caches
 __pycache__/
 *.py[cod]
 .venv/

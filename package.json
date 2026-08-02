@@ -1,15 +1,59 @@
 {
-  "name": "maa-diagnostic-expert-workspace",
-  "private": true,
+  "name": "maa-evidence-kit",
   "version": "0.1.0",
-  "packageManager": "pnpm@11.5.0",
+  "description": "Deterministic evidence extraction and diagnostic toolkit for MaaFramework",
+  "license": "MIT",
+  "author": "Windsland52",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Windsland52/MaaEvidenceKit.git"
+  },
+  "keywords": ["maa-framework", "diagnostics", "logs", "evidence"],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "maa-evidence": "./dist/cli/main.js"
+  },
+  "files": [
+    "dist",
+    "skills",
+    "LICENSE",
+    "PRIVACY.md",
+    "README.md"
+  ],
   "scripts": {
-    "build": "pnpm --filter @maa-diagnostic-expert/tool-adapter build",
-    "test": "pnpm --filter @maa-diagnostic-expert/tool-adapter test",
-    "typecheck": "pnpm --filter @maa-diagnostic-expert/tool-adapter typecheck"
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "pnpm clean && tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "oxlint src tests",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.5.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@nekosu/maa-pipeline-manager": "1.0.12",
+    "@nekosu/maa-tasker": "1.0.0",
+    "@sentry/node": "10.69.0",
+    "@windsland52/maa-log-tools": "1.3.0"
   },
   "devDependencies": {
+    "@maaxyz/maa-node": "5.12.2",
     "@types/node": "26.1.2",
-    "typescript": "7.0.2"
+    "oxlint": "1.76.0",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
   }
 }

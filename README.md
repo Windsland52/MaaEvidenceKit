@@ -1,402 +1,151 @@
-# MaaDiagnosticExpert
+# MaaEvidenceKit
 
-`MaaDiagnosticExpert` is a Python-first diagnostic agent for Maa projects.
+面向 MaaFramework 的确定性证据提取与诊断辅助工具包。
 
-The new architecture separates three concerns:
+A deterministic evidence extraction and diagnostic toolkit for MaaFramework.
 
-- Python owns input discovery, workflow orchestration, evidence management, model reasoning, and reports.
-- MaaLogAnalyzer provides deterministic MaaFramework log facts.
-- A small TypeScript adapter consumes public MSE packages and exposes stable JSON contracts to Python.
+MaaEvidenceKit（MEK）从 MaaFramework 日志和 Maa 项目中提取可定位的运行时与静态事实，
+供 Codex、Claude Code 等外部 harness 按需使用。MEK 不包含模型、诊断 agent 或自动修复逻辑。
 
-The project does not expose MCP in this generation. Its first public surfaces are a Python SDK
-and CLI. External agents use the same deterministic Python services through skills and CLI
-commands; standalone MDE will use a small Python harness with a user-configured model backend.
+## 能力边界
 
-## Repository layout
+MEK 负责：
 
-```text
-src/maa_diagnostic_expert/
-  benchmark/                External diagnosis evaluation and deterministic scoring
-  contracts/                Serialized domain, MLA, and workflow contracts
-  discovery/                Input, source, and artifact discovery
-  inspection/               Deterministic inspection and evidence extraction
-  knowledge/                Versioned Wiki catalog acquisition and resolution
-  reasoning/                Model protocols, prompts, providers, and command tools
-  workflow/                 LangGraph planning, orchestration, and validation
-  interfaces/               CLI, JSONL tool adapter, and report rendering
-packages/tool-adapter/       Thin TypeScript adapter for MLA/MSE
-contracts/                   Generated cross-process JSON schemas
-skills/                      Host-agent SKILL.md for external agent integration
-tests/                       Python tests mirroring the Python domain packages
+- 从完整材料目录中发现受支持的 MaaFramework 日志和 Maa 项目；
+- 通过 MaaLogAnalyzer（MLA）提取会话、任务、故障、结果与运行信号；
+- 通过 MSE 公共包提取 Interface、资源、静态诊断、任务定义和节点引用；
+- 生成稳定 evidence ID，以及文件、行号、时间、任务和节点定位；
+- 输出 JSON、纯文本和可选 Mermaid；
+- 在明确同意后发送匿名运行遥测或提取缺口反馈。
+
+MEK 不负责理解 GitHub Issue、GUI/自定义日志、Sentry 数据或业务结果，也不会输出根因结论。
+这些工作属于调用它的 harness。
+
+## 安装
+
+需要 Node.js 24+ 和 pnpm。
+
+```powershell
+pnpm install
+pnpm build
+node dist/cli/main.js --help
 ```
 
-The root Python package is a public facade and module entry point. New implementation modules
-belong in one of the domain packages above instead of being added to the package root.
-
-## MVP status
-
-The diagnostic MVP is implemented. It can run the evidence-backed diagnosis pipeline end to end,
-produce validated repair candidates and verification plans, and expose explicitly approved repair
-execution and post-change verification as separate SDK workflows. The separation is deliberate:
-`DiagnosticWorkflow` never applies a proposed change automatically.
-
-The remaining items are post-MVP breadth and automation rather than missing diagnostic
-foundations: full native dump debugging beyond built-in Minidump metadata, unrestricted source
-investigation when no focused target can be derived, broader project/GUI/custom source adapters,
-and a general-purpose model command-tool loop.
-
-## Implemented milestone
-
-The framework-independent foundation includes:
-
-- named source inputs that keep project, MaaFramework, GUI, agent, and auxiliary source separate;
-- source snapshots with independent path, revision, and resolution status;
-- project-root discovery that uses `cwd` only when Maa project markers are present;
-- evidence and diagnosis result contracts;
-- an agent protocol without a LangGraph dependency in domain code;
-- typed local command execution with explicit policy and audit results;
-- a versioned JSONL tool-adapter protocol.
-
-The deterministic vertical slice provides artifact preparation, bounded evidence windows, result
-validation, MLA preflight/runtime inspection, and revision-matched MSE project inspection through
-the JSONL adapter. Runtime inspection results are synthesized into typed `Evidence` records
-(primary failures/outcomes, secondary signals, context task/session summaries). MSE contributes
-interface/resource/task summaries and source-located static diagnostics without inferring that a
-diagnostic caused the reported issue. After incident correlation, it also resolves only the
-relevant MaaFramework task/node definitions, effective configuration, and references.
-
-The diagnostic workflow uses LangGraph behind a single `DiagnosticWorkflow`. Its current graph
-prepares the input, classifies log sources from bounded samples, records an initial investigation
-plan, conditionally runs MLA for eligible artifacts and MSE for a revision-matched project
-checkout, extracts source- and session-scoped MaaFramework versions, synthesizes authoritative
-evidence, reasons, and validates the result. Before final diagnosis it generates bounded,
-evidence-backed incident candidates from
-notable MLA tasks and GUI/custom log occurrences. When candidates exist, a separate model stage
-correlates them with the reported context; Python rejects invented candidate or evidence IDs.
-For relevant candidates that identify a MaaFramework task or pipeline node, the next deterministic
-node performs bounded MSE resolution and adds version-matched, line-backed source evidence before
-final reasoning. Python then builds a structured actual/expected comparison that links runtime
-failure, outcome, and high-priority signal evidence to resolved task configuration evidence
-without declaring that the configuration caused the runtime behavior. Applicable AGENTS.md files
-from the project source root to each focused pipeline file are loaded under bounded limits and
-provided as source-investigation guidance. When a model is configured, a separate planning stage
-may request up to five literal, path-scoped searches of the version-matched project repository;
-Python executes them with Git and returns only bounded line windows as secondary evidence.
-Explicit `documentation`, `wiki`, and MaaFramework source inputs can also enter a separate bounded
-knowledge-search stage. Original documentation passages are context evidence; Wiki passages are
-navigation-only and validation rejects conclusions that cite them directly. When a matched Wiki
-line contains a GitHub `blob/<40-character-commit>/<path>` link, Python follows it only into one
-explicitly supplied `maa_framework` or `documentation` Git source at that exact commit. The
-follow-up remains bounded and returns original, citable evidence; an absent or mismatched checkout
-is reported as missing evidence instead of falling back to current source.
-After a complete diagnosis, a separate model stage may return up to three repair candidates.
-Python rejects unknown evidence IDs, navigation-only citations, and candidates that do not cite
-at least one diagnosis-conclusion evidence record. These are proposals only: they do not write
-files or run commands. SDK callers can inspect the validated `DiagnosticWorkflow.fix_candidate_plan`
-after a run; insufficient diagnoses produce an explicit skipped plan.
-Every proposed candidate then receives a separate pre-execution verification plan with concrete
-steps, business milestones, and regression checks. Python requires exactly one plan per candidate
-and rejects risk-bearing candidates without regression coverage. These plans are available through
-`DiagnosticWorkflow.verification_plan_set` or `diagnose --verification-plan`.
-SDK callers may pass an explicitly selected candidate to `FixExecutionWorkflow`. A reasoning
-backend can translate that one candidate into one exact `FixExecutionRequest`, but execution always
-pauses for a harness-owned approval—even when the command executor is configured as `trusted`.
-Approval replays the exact pending command; rejection has no command side effect. A zero exit code
-is recorded only as `command_completed`, not as proof that the repair works.
-`FixVerificationWorkflow` captures bounded before/after snapshots for every declared changed path,
-then assesses every planned step, business milestone, and regression check against an authoritative
-evidence ledger. A file-change check cannot pass without a real snapshot difference, and a business
-milestone cannot pass from a command exit code or framework task summary; it must cite explicit
-`business_milestone` evidence from a replay or observation surface. Missing runtime evidence yields
-`unavailable`, never a guessed pass.
-Inputs that are unrelated to MaaFramework logs can therefore bypass MLA. Explicit graph state
-keeps the plan, inspection facts, authoritative evidence, model drafts, failures, and final
-results separate.
-The reasoning stage is delegated to a pluggable `ReasoningBackend` protocol. A deterministic
-`StubReasoningBackend` ships with the project for model-free testing; LangChain model providers
-can plug in without changing graph transitions or evidence validation.
-
-The standalone harness also has a Python command-execution foundation. It does not use an OS
-sandbox: `safe` mode automatically permits only a small set of read-only-intent `gh`, `git`,
-and `rg` process calls, requires approval for other processes and all complete shell strings,
-and requires configured working-directory roots. These roots constrain cwd selection rather than
-filesystem access and are not a sandbox. `trusted` and `disabled` modes are explicit.
-Timeouts, filtered environments, bounded previews, full truncated output files, and serialized
-execution results are implemented. A reusable LangGraph command workflow exposes explicit
-submit, approval pause, approve/reject resume, and audited execution transitions. Approval is a
-harness-owned response and is never accepted from a model call. `FixExecutionWorkflow` consumes
-this boundary for one explicitly selected repair candidate and always pauses for approval;
-`FixVerificationWorkflow` separately evaluates the resulting evidence. These caller-driven
-workflows are not hidden inside a one-shot structured-output reasoning call or automatically
-chained into `DiagnosticWorkflow`.
-
-The runtime and orchestration decisions are recorded in
-[ADR 0001](docs/adr/0001-runtime-and-agent-surfaces.md) and
-[ADR 0002](docs/adr/0002-langgraph-workflow-orchestration.md), while model-provider selection
-is recorded in [ADR 0003](docs/adr/0003-langchain-model-providers.md).
-Local command execution policy is recorded in
-[ADR 0004](docs/adr/0004-command-tool-execution.md).
+发布后可通过 `maa-evidence` 二进制调用。
 
 ## CLI
 
-All machine inputs and outputs are strict JSON contracts generated under `contracts/`.
+调用方负责先解压 ZIP，再将完整文件夹交给 MEK。MEK 自行选择可由 MLA/MSE 处理的材料。
+若整仓库同时包含根目录日志和 `debug` 等日志包，MLA 会逐包顺序解析并合并结果，不会把
+包含 `node_modules` 的项目根目录直接交给日志加载器；单个日志包失败会记录为缺失证据。
 
-~~~powershell
-uv run maa-diagnostic-expert prepare --request request.json --output prepared.json
-uv run maa-diagnostic-expert inspect --request request.json --output inspection.json
-uv run maa-diagnostic-expert diagnose --request request.json --output diagnosis.json
-uv run maa-diagnostic-expert diagnose --request request.json --model-config model.json --output diagnosis.json
-uv run maa-diagnostic-expert diagnose --request request.json --fix-plan fix-plan.json --output diagnosis.json
-uv run maa-diagnostic-expert diagnose --request request.json --verification-plan verification.json --output diagnosis.json
-uv run maa-diagnostic-expert query-evidence --prepared inspection.json --request evidence-query.json --output evidence-window.json
-uv run maa-diagnostic-expert validate-result --input diagnosis.json --inspection inspection.json --evidence-window evidence-window.json
-uv run maa-diagnostic-benchmark --case case.json --annotation annotation.json --diagnosis diagnosis.json --judge-model-config judge-model.json --output benchmark-result.json
-~~~
+```powershell
+# 自动选择可用适配器
+maa-evidence inspect C:\path\to\materials --format json --output inspection.json
 
-`prepare` only inventories explicitly supplied artifacts and source metadata. It does not extract
-archives or scan the whole project source tree. `query-evidence` accepts either `PreparedAnalysis`
-or `DeterministicInspection` through `--prepared`, and reads at most 400 lines and 40,000
-characters from an authorized path.
+# 只检查 MaaFramework 日志
+maa-evidence mla inspect C:\path\to\materials --format json
 
-`inspect` is the single-command deterministic path. It prepares the request, classifies log
-sources, builds bounded GUI/custom overviews, and calls MLA only for classified MaaFramework logs,
-their containing input directories, or explicit ZIP inputs. When a project source checkout
-matches the requested revision (or represents the explicit current revision for a non-issue
-request), it also runs MSE project preflight. Python validates both analyzer outputs before adding
-facts to the evidence ledger. The Python wheel ships a self-contained Node adapter; source
-checkouts refresh that bundled resource with `pnpm build`. Use `--tool-adapter <path>` or
-`MDE_TOOL_ADAPTER_PATH` for a non-default adapter location. Node.js 24 or newer is required.
+# 根据 GUI/Sentry 提供的时间缩小证据范围
+maa-evidence mla inspect C:\path\to\materials `
+  --from "2026-07-19 10:00:00" `
+  --to "2026-07-19 10:10:00" `
+  --format text
 
-`diagnose` runs the currently implemented pipeline end to end: prepare, classify log sources,
-plan the overview, conditionally inspect with MLA/MSE, identify runtime versions, synthesize evidence,
-generate incident candidates, conditionally correlate the reported issue, resolve focused expected
-pipeline configuration, compare actual execution with expected configuration, gather focused raw
-artifact windows when the reasoning backend requests them, reason, and validate. Adaptive evidence
-research is limited to two rounds of at most three windows each. Every window must identify an
-explicitly prepared text, log, or configuration artifact and remains subject to the same 400-line
-and 40,000-character limits as `query-evidence`; accepted windows enter the validated evidence
-ledger before final reasoning. It
-uses the deterministic stub reasoning backend by default (no model credentials required). Pass `--events
-<path>` to write the diagnostic event stream as JSON lines alongside the result. When MLA runs,
-the produced `DiagnosisResult` cites evidence IDs that trace back to MLA runtime facts. A request
-without an MLA-eligible artifact continues with an MLA-empty deterministic inspection, which may
-still contain GUI/custom overview evidence.
-The reasoning backend produces a `DiagnosisDraft` without evidence objects; the workflow attaches
-only cited evidence from the deterministic inspection ledger. The default deterministic stub
-keeps incident candidates ambiguous and reports that free-form correlation was unavailable.
+# 只检查指定项目任务
+maa-evidence mse inspect C:\path\to\project --task StartUp --format text
 
-For issue diagnosis, planned implementation-source searches always read the requested issue
-revision. When the captured current revision is a Git descendant, the same bounded queries also
-produce separately labelled `source_update_match` evidence only for windows intersecting
-Git-confirmed changed lines in the same diagnosed file. Later-source evidence may assess an
-already available fix but may not deny issue-time behavior. Source/configuration identifier and
-exact reported-value matches also identify focused configuration lines that must be inspected
-when possible; targets left after the bounded research rounds are reported as missing evidence.
+# 读取某条证据附近的原始行
+maa-evidence window --input inspection.json --evidence-id evidence-abc123
 
-MaaFramework logs have a built-in classifier; files under a `custom/` directory receive a
-conservative custom-log classification. Known GUI and project formats plug in through
-`LogSourceProfile`, while unmatched logs remain `unknown` instead of being guessed or sent to MLA.
-Built-in dump inspection is intentionally limited to direct Minidump metadata such as exception
-code, thread, address, and system information; it is not a native debugger. Unrestricted general
-source investigation and a general-purpose model command-tool loop remain deferred. See
-[the workflow architecture](docs/workflow-architecture.md) for the implemented flow and exact
-post-MVP boundaries.
+# 将已有结果渲染为通用文本或 Mermaid
+maa-evidence view --input inspection.json --format text
+maa-evidence view --input inspection.json --format mermaid
+```
 
-Pass `--model-config <path>` to use a LangChain chat model instead of the stub. Install only the
-provider integrations needed by the deployment, for example `uv sync --extra openai`,
-`uv sync --extra anthropic`, or `uv sync --extra deepseek`; `--extra models` installs the bundled
-common providers. LangChain providers not listed as project extras can still be installed and
-selected by their `init_chat_model` provider name. OpenAI-compatible gateways use the `openai`
-provider with a custom `base_url`.
+当提供时间范围时，MLA 先将目录加载聚焦到匹配文件，MEK 再过滤窗口外的任务和直接事实。
+当前 MLA 1.3.0 仍可能完整读取一个匹配的日志文件；输出会明确携带该限制，避免把它误解成
+真正的行级流式裁剪。
 
-```json
-{
-  "api_version": "model-config/v2",
-  "models": {
-    "planner": {
-      "provider": "openai",
-      "model": "fast-model",
-      "api_key": "your-api-key",
-      "base_url": "https://example.invalid/v1",
-      "structured_output_method": "json_mode"
-    },
-    "reasoner": {
-      "provider": "openai",
-      "model": "strong-model",
-      "api_key": "your-api-key",
-      "base_url": "https://example.invalid/v1",
-      "max_output_tokens": 8192,
-      "structured_output_method": "json_mode"
-    }
+## SDK
+
+```ts
+import {
+  inspect,
+  inspectMla,
+  inspectMse,
+  queryEvidenceWindow,
+  view,
+} from "maa-evidence-kit";
+
+const runtime = await inspectMla("C:/debug", {
+  timeRange: {
+    from: "2026-07-19 10:00:00",
+    to: "2026-07-19 10:10:00",
   },
-  "default_model": "reasoner",
-  "routes": {
-    "correlate_incident": "planner",
-    "plan_source_research": "planner",
-    "plan_knowledge_research": "planner",
-    "plan_evidence_research": "planner"
-  }
-}
+});
+
+const project = await inspectMse("C:/project", { tasks: ["StartUp"] });
+const combined = await inspect("C:/materials");
+const text = view(combined, { format: "text" });
+const window = await queryEvidenceWindow(runtime, {
+  evidenceId: runtime.evidence[0]?.id,
+});
 ```
 
-`models` is a named model registry. `default_model` handles every stage not explicitly
-overridden by `routes`; route keys must be known exact stage names, so configuration typos fail
-validation. Routable stages are `correlate_incident`, `plan_source_research`,
-`plan_knowledge_research`, `plan_evidence_research`, `diagnose`, `propose_fix`,
-`plan_verification`, `plan_fix_execution`, `verify_fix`, and `benchmark_judge`.
+核心输出使用 `maa-evidence/v1`，包含：
 
-Each model entry accepts the provider settings below. `api_key` is passed directly to that
-provider. Model configuration is not written to
-workflow state, events, diagnosis results, or benchmark artifacts. Keep credential-bearing files
-outside version control. Omit the field when the provider uses another credential chain, such as
-AWS credentials for Bedrock.
+- `artifacts`：发现、选择、跳过或无法读取的材料；
+- `evidence`：带稳定 ID 与来源定位的确定性事实；
+- `missingEvidence`：缺失分卷、空时间窗或缺失项目等；
+- `warnings`：上游限制、截断和兼容性信息；
+- `statistics`：确定性计数；
+- `details`：MLA/MSE 的项目自有结构化结果。
 
-Providers backed by configurable chat templates can receive explicit reasoning controls. For
-example, NVIDIA NIM models that combine reasoning with forced tool calls may require the thinking
-mode to be selected explicitly:
+## Harness Skill
 
-```json
-{
-  "chat_template_kwargs": {
-    "thinking": true,
-    "reasoning_effort": "high"
-  }
-}
-```
+[`skills/maa-evidence/SKILL.md`](skills/maa-evidence/SKILL.md) 指导外部 agent 按需选择 MLA、
+MSE、证据窗口和文本视图。Skill 不要求每个问题都运行完整检查；Sentry 调查也由 harness
+直接使用 Sentry MCP 或 CLI 完成。
 
-When present, these settings are sent as `extra_body.chat_template_kwargs` on every model request.
-Use them only with endpoints that document the corresponding chat-template parameters.
+## 遥测与反馈
 
-`max_retries` controls provider transport/API retries. `structured_output_retries` separately
-controls bounded retries when a successful model response omits the required tool call or fails
-Pydantic validation; retry feedback includes the validation failure but never creates evidence.
-`max_output_tokens` optionally raises or lowers the provider completion limit. Gateways that expose
-function calling through a Responses-style top-level function name can set
-`"function_tool_choice_format": "responses"` together with
-`"structured_output_method": "function_calling"`; the default `chat_completions` format keeps the
-standard nested function name. With `json_mode`, MDE includes the target Pydantic JSON Schema in
-the model instruction because JSON mode itself constrains syntax but does not transmit a schema.
-
-`validate-result` requires the inspection that established the evidence ledger. Pass every cited
-raw `EvidenceWindow` with a repeated `--evidence-window` option. Validation rejects invented IDs,
-altered evidence content, and omitted required missing-evidence codes.
-
-When a source snapshot has a resolved `revision`, `query-evidence` reads the file directly from
-that Git commit rather than the current checkout or dirty worktree. Versioned evidence uses a
-`git:<source-id>@<commit>:<path>` locator in the resulting `Evidence` record.
-
-`AnalysisRequest.sources` contains named entries with a `source_id`, role, path, and optional
-revision. Roles `project`, `maa_framework`, `gui`, `agent`, `documentation`, and `wiki` are
-independently versioned. `documentation` marks original local Git documentation that conclusions
-may cite, while `wiki` marks a pinned navigation snapshot. MDE only fetches a Wiki catalog when
-the CLI is given a URL or `MDE_WIKI_CATALOG_URL`; source entries are never updated implicitly.
-`auxiliary` is reserved for other non-versioned reference source.
-GUI and agent roles do not assume MXU, a programming language, or a fixed repository layout.
-Optional source adapters handle discovery.
-
-MaaLLMWiki can be supplied as a local Git checkout, extracted catalog snapshot, or released ZIP.
-The ZIP manifest is verified before extraction into the knowledge cache and pins the Wiki commit,
-upstream versions, file sizes, and SHA-256 digests:
+核心检查离线运行。首次符合条件的交互式使用会询问是否启用匿名运行遥测：
 
 ```powershell
-uv run maa-diagnostic-expert knowledge-status --wiki ../MaaLLMWiki
-uv run maa-diagnostic-expert knowledge-status --wiki ./maa-llm-wiki-catalog-v1.zip
-uv run maa-diagnostic-expert prepare --request request.json --wiki ../MaaLLMWiki
-uv run maa-diagnostic-expert knowledge-status --wiki-latest
-uv run maa-diagnostic-expert prepare --request request.json --wiki-latest
-uv run maa-diagnostic-expert knowledge-status --wiki-github-repository owner/repository
+maa-evidence telemetry status
+maa-evidence telemetry enable
+maa-evidence telemetry disable
 ```
 
-Set `MDE_KNOWLEDGE_CACHE` or pass `--wiki-cache` to control where verified ZIP snapshots are
-stored. A URL is downloaded once and then reused by URL; use `--wiki-refresh` to fetch it again,
-`--wiki-offline` to require the cached copy, and `--wiki-sha256` to pin the ZIP itself. The URL
-and optional hash can also be configured through `MDE_WIKI_CATALOG_URL` and
-`MDE_WIKI_CATALOG_SHA256`. `--wiki-latest` queries the GitHub Releases API for the latest
-versioned asset from `Windsland52/MaaLLMWiki`, verifies GitHub's asset digest, and stores discovery
-metadata for offline reuse. Set `MDE_WIKI_GITHUB_REPOSITORY` for another repository and
-`GH_TOKEN` or `GITHUB_TOKEN` for authenticated API access. Wiki arguments are accepted by
-`prepare`, `inspect`, and `diagnose`. Snapshot navigation remains context evidence only. Supported
-fixed-commit GitHub links are automatically resolved against explicitly supplied,
-revision-matched Git sources; this lookup does not clone, fetch, or use a newer checkout.
-Conclusions may cite the resulting original passage, not the Wiki navigation record.
+CI 和非交互环境不会询问、发送或保存选择。原始日志等附件只能通过交互式 `feedback`
+命令发送，并且每次都必须预览后输入 `UPLOAD`。20MB 只是配额警告，不是 MEK 拒绝上限。
+完整说明见 [`PRIVACY.md`](PRIVACY.md)。
 
-## LangGraph Studio
+## 架构
 
-The development dependency group includes the in-memory LangGraph Agent Server. It exposes the
-same diagnostic graph to LangSmith Studio for local visualization of node transitions, state,
-errors, and model stages. The committed `langgraph.json` disables LangSmith tracing, so diagnostic
-state is not uploaded by default. The project launcher also configures UTF-8 output and disables
-CLI usage analytics, so the normal entry point is one command:
+```text
+src/
+  evidence/    证据、来源、稳定 ID、原文窗口
+  mla/         日志发现与 MLA 集成
+  mse/         MSE 集成与静态关系图
+  views/       JSON、文本和 Mermaid
+  feedback/    同意状态、匿名遥测和提取缺口反馈
+  cli/         命令行入口
+  inspect.ts   可选组合检查
+  index.ts     SDK 公共入口
+```
+
+依赖固定为精确版本，并只使用 MSE 的公开包。项目没有 Python、LangGraph、MCP 或内置模型。
+
+## 开发
 
 ```powershell
-uv run maa-studio
-```
-
-The server prints its local API URL and opens Studio in a browser. Select the `diagnostic` graph
-and submit an input shaped like the normal `AnalysisRequest`, nested under `request`:
-
-```json
-{
-  "request": {
-    "api_version": "analysis-request/v2",
-    "question": "Why did the task fail?",
-    "artifacts": [
-      {
-        "path": "C:/absolute/path/to/debug",
-        "kind": "directory"
-      }
-    ]
-  }
-}
-```
-
-The same input is available in `docs/examples/studio-request.json`. Studio uses the deterministic
-stub backend by default. To use a real model, copy the ignored local configuration template and
-edit its provider, model, endpoint, and local API key:
-
-```powershell
-Copy-Item docs/examples/model.local.json.example model.local.json
-uv run maa-studio
-```
-
-`model.local.json` is ignored by Git and uses the public `ModelRouterConfig`; each named
-`ModelConfig` may include an optional `api_key`. `maa-studio` discovers the local file
-automatically; an existing
-`MDE_MODEL_CONFIG` takes precedence, and
-`--model-config another.json` overrides both. Use `uv run maa-studio --stub` to force a
-credential-free run. Common Agent Server options are available directly, for example `uv run
-maa-studio --no-browser --port 8123`; additional `langgraph dev` arguments can follow `--`. The
-lower-level `uv run langgraph dev` command remains available for debugging the launcher itself.
-
-The Studio graph also honors `MDE_TOOL_ADAPTER_PATH`. Its in-memory checkpoints are stored under
-the ignored `.langgraph_api/` directory. Full hosted prompt/response traces remain disabled unless
-`LANGSMITH_TRACING` is deliberately enabled in `langgraph.json`.
-
-## Host-agent integration
-
-External agents (Codex, Claude Code, OpenCode) can use the deterministic CLI without a model
-backend. The [`skills/maa-diagnostic/SKILL.md`](skills/maa-diagnostic/SKILL.md) file documents
-the full workflow: prepare a request, run `inspect` for structured evidence, query raw log windows
-when needed, and form a diagnosis citing evidence IDs. Copy or symlink this skill into the agent's
-workspace to enable MaaFramework log diagnosis.
-
-Model-dependent diagnosis evaluation lives in the external benchmark harness documented under
-[`benchmarks/`](benchmarks/README.md). Gold annotations and real case payloads are never passed to
-the system under test or added to the unit-test gate. The harness validates judge references and
-computes a deterministic evidence/conclusion/forbidden-claim score without serializing model
-configuration or credentials.
-
-## Development
-
-```powershell
-uv sync
-uv run pytest
-uv run ruff check .
-uv run ruff format --check .
-uv run pyright
-uv run maa-generate-contracts
 pnpm install
-pnpm test
+pnpm lint
 pnpm typecheck
+pnpm test
 pnpm build
 ```
+
+真实 Issue 附件、日志、截图和本地上游仓库只用于本地验收，不得提交。

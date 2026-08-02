@@ -1,6 +1,0 @@
-{
-  "request": {
-    "api_version": "analysis-request/v2",
-    "question": "Why did the task fail?"
-  }
-}

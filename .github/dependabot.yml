@@ -6,8 +6,3 @@ updates:
       interval: weekly
     cooldown:
       default-days: 1
-  - package-ecosystem: uv
-    directory: /
-    schedule:
-      interval: weekly
-    versioning-strategy: lockfile-only
