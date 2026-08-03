@@ -187,28 +187,32 @@ export async function inspectMse(
   const missingEvidence = [];
   const warnings = [...discovery.warnings];
   for (const candidate of discovery.projects) {
-    const artifactDiscovery = await discoverArtifacts(candidate.projectRoot);
+    const selectedTasks = requestedTasks.slice(0, MAX_RESOLVED_TASKS);
+    if (requestedTasks.length > MAX_RESOLVED_TASKS) {
+      warnings.push({
+        code: "mse_task_resolution_truncated",
+        message: `MSE graph resolution is limited to the first ${MAX_RESOLVED_TASKS} selected task names.`,
+      });
+    }
+    // Artifact inventory, Interface diagnostics, and an explicitly requested task
+    // resolution are independent read-only operations. Run them together so a
+    // focused graph does not pay for two sequential full-project loads.
+    const [artifactDiscovery, preflight, resolution] = await Promise.all([
+      discoverArtifacts(candidate.projectRoot),
+      runMseProjectPreflight(candidate.projectRoot, syntaxMode),
+      selectedTasks.length === 0
+        ? Promise.resolve(null)
+        : runMseTaskResolution(
+          candidate.projectRoot,
+          selectedTasks,
+          syntaxMode,
+          options.controller,
+          options.resource,
+        ),
+    ]);
     artifacts.push(...scopeArtifacts(artifactDiscovery.artifacts, candidate.projectRoot, inputRoot));
     missingEvidence.push(...artifactDiscovery.missingEvidence);
     warnings.push(...artifactDiscovery.warnings);
-    const preflight = await runMseProjectPreflight(candidate.projectRoot, syntaxMode);
-    const selectedTasks = (requestedTasks.length > 0 ? requestedTasks : preflight.task_names)
-      .slice(0, MAX_RESOLVED_TASKS);
-    if (requestedTasks.length === 0 && preflight.task_names.length > MAX_RESOLVED_TASKS) {
-      warnings.push({
-        code: "mse_task_resolution_truncated",
-        message: `MSE graph resolution is limited to ${MAX_RESOLVED_TASKS} task names.`,
-      });
-    }
-    const resolution = selectedTasks.length === 0
-      ? null
-      : await runMseTaskResolution(
-        candidate.projectRoot,
-        selectedTasks,
-        syntaxMode,
-        options.controller,
-        options.resource,
-      );
     projects.push({
       projectRoot: candidate.projectRoot,
       preflight,

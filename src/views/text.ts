@@ -16,6 +16,12 @@ function isMseDetails(value: unknown): value is MseInspectionDetails {
 
 function renderMla(details: MlaInspectionDetails): string[] {
   const lines = ["MLA execution flow"];
+  const signalSelection = details.selection.signals;
+  if (signalSelection !== undefined) {
+    lines.push(
+      `Signals: ${signalSelection.selected} selected / ${signalSelection.total} observed (${signalSelection.mode})`,
+    );
+  }
   const sessions = details.runtime.sessions;
   if (sessions.length === 0 && details.runtime.unscoped_tasks.length === 0) {
     lines.push("└─ No task executions observed");
@@ -75,15 +81,29 @@ function renderGraph(graph: MseGraph, projectLabel: string): string[] {
 const EVIDENCE_PRIORITY: Record<string, number> = {
   "mla.failure": 0,
   "mla.outcome": 1,
-  "mla.task": 2,
-  "mla.signal": 3,
-  "mla.session": 4,
-  "mse.interface": 5,
-  "mse.task_binding": 6,
-  "mse.task_definition": 7,
-  "mse.reference": 8,
-  "mse.diagnostic": 9,
+  "mla.task": 5,
+  "mla.signal": 4,
+  "mla.session": 6,
+  "mse.interface": 7,
+  "mse.task_binding": 8,
+  "mse.task_definition": 9,
+  "mse.reference": 10,
+  "mse.diagnostic": 11,
 };
+
+function evidencePriority(item: InspectionResult["evidence"][number]): number {
+  if (item.kind !== "mla.signal" || !isRecord(item.data)) {
+    return EVIDENCE_PRIORITY[item.kind] ?? 100;
+  }
+  switch (item.data["priority"]) {
+    case "high":
+      return 2;
+    case "normal":
+      return 3;
+    default:
+      return 4;
+  }
+}
 
 export function renderText(result: InspectionResult): string {
   const selected = result.artifacts.filter((artifact) => artifact.status === "selected").length;
@@ -116,9 +136,7 @@ export function renderText(result: InspectionResult): string {
   lines.push("Evidence ledger");
   const evidenceLimit = 200;
   const displayedEvidence = [...result.evidence]
-    .sort((left, right) =>
-      (EVIDENCE_PRIORITY[left.kind] ?? 100) - (EVIDENCE_PRIORITY[right.kind] ?? 100),
-    )
+    .sort((left, right) => evidencePriority(left) - evidencePriority(right))
     .slice(0, evidenceLimit);
   for (const evidence of displayedEvidence) {
     const location = [evidence.source.path, evidence.source.line].filter((item) => item !== undefined).join(":");

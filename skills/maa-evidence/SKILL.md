@@ -60,6 +60,11 @@ maa-evidence mla inspect C:\path\to\materials `
 MLA 1.3.0 selects matching files and MEK filters facts afterward. Treat the
 `mla_time_window_file_granularity` warning as a real resource limitation.
 
+MLA output is focused by default: it keeps high-priority signals and each task's MLA-selected
+highlights. Check `details.selection.signals` for selected and total counts. Add `--all-signals`
+only when exhaustive ordinary and low-priority signal enumeration is necessary; do not pay that
+output cost for routine triage.
+
 ## Read results
 
 Inspect these fields before forming a diagnosis:
@@ -69,6 +74,12 @@ Inspect these fields before forming a diagnosis:
 - `warnings`: truncation, compatibility, and upstream limitations.
 - `artifacts`: selected and skipped local material.
 - `details`: MLA execution facts or MSE static relations.
+
+MLA failure facts may reference standard `on_error` or `vision` images by local path. Open only the
+referenced images needed for the question; MEK does not embed or interpret their pixels.
+
+Treat task counts as observed records. If `mla_possible_mirrored_tasks` is present, do not claim
+the records are unique executions and do not merge them without instance or run correlation evidence.
 
 Request raw context only for a cited location:
 

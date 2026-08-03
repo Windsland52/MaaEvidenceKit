@@ -26,7 +26,7 @@ const VALUE_OPTIONS = new Set([
   "--to",
 ]);
 
-const BOOLEAN_OPTIONS = new Set(["--help", "-h", "--no-mla", "--no-mse"]);
+const BOOLEAN_OPTIONS = new Set(["--all-signals", "--help", "-h", "--no-mla", "--no-mse"]);
 
 export function parseArguments(args: string[]): ParsedArguments {
   const positionals: string[] = [];

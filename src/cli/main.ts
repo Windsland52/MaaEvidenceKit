@@ -26,7 +26,7 @@ import { emit, readInspection } from "./io.js";
 const HELP = `MaaEvidenceKit — deterministic MaaFramework evidence extraction
 
 Usage:
-  maa-evidence mla inspect <path> [--from ISO] [--to ISO] [--keyword TEXT] [--format json|text|mermaid]
+  maa-evidence mla inspect <path> [--from ISO] [--to ISO] [--keyword TEXT] [--all-signals] [--format json|text|mermaid]
   maa-evidence mse inspect <path> [--task NAME] [--syntax-mode maafw|maa] [--format json|text|mermaid]
   maa-evidence inspect <path> [--from ISO] [--to ISO] [--task NAME] [--no-mla] [--no-mse]
   maa-evidence window --input result.json (--evidence-id ID | --artifact-id ID) [--line N]
@@ -81,6 +81,7 @@ async function runMla(parsed: ParsedArguments): Promise<void> {
   const result = await inspectMla(requirePositional(parsed, 2, "input path"), {
     ...(range === undefined ? {} : { timeRange: range }),
     keywords: options(parsed, "--keyword"),
+    includeAllSignals: flag(parsed, "--all-signals"),
   });
   await emitInspection(result, parsed);
 }
@@ -107,7 +108,11 @@ async function runCombined(parsed: ParsedArguments): Promise<void> {
   const result = await inspect(requirePositional(parsed, 1, "input path"), {
     mla: flag(parsed, "--no-mla")
       ? false
-      : { ...(range === undefined ? {} : { timeRange: range }), keywords: options(parsed, "--keyword") },
+      : {
+        ...(range === undefined ? {} : { timeRange: range }),
+        keywords: options(parsed, "--keyword"),
+        includeAllSignals: flag(parsed, "--all-signals"),
+      },
     mse: flag(parsed, "--no-mse")
       ? false
       : { syntaxMode: syntaxMode(parsed), tasks: options(parsed, "--task") },

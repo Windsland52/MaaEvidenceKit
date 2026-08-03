@@ -5,6 +5,12 @@ import path from "node:path";
 import { afterEach, expect, test } from "vitest";
 
 import { inspectMla, renderText } from "../../src/index.js";
+import {
+  countPossibleMirroredTaskGroups,
+  focusRuntimeSignals,
+  namespaceRuntime,
+} from "../../src/mla/engine.js";
+import type { MlaRuntimeInspectionResult } from "../../src/mla/translate.js";
 
 const temporaryRoots: string[] = [];
 
@@ -84,17 +90,299 @@ test("selects and merges independent log bundles from a project directory", asyn
     }),
   ].join("\n");
   await writeFile(path.join(root, "maafw.log"), logWithTask("10:00", "RootTask", 1), "utf8");
+  await writeFile(
+    path.join(debug, "maafw.bak.2026.07.19-09.00.00.000.log"),
+    logWithTask("09:00", "RotatedTask", 1),
+    "utf8",
+  );
   await writeFile(path.join(debug, "maafw.log"), logWithTask("11:00", "DebugTask", 1), "utf8");
 
   const result = await inspectMla(root);
+  const focused = await inspectMla(root, {
+    timeRange: { from: "2026-07-19 10:50:00", to: "2026-07-19 11:10:00" },
+  });
   const tasks = result.details.runtime.sessions.flatMap((session) => session.tasks.map((task) => task.name));
   const sessionIds = result.details.runtime.sessions.map((session) => session.session_id);
   const artifactIds = new Set(result.artifacts.map((artifact) => artifact.id));
 
   expect(result.details.selection.loadingGranularity).toBe("multiple_bundles");
-  expect(result.details.selection.targets).toEqual(["maafw.log", "debug"]);
-  expect(tasks).toEqual(expect.arrayContaining(["RootTask", "DebugTask"]));
+  expect(result.details.selection.targets).toEqual([
+    "maafw.log",
+    "debug",
+    "debug/maafw.bak.2026.07.19-09.00.00.000.log",
+  ]);
+  expect(tasks).toEqual(expect.arrayContaining(["RootTask", "RotatedTask", "DebugTask"]));
   expect(new Set(sessionIds).size).toBe(sessionIds.length);
   expect(result.evidence.every((item) => artifactIds.has(item.source.artifactId))).toBe(true);
-  expect(result.artifacts.filter((artifact) => artifact.status === "selected")).toHaveLength(2);
+  expect(result.artifacts.filter((artifact) => artifact.status === "selected")).toHaveLength(3);
+  expect(focused.details.selection.targets).toEqual(["debug"]);
+  expect(focused.details.runtime.sessions.flatMap((session) => session.tasks.map((task) => task.name)))
+    .toEqual(["DebugTask"]);
+  expect(focused.artifacts.filter((artifact) => artifact.status === "selected").map((artifact) => artifact.relativePath))
+    .toEqual(["debug/maafw.log"]);
+  expect(focused.missingEvidence.some((item) => item.code === "mla_target_empty")).toBe(false);
+});
+
+test("correlates standard MaaFramework error images with failures from rotated logs", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-rotated-image-"));
+  temporaryRoots.push(root);
+  const onError = path.join(root, "on_error");
+  await mkdir(onError);
+  await writeFile(path.join(root, "package.json"), "{}", "utf8");
+  const actionDetails = {
+    action: "Click",
+    action_id: 12,
+    box: [0, 0, 10, 10],
+    detail: {},
+    name: "GenericNode",
+    success: false,
+  };
+  await writeFile(path.join(root, "maafw.bak.2026.07.19-10.00.00.000.log"), [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "GenericTask", hash: "hash", uuid: "uuid",
+    }),
+    event("2026-07-19 10:01:01.000", "Node.PipelineNode.Starting", {
+      task_id: 1, node_id: 11, name: "GenericTask",
+    }),
+    event("2026-07-19 10:01:01.100", "Node.NextList.Starting", {
+      focus: null, list: [{ anchor: false, jump_back: false, name: "GenericNode" }],
+      name: "GenericTask", task_id: 1,
+    }),
+    event("2026-07-19 10:01:01.200", "Node.Recognition.Starting", {
+      focus: null, name: "GenericNode", reco_id: 21, task_id: 1,
+    }),
+    event("2026-07-19 10:01:01.300", "Node.Recognition.Succeeded", {
+      focus: null,
+      name: "GenericNode",
+      reco_details: {
+        algorithm: "DirectHit", box: [0, 0, 10, 10], detail: null, name: "GenericNode", reco_id: 21,
+      },
+      reco_id: 21,
+      task_id: 1,
+    }),
+    event("2026-07-19 10:01:01.400", "Node.NextList.Succeeded", {
+      focus: null, list: [{ anchor: false, jump_back: false, name: "GenericNode" }],
+      name: "GenericTask", task_id: 1,
+    }),
+    event("2026-07-19 10:01:01.500", "Node.Action.Starting", {
+      action_id: 12, focus: null, name: "GenericNode", task_id: 1,
+    }),
+    event("2026-07-19 10:01:02.000", "Node.Action.Failed", {
+      action_details: actionDetails, action_id: 12, focus: null, name: "GenericNode", task_id: 1,
+    }),
+    event("2026-07-19 10:01:02.001", "Node.PipelineNode.Failed", {
+      action_details: actionDetails,
+      focus: null,
+      name: "GenericTask",
+      node_details: { action_id: 12, completed: false, name: "GenericNode", node_id: 11, reco_id: 21 },
+      node_id: 11,
+      reco_details: {
+        algorithm: "DirectHit", box: [0, 0, 10, 10], detail: null, name: "GenericNode", reco_id: 21,
+      },
+      task_id: 1,
+    }),
+    event("2026-07-19 10:01:03.000", "Tasker.Task.Failed", {
+      task_id: 1, entry: "GenericTask", hash: "hash", uuid: "uuid",
+    }),
+  ].join("\n"), "utf8");
+  const imagePath = path.join(onError, "2026.07.19-10.01.02.001_GenericNode.png");
+  await writeFile(imagePath, new Uint8Array());
+
+  const result = await inspectMla(root);
+  const failure = result.details.runtime.failures[0];
+  const image = result.artifacts.find((artifact) => artifact.path === imagePath);
+
+  expect(failure?.error_images).toEqual([`file:${imagePath.replaceAll("\\", "/")}`]);
+  expect(image?.status).toBe("selected");
+});
+
+test("namespaces every task-to-signal reference together with its signal", () => {
+  const position = {
+    timestamp: "2026-07-19 10:00:00.000",
+    source: "file:maafw.log",
+    path: "maafw.log",
+    local_line: 1,
+  };
+  const runtime = {
+    schema_version: "mla-runtime-inspection/v1",
+    sessions: [{
+      session_id: "session:1",
+      start_kind: "process_start",
+      framework_status: "resolved",
+      framework_version: "v5.12.2",
+      versions: ["v5.12.2"],
+      start: { source: "file:maafw.log", path: "maafw.log", line: 1, timestamp: position.timestamp },
+      end: { source: "file:maafw.log", path: "maafw.log", line: 2, timestamp: position.timestamp },
+      tasks: [{
+        execution_id: "execution:1",
+        task_id: 1,
+        name: "GenericTask",
+        hash: "hash",
+        uuid: "uuid",
+        status: "failed",
+        completeness: "complete",
+        started_at: position.timestamp,
+        ended_at: position.timestamp,
+        observed_duration_ms: 1,
+        first_node: "NodeA",
+        last_node: "NodeA",
+        statistics: {
+          node_executions: 1,
+          succeeded_nodes: 0,
+          failed_nodes: 1,
+          running_nodes: 0,
+          recognition_attempts: 0,
+          unsuccessful_recognition_attempts: 0,
+          node_executions_with_recognition: 0,
+          node_executions_with_mixed_recognition_results: 0,
+          recognition_activity_groups: 0,
+          maximum_recognition_attempts_per_node: 0,
+          maximum_unsuccessful_recognition_attempts_per_node: 0,
+          action_attempts: 0,
+          action_failures: 0,
+          next_list_timeouts: 0,
+          error_image_references: 0,
+          unique_error_images: 0,
+          vision_image_references: 0,
+          unique_vision_images: 0,
+        },
+        direct_failure_ids: [],
+        outcome_ids: [],
+        signal_ids: ["signal:1"],
+        signal_highlights: {
+          recognition_activity: [],
+          repetitions: ["signal:1"],
+        },
+        evidence: { start: position, end: position },
+      }],
+      summary: {
+        task_executions: 1,
+        succeeded_tasks: 0,
+        failed_tasks: 1,
+        running_tasks: 0,
+        direct_failures: 0,
+        next_list_timeouts: 0,
+        action_failures: 0,
+        signals: 1,
+      },
+    }],
+    unscoped_tasks: [],
+    failures: [],
+    outcomes: [],
+    signals: [{
+      session_id: "session:1",
+      execution_id: "execution:1",
+      task_id: 1,
+      task_name: "GenericTask",
+      signal_id: "signal:1",
+      kind: "repeated_node",
+      pattern: ["NodeA"],
+      segment_count: 1,
+      total_repeat_count: 3,
+      maximum_repeat_count: 3,
+      duration_ms: { count: 1, minimum: 1, p50: 1, p95: 1, maximum: 1, average: 1 },
+      terminations: { left_pattern: 0, task_ended: 1, still_repeating_at_log_end: 0 },
+      representatives: {
+        first: {
+          pattern: ["NodeA"], first_seen_at: position.timestamp, last_seen_at: position.timestamp,
+          repeat_count: 3, duration_ms: 1, termination: "task_ended", evidence: position,
+        },
+        longest: {
+          pattern: ["NodeA"], first_seen_at: position.timestamp, last_seen_at: position.timestamp,
+          repeat_count: 3, duration_ms: 1, termination: "task_ended", evidence: position,
+        },
+        last: {
+          pattern: ["NodeA"], first_seen_at: position.timestamp, last_seen_at: position.timestamp,
+          repeat_count: 3, duration_ms: 1, termination: "task_ended", evidence: position,
+        },
+      },
+      detector: {
+        name: "repeated-completed-node-sequence", version: 1, minimum_repeats: 3, maximum_pattern_length: 8,
+      },
+      priority: "high",
+      priority_reasons: ["high_repeat_count"],
+    }],
+    warnings: [],
+  } satisfies MlaRuntimeInspectionResult;
+
+  const namespaced = namespaceRuntime(runtime, "bundle");
+  const task = namespaced.sessions[0]?.tasks[0];
+
+  expect(namespaced.signals[0]?.signal_id).toBe("bundle:signal:1");
+  expect(task?.signal_ids).toEqual(["bundle:signal:1"]);
+  expect(task?.signal_highlights.repetitions).toEqual(["bundle:signal:1"]);
+
+  const session = namespaced.sessions[0];
+  const firstSignal = namespaced.signals[0];
+  if (session === undefined || task === undefined || firstSignal === undefined) {
+    throw new Error("Expected the runtime fixture to contain one session, task, and signal.");
+  }
+  const highlighted = { ...firstSignal, priority: "low" as const, priority_reasons: [] };
+  const high = {
+    ...firstSignal,
+    signal_id: "bundle:signal:2",
+    priority: "high" as const,
+    priority_reasons: ["related_to_direct_failure" as const],
+  };
+  const ordinary = {
+    ...firstSignal,
+    signal_id: "bundle:signal:3",
+    priority: "low" as const,
+    priority_reasons: [],
+  };
+  const completeRuntime: MlaRuntimeInspectionResult = {
+    ...namespaced,
+    sessions: [{
+      ...session,
+      tasks: [{ ...task, signal_ids: [highlighted.signal_id, high.signal_id, ordinary.signal_id] }],
+      summary: { ...session.summary, signals: 3 },
+    }],
+    signals: [highlighted, high, ordinary],
+  };
+
+  const focused = focusRuntimeSignals(completeRuntime, false);
+  const exhaustive = focusRuntimeSignals(completeRuntime, true);
+
+  expect(focused.selection).toEqual({ mode: "focused", total: 3, selected: 2 });
+  expect(focused.runtime.signals.map((signal) => signal.signal_id)).toEqual([
+    "bundle:signal:1",
+    "bundle:signal:2",
+  ]);
+  expect(focused.runtime.sessions[0]?.tasks[0]?.signal_ids).toEqual([
+    "bundle:signal:1",
+    "bundle:signal:2",
+  ]);
+  expect(focused.runtime.sessions[0]?.summary.signals).toBe(2);
+  expect(exhaustive.selection).toEqual({ mode: "all", total: 3, selected: 3 });
+
+  const mirrored: MlaRuntimeInspectionResult = {
+    ...completeRuntime,
+    sessions: [
+      completeRuntime.sessions[0] as MlaRuntimeInspectionResult["sessions"][number],
+      {
+        ...(completeRuntime.sessions[0] as MlaRuntimeInspectionResult["sessions"][number]),
+        session_id: "other:session:1",
+        tasks: [{
+          ...(completeRuntime.sessions[0]?.tasks[0] as MlaRuntimeInspectionResult["sessions"][number]["tasks"][number]),
+          execution_id: "other:execution:1",
+        }],
+      },
+    ],
+  };
+  expect(countPossibleMirroredTaskGroups(mirrored)).toBe(1);
+  const repeatedWithinOneTarget: MlaRuntimeInspectionResult = {
+    ...mirrored,
+    sessions: mirrored.sessions.map((item, index) => index === 0
+      ? item
+      : {
+        ...item,
+        tasks: item.tasks.map((repeatedTask) => ({
+          ...repeatedTask,
+          execution_id: "bundle:execution:2",
+        })),
+      }),
+  };
+  expect(countPossibleMirroredTaskGroups(repeatedWithinOneTarget)).toBe(0);
 });

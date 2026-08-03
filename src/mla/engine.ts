@@ -36,6 +36,7 @@ type RuntimePosition = {
 export type MlaInspectOptions = {
   timeRange?: TimeRange;
   keywords?: string[];
+  includeAllSignals?: boolean;
 };
 
 export type MlaInspectionDetails = {
@@ -45,6 +46,11 @@ export type MlaInspectionDetails = {
     keywords: string[];
     loadingGranularity: "matched_files" | "single_file" | "multiple_bundles";
     targets: string[];
+    signals: {
+      mode: "focused" | "all";
+      total: number;
+      selected: number;
+    };
   };
 };
 
@@ -216,7 +222,9 @@ function addRuntimeEvidence(
     );
   }
   for (const signal of runtime.signals) {
-    const representative = signal.representatives.first;
+    const representative = signal.kind === "recognition_activity"
+      ? signal.representatives.worst
+      : signal.representatives.longest;
     const position = "started_at" in representative
       ? representative.evidence.start
       : representative.evidence;
@@ -229,7 +237,33 @@ function addRuntimeEvidence(
         task: signal.task_name,
         ...(signal.kind === "recognition_activity" ? { node: signal.pipeline_node_name } : {}),
       }),
-      signal,
+      signal.kind === "recognition_activity"
+        ? {
+          signalId: signal.signal_id,
+          kind: signal.kind,
+          priority: signal.priority,
+          priorityReasons: signal.priority_reasons,
+          occurrenceCount: signal.occurrence_count,
+          occurrencesWithMixedResults: signal.occurrences_with_mixed_results,
+          terminalOutcomes: signal.terminal_outcomes,
+          attempts: signal.attempts,
+          unsuccessfulAttempts: signal.unsuccessful_attempts,
+          durationMs: signal.duration_ms,
+          representative,
+        }
+        : {
+          signalId: signal.signal_id,
+          kind: signal.kind,
+          priority: signal.priority,
+          priorityReasons: signal.priority_reasons,
+          pattern: signal.pattern,
+          segmentCount: signal.segment_count,
+          totalRepeatCount: signal.total_repeat_count,
+          maximumRepeatCount: signal.maximum_repeat_count,
+          durationMs: signal.duration_ms,
+          terminations: signal.terminations,
+          representative,
+        },
     );
   }
 }
@@ -274,6 +308,12 @@ type LoadedMlaTarget = {
   artifacts: Artifact[];
 };
 
+type MlaImageMaps = {
+  errorImages: Map<string, string>;
+  visionImages: Map<string, string>;
+  waitFreezesImages: Map<string, string>;
+};
+
 const PROJECT_MARKERS = [
   "interface.json",
   "interface.jsonc",
@@ -311,10 +351,79 @@ function targetLabel(root: string, target: string, inputIsDirectory: boolean): s
   return relative === "" ? "." : relative;
 }
 
+function pathKey(target: string): string {
+  const resolved = path.resolve(target);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+function segmentPath(target: MlaTarget, segment: SourceSegment): string {
+  if (path.isAbsolute(segment.path)) return segment.path;
+  const base = target.kind === "directory" ? target.path : path.dirname(target.path);
+  return path.resolve(base, segment.path);
+}
+
+function isPathInside(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function imageKey(
+  fileName: string,
+  pattern: RegExp,
+): string | null {
+  const match = fileName.match(pattern);
+  if (match === null) return null;
+  const timestamp = match[1];
+  const milliseconds = match[2];
+  const suffix = match[3];
+  if (timestamp === undefined || milliseconds === undefined || suffix === undefined) return null;
+  return `${timestamp}.${milliseconds.padEnd(3, "0")}_${suffix}`;
+}
+
+function buildImageMapsByLogDirectory(
+  targets: readonly MlaTarget[],
+  artifacts: readonly Artifact[],
+): Map<string, MlaImageMaps> {
+  const directories = [...new Set(targets.map((target) =>
+    path.resolve(target.kind === "directory" ? target.path : path.dirname(target.path))
+  ))];
+  const result = new Map(directories.map((directory) => [pathKey(directory), {
+    errorImages: new Map<string, string>(),
+    visionImages: new Map<string, string>(),
+    waitFreezesImages: new Map<string, string>(),
+  }]));
+  for (const artifact of artifacts) {
+    if (artifact.kind !== "image") continue;
+    const imagePath = path.resolve(artifact.path);
+    const directory = directories
+      .filter((candidate) => isPathInside(candidate, imagePath))
+      .sort((left, right) => right.length - left.length)[0];
+    if (directory === undefined) continue;
+    const maps = result.get(pathKey(directory));
+    if (maps === undefined) continue;
+    const relative = portablePath(path.relative(directory, imagePath));
+    const segments = relative.toLowerCase().split("/");
+    const fileName = path.basename(imagePath);
+    const reference = `file:${portablePath(imagePath)}`;
+    if (segments.includes("on_error") && fileName.toLowerCase().endsWith(".png")) {
+      const key = imageKey(fileName, /^(\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2})\.(\d{1,3})_(.+)\.png$/u);
+      if (key !== null) maps.errorImages.set(key, reference);
+    }
+    if (segments.includes("vision") && fileName.toLowerCase().endsWith(".jpg")) {
+      const visionKey = imageKey(fileName, /^(\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2})\.(\d{1,3})_(.+_\d{9,})\.jpg$/iu);
+      if (visionKey !== null) maps.visionImages.set(visionKey, reference);
+      const waitKey = imageKey(fileName, /^(\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2})\.(\d{1,3})_(.+_wait_freezes)\.jpg$/iu);
+      if (waitKey !== null) maps.waitFreezesImages.set(waitKey, reference);
+    }
+  }
+  return result;
+}
+
 async function selectMlaTargets(
   resolvedPath: string,
   inputIsDirectory: boolean,
   artifacts: readonly Artifact[],
+  avoidRecursiveDirectoryTargets: boolean,
 ): Promise<MlaTarget[]> {
   if (!inputIsDirectory) {
     const label = targetLabel(resolvedPath, resolvedPath, false);
@@ -330,15 +439,21 @@ async function selectMlaTargets(
     byDirectory.set(directory, group);
   }
   const projectRoot = await looksLikeProjectRoot(resolvedPath);
+  const logDirectories = [...byDirectory.keys()];
   const targets: MlaTarget[] = [];
   for (const [directory, group] of [...byDirectory.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    const containsNestedLogDirectory = logDirectories.some((candidate) =>
+      candidate !== directory && isPathInside(directory, candidate)
+    );
     const useDirectory = group.some((artifact) => isMainLog(artifact.path))
-      && (directory !== resolvedPath || !projectRoot);
+      && (directory !== resolvedPath || !projectRoot)
+      && !(avoidRecursiveDirectoryTargets && containsNestedLogDirectory);
+    const files = group
+      .sort((left, right) => left.path.localeCompare(right.path))
+      .map((artifact) => ({ path: artifact.path, kind: "file" as const }));
     const candidates = useDirectory
-      ? [{ path: directory, kind: "directory" as const }]
-      : group
-        .sort((left, right) => left.path.localeCompare(right.path))
-        .map((artifact) => ({ path: artifact.path, kind: "file" as const }));
+      ? [{ path: directory, kind: "directory" as const }, ...files]
+      : files;
     for (const candidate of candidates) {
       const label = targetLabel(resolvedPath, candidate.path, true);
       targets.push({
@@ -351,7 +466,7 @@ async function selectMlaTargets(
   return targets;
 }
 
-function namespaceRuntime(
+export function namespaceRuntime(
   runtime: MlaRuntimeInspectionResult,
   namespace: string,
 ): MlaRuntimeInspectionResult {
@@ -362,6 +477,10 @@ function namespaceRuntime(
     direct_failure_ids: item.direct_failure_ids.map(scoped),
     outcome_ids: item.outcome_ids.map(scoped),
     signal_ids: item.signal_ids.map(scoped),
+    signal_highlights: {
+      recognition_activity: item.signal_highlights.recognition_activity.map(scoped),
+      repetitions: item.signal_highlights.repetitions.map(scoped),
+    },
   });
   return {
     ...runtime,
@@ -393,6 +512,100 @@ function namespaceRuntime(
   };
 }
 
+function projectRuntimeSignals(
+  runtime: MlaRuntimeInspectionResult,
+  selectedIds: ReadonlySet<string>,
+): MlaRuntimeInspectionResult {
+  const task = (item: RuntimeTask): RuntimeTask => ({
+    ...item,
+    signal_ids: item.signal_ids.filter((identifier) => selectedIds.has(identifier)),
+    signal_highlights: {
+      recognition_activity: item.signal_highlights.recognition_activity.filter((identifier) =>
+        selectedIds.has(identifier)
+      ),
+      repetitions: item.signal_highlights.repetitions.filter((identifier) =>
+        selectedIds.has(identifier)
+      ),
+    },
+  });
+  const sessions = runtime.sessions.map((session) => {
+    const tasks = session.tasks.map(task);
+    return {
+      ...session,
+      tasks,
+      summary: {
+        ...session.summary,
+        signals: tasks.reduce((total, item) => total + item.signal_ids.length, 0),
+      },
+    };
+  });
+  return {
+    ...runtime,
+    sessions,
+    unscoped_tasks: runtime.unscoped_tasks.map(task),
+    signals: runtime.signals.filter((signal) => selectedIds.has(signal.signal_id)),
+  };
+}
+
+export function focusRuntimeSignals(
+  runtime: MlaRuntimeInspectionResult,
+  includeAllSignals: boolean,
+): {
+  runtime: MlaRuntimeInspectionResult;
+  selection: MlaInspectionDetails["selection"]["signals"];
+} {
+  const allSignalIds = new Set(runtime.signals.map((signal) => signal.signal_id));
+  const selectedIds = new Set<string>();
+  if (includeAllSignals) {
+    for (const identifier of allSignalIds) selectedIds.add(identifier);
+  } else {
+    const tasks = [...runtime.sessions.flatMap((session) => session.tasks), ...runtime.unscoped_tasks];
+    for (const task of tasks) {
+      for (const identifier of [
+        ...task.signal_highlights.recognition_activity,
+        ...task.signal_highlights.repetitions,
+      ]) {
+        if (allSignalIds.has(identifier)) selectedIds.add(identifier);
+      }
+    }
+    for (const signal of runtime.signals) {
+      if (signal.priority === "high") selectedIds.add(signal.signal_id);
+    }
+  }
+  return {
+    runtime: projectRuntimeSignals(runtime, selectedIds),
+    selection: {
+      mode: includeAllSignals ? "all" : "focused",
+      total: runtime.signals.length,
+      selected: selectedIds.size,
+    },
+  };
+}
+
+export function countPossibleMirroredTaskGroups(runtime: MlaRuntimeInspectionResult): number {
+  const groups = new Map<string, Set<string>>();
+  const tasks = [...runtime.sessions.flatMap((session) => session.tasks), ...runtime.unscoped_tasks];
+  for (const task of tasks) {
+    const fingerprint = JSON.stringify([
+      task.task_id,
+      task.name,
+      task.hash,
+      task.uuid,
+      task.status,
+      task.started_at,
+      task.ended_at,
+    ]);
+    const separator = task.execution_id.indexOf(":");
+    const targetNamespace = separator === -1
+      ? task.execution_id
+      : task.execution_id.slice(0, separator);
+    const namespaces = groups.get(fingerprint) ?? new Set<string>();
+    namespaces.add(targetNamespace);
+    groups.set(fingerprint, namespaces);
+  }
+  return [...groups.values()].filter((namespaces) => namespaces.size > 1).length;
+}
+
 function mergeRuntimes(items: readonly LoadedMlaTarget[]): MlaRuntimeInspectionResult {
   return {
     schema_version: "mla-runtime-inspection/v1",
@@ -419,6 +632,7 @@ async function loadMlaTarget(
   artifacts: readonly Artifact[],
   focus: LogBundleFocus | undefined,
   timeRange: TimeRange | undefined,
+  imageMaps: MlaImageMaps | undefined,
 ): Promise<LoadedMlaTarget | null> {
   const framework = extractFrameworkSessions(await loadFrameworkLogSources(target.path));
   let sourceSegments: SourceSegment[];
@@ -435,18 +649,35 @@ async function loadMlaTarget(
     });
   } else {
     const content = await readNodeTextFileContent(target.path);
+    if (
+      focus?.keywords !== undefined
+      && focus.keywords.length > 0
+      && !focus.keywords.some((keyword) => content.includes(keyword))
+    ) {
+      return null;
+    }
     sourceSegments = [{
       source: `file:${portablePath(target.path)}`,
       path: path.basename(target.path),
       startLine: 1,
       lineCount: (content.match(/\n/g) ?? []).length + 1,
     }];
-    analyzed = await analyzeLogContent({ content });
+    analyzed = await analyzeLogContent({ content, ...imageMaps });
   }
   const runtime = filterRuntime(
     translateRuntimeInspection(buildRuntimeInspection(analyzed, framework, sourceSegments)),
     timeRange,
   );
+  if (
+    timeRange !== undefined
+    && runtime.sessions.length === 0
+    && runtime.unscoped_tasks.length === 0
+    && runtime.failures.length === 0
+    && runtime.outcomes.length === 0
+    && runtime.signals.length === 0
+  ) {
+    return null;
+  }
   return {
     target,
     runtime: namespaceRuntime(runtime, target.namespace),
@@ -471,20 +702,40 @@ export async function inspectMla(
     resolvedPath,
     metadata.isDirectory(),
     discovery.artifacts,
+    focus !== undefined,
   );
   const loadedTargets: LoadedMlaTarget[] = [];
   const targetMissingEvidence = [];
+  const coveredFiles = new Set<string>();
+  const imageMapsByDirectory = buildImageMapsByLogDirectory(targets, discovery.artifacts);
   for (const target of targets) {
+    if (target.kind === "file" && coveredFiles.has(pathKey(target.path))) continue;
     try {
-      const loaded = await loadMlaTarget(target, discovery.artifacts, focus, options.timeRange);
+      const imageDirectory = target.kind === "directory" ? target.path : path.dirname(target.path);
+      const loaded = await loadMlaTarget(
+        target,
+        discovery.artifacts,
+        focus,
+        options.timeRange,
+        imageMapsByDirectory.get(pathKey(imageDirectory)),
+      );
       if (loaded === null) {
-        targetMissingEvidence.push({
-          code: "mla_target_empty",
-          message: `MLA selected no analyzable content from ${target.label}.`,
-          path: target.path,
-        });
+        if (focus === undefined) {
+          targetMissingEvidence.push({
+            code: "mla_target_empty",
+            message: `MLA selected no analyzable content from ${target.label}.`,
+            path: target.path,
+          });
+        }
       } else {
         loadedTargets.push(loaded);
+        if (target.kind === "file") {
+          coveredFiles.add(pathKey(target.path));
+        } else {
+          for (const segment of loaded.sourceSegments) {
+            coveredFiles.add(pathKey(segmentPath(target, segment)));
+          }
+        }
       }
     } catch (error: unknown) {
       targetMissingEvidence.push({
@@ -494,17 +745,26 @@ export async function inspectMla(
       });
     }
   }
-  const runtime = loadedTargets.length === 0
+  const completeRuntime = loadedTargets.length === 0
     ? emptyRuntime(["No analyzable MaaFramework log content was selected."])
     : mergeRuntimes(loadedTargets);
-  const loadingGranularity = targets.length > 1
+  const signalFocus = focusRuntimeSignals(completeRuntime, options.includeAllSignals === true);
+  const runtime = signalFocus.runtime;
+  const possibleMirroredTaskGroups = countPossibleMirroredTaskGroups(runtime);
+  const selectedSignalIds = new Set(runtime.signals.map((signal) => signal.signal_id));
+  const loadingGranularity = loadedTargets.length > 1
     ? "multiple_bundles" as const
-    : targets[0]?.kind === "file"
+    : loadedTargets[0]?.target.kind === "file"
       ? "single_file" as const
       : "matched_files" as const;
   const ledger = new EvidenceLedger();
   for (const loaded of loadedTargets) {
-    addRuntimeEvidence(ledger, loaded.runtime, loaded.artifacts, loaded.target.path);
+    addRuntimeEvidence(
+      ledger,
+      projectRuntimeSignals(loaded.runtime, selectedSignalIds),
+      loaded.artifacts,
+      loaded.target.path,
+    );
   }
   const evidence = ledger.values();
   const selectedArtifactIds = new Set(evidence.map((item) => item.source.artifactId));
@@ -513,6 +773,15 @@ export async function inspectMla(
       selectedArtifactIds.add(
         artifactForPosition(loaded.artifacts, loaded.target.path, segment.path).id,
       );
+    }
+  }
+  const referencedImagePaths = new Set(runtime.failures.flatMap((failure) => [
+    ...failure.error_images,
+    ...failure.vision_images,
+  ]).flatMap((reference) => reference.startsWith("file:") ? [pathKey(reference.slice(5))] : []));
+  for (const artifact of discovery.artifacts) {
+    if (artifact.kind === "image" && referencedImagePaths.has(pathKey(artifact.path))) {
+      selectedArtifactIds.add(artifact.id);
     }
   }
   const artifacts = discovery.artifacts.map((artifact) =>
@@ -546,6 +815,18 @@ export async function inspectMla(
         code: "mla_time_window_file_granularity",
         message: "MLA narrows directory loading to matching files, then MEK filters facts to the requested time range; a matched file may still be read in full.",
       }]),
+    ...(signalFocus.selection.selected === signalFocus.selection.total
+      ? []
+      : [{
+        code: "mla_signals_focused",
+        message: `Selected ${signalFocus.selection.selected} of ${signalFocus.selection.total} runtime signals using MLA priorities and per-task highlights; request all signals explicitly for exhaustive output.`,
+      }]),
+    ...(possibleMirroredTaskGroups === 0
+      ? []
+      : [{
+        code: "mla_possible_mirrored_tasks",
+        message: `Observed ${possibleMirroredTaskGroups} groups of field-identical tasks across the selected logs; counts remain observations because separate instances cannot be safely deduplicated without correlation evidence.`,
+      }]),
   ];
   return {
     schemaVersion: EVIDENCE_SCHEMA_VERSION,
@@ -565,9 +846,11 @@ export async function inspectMla(
       sessions: runtime.sessions.length,
       tasks: runtime.sessions.reduce((total, session) => total + session.tasks.length, 0)
         + runtime.unscoped_tasks.length,
+      possibleMirroredTaskGroups,
       failures: runtime.failures.length,
       outcomes: runtime.outcomes.length,
       signals: runtime.signals.length,
+      signalsTotal: signalFocus.selection.total,
       evidence: evidence.length,
     },
     details: {
@@ -576,7 +859,8 @@ export async function inspectMla(
         ...(options.timeRange === undefined ? {} : { requestedTimeRange: options.timeRange }),
         keywords: focus?.keywords ?? [],
         loadingGranularity,
-        targets: targets.map((target) => target.label),
+        targets: loadedTargets.map((item) => item.target.label),
+        signals: signalFocus.selection,
       },
     },
   };

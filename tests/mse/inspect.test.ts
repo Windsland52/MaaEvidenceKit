@@ -28,14 +28,20 @@ test("loads a public MSE project and exposes task relations as evidence", async 
     Done: { recognition: "DirectHit" },
   }, null, 2), "utf8");
 
-  const result = await inspectMse(root, { tasks: ["Start", "Done"] });
+  const result = await inspectMse(root, { tasks: ["Start"] });
+  const preflightOnly = await inspectMse(root);
   const graph = result.details.projects[0]?.graph;
 
   expect(result.details.projects[0]?.preflight.compatibility.status).toBe("supported");
+  expect(result.details.projects[0]?.resolution?.requested_tasks).toEqual(["Start"]);
   expect(graph?.edges).toEqual(expect.arrayContaining([
     expect.objectContaining({ kind: "task.next" }),
   ]));
   expect(result.evidence.some((item) => item.kind === "mse.reference")).toBe(true);
   expect(renderText(result)).toContain("[task.next] Done");
   expect(renderMermaid(result)).toContain("flowchart TD");
+  expect(preflightOnly.details.projects[0]?.resolution).toBeNull();
+  expect(preflightOnly.details.projects[0]?.graph).toEqual({ nodes: [], edges: [] });
+  expect(preflightOnly.evidence.some((item) => item.kind === "mse.task_binding")).toBe(true);
+  expect(preflightOnly.evidence.some((item) => item.kind === "mse.task_definition")).toBe(false);
 });
