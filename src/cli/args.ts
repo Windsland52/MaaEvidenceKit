@@ -19,6 +19,7 @@ const VALUE_OPTIONS = new Set([
   "--message",
   "--output",
   "--component",
+  "--depth",
   "--attachment",
   "--resource",
   "--syntax-mode",

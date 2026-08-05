@@ -13,9 +13,19 @@ Sentry investigation, source research, and diagnostic judgment in the host harne
 - For MaaFramework runtime behavior, run `maa-evidence mla inspect <folder>`.
 - For pipeline, Interface, resource, or task definitions, run
   `maa-evidence mse inspect <project> --task <name>`.
+- Use `--depth N` to control recursive execution-path expansion. The default two levels
+  shows the requested task plus its immediate execution references and their direct targets.
+  The graph contains only execution edges; template/color/locale references stay in evidence.
+- When a failure node is known, pass it as `--task`; MSE also finds tasks that reference it,
+  so the graph can show who led the flow into the failing node.
+- MSE graph nodes include `desc`, `recognition`, `action`, `customRecognition`, and
+  `customAction` summaries so the harness can judge node purpose without expanding full config.
 - When both supported logs and project source are present, run `maa-evidence inspect <folder>`.
 - For GUI/custom logs only, inspect them with host tools. Derive a timestamp or task name, then call
-  MEK only if MaaFramework evidence is needed.
+  MEK only if MaaFramework evidence is needed. Simple project-specific service logs usually need
+  keyword search instead of a parser: prefer `rg` (e.g. `rg -i "err|failed" go-service.log`), fall back to
+  `grep` when ripgrep is unavailable (or PowerShell `Select-String` on Windows). Keep these host-side
+  findings out of MEK evidence.
 - For application telemetry, use Sentry MCP or CLI directly. Read
   [references/sentry.md](references/sentry.md) before querying or correlating Sentry. MEK does not
   query application Sentry projects.
@@ -74,6 +84,18 @@ Inspect these fields before forming a diagnosis:
 - `warnings`: truncation, compatibility, and upstream limitations.
 - `artifacts`: selected and skipped local material.
 - `details`: MLA execution facts or MSE static relations.
+
+`mla.recognition_detail` records aggregate OCR text and recognition scores by node/algorithm/status.
+Use them to distinguish a failed recognition from a low-confidence successful match, and to compare
+OCR text observed at issue time with the expected pipeline text.
+
+Recognition `mla.signal` entries include `candidateStatistics` and `terminalMatches`. Use them to
+see which candidate nodes were evaluated, matched, or repeatedly unsuccessful inside a cycle.
+
+When a task reports `succeeded` but its execution also contains `next_list_timeout`,
+`action_failure`, or a repeated sequence still running at log end, MEK emits
+`mla.task_anomaly`. Treat framework success as only a partial fact and investigate the anomaly
+before concluding the business task succeeded.
 
 MLA failure facts may reference standard `on_error` or `vision` images by local path. Open only the
 referenced images needed for the question; MEK does not embed or interpret their pixels.

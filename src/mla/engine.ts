@@ -33,6 +33,54 @@ type RuntimePosition = {
   local_line: number | null;
 };
 
+type RecognitionDetailCandidate = {
+  box?: [number, number, number, number];
+  score?: number;
+  text?: string;
+};
+
+type RecognitionDetailShape = {
+  all?: unknown;
+  best?: unknown;
+  filtered?: unknown;
+};
+
+type RecognitionDetailSample = RecognitionDetailCandidate & {
+  timestamp: string;
+  mergedLine: number | null;
+};
+
+export type MlaRecognitionDetail = {
+  algorithm: string;
+  node: string;
+  status: "succeeded" | "failed";
+  occurrenceCount: number;
+  textCounts: Array<{ text: string; count: number }>;
+  score: {
+    count: number;
+    minimum: number;
+    p50: number;
+    p95: number;
+    maximum: number;
+    average: number;
+  } | null;
+  representatives: {
+    first: RecognitionDetailSample;
+    worst: RecognitionDetailSample | null;
+  };
+};
+
+export type MlaTaskAnomaly = {
+  executionId: string;
+  taskId: number;
+  taskName: string;
+  status: "succeeded";
+  observed: string[];
+  nextListTimeouts: number;
+  actionFailures: number;
+  stillRepeatingAtLogEnd: number;
+};
+
 export type MlaInspectOptions = {
   timeRange?: TimeRange;
   keywords?: string[];
@@ -241,11 +289,14 @@ function addRuntimeEvidence(
         ? {
           signalId: signal.signal_id,
           kind: signal.kind,
+          pipelineNodeName: signal.pipeline_node_name,
           priority: signal.priority,
           priorityReasons: signal.priority_reasons,
           occurrenceCount: signal.occurrence_count,
           occurrencesWithMixedResults: signal.occurrences_with_mixed_results,
           terminalOutcomes: signal.terminal_outcomes,
+          terminalMatches: signal.terminal_matches,
+          candidateStatistics: signal.candidate_statistics,
           attempts: signal.attempts,
           unsuccessfulAttempts: signal.unsuccessful_attempts,
           durationMs: signal.duration_ms,
@@ -282,6 +333,88 @@ function addTaskEvidence(
   );
 }
 
+export function summarizeTaskAnomalies(runtime: MlaRuntimeInspectionResult): MlaTaskAnomaly[] {
+  const signalsByTask = new Map<string, MlaRuntimeInspectionResult["signals"]>();
+  for (const signal of runtime.signals) {
+    const group = signalsByTask.get(signal.execution_id) ?? [];
+    group.push(signal);
+    signalsByTask.set(signal.execution_id, group);
+  }
+  const tasks = [...runtime.sessions.flatMap((session) => session.tasks), ...runtime.unscoped_tasks];
+  const anomalies: MlaTaskAnomaly[] = [];
+  for (const task of tasks) {
+    if (task.status !== "succeeded") continue;
+    const observed: string[] = [];
+    let stillRepeatingAtLogEnd = 0;
+    if (task.statistics.next_list_timeouts > 0) observed.push("next_list_timeout");
+    if (task.statistics.action_failures > 0) observed.push("action_failure");
+    for (const signal of signalsByTask.get(task.execution_id) ?? []) {
+      if (signal.kind === "repeated_node" || signal.kind === "repeated_node_cycle") {
+        stillRepeatingAtLogEnd += signal.terminations.still_repeating_at_log_end;
+      }
+    }
+    if (stillRepeatingAtLogEnd > 0) observed.push("still_repeating_at_log_end");
+    if (observed.length === 0) continue;
+    anomalies.push({
+      executionId: task.execution_id,
+      taskId: task.task_id,
+      taskName: task.name,
+      status: "succeeded",
+      observed,
+      nextListTimeouts: task.statistics.next_list_timeouts,
+      actionFailures: task.statistics.action_failures,
+      stillRepeatingAtLogEnd,
+    });
+  }
+  return anomalies.sort((left, right) => left.executionId.localeCompare(right.executionId));
+}
+
+function addTaskAnomalyEvidence(
+  ledger: EvidenceLedger,
+  anomaly: MlaTaskAnomaly,
+  task: RuntimeTask,
+  artifacts: readonly Artifact[],
+  inputPath: string,
+): void {
+  ledger.add(
+    "mla.task_anomaly",
+    `Task ${anomaly.taskName} succeeded with anomalies: ${anomaly.observed.join(", ")}.`,
+    evidenceSource(artifacts, inputPath, task.evidence.start, { task: anomaly.taskName }),
+    anomaly,
+  );
+}
+
+function addRecognitionDetailEvidence(
+  ledger: EvidenceLedger,
+  detail: MlaRecognitionDetail,
+  artifacts: readonly Artifact[],
+  inputPath: string,
+): void {
+  const textSummary = detail.textCounts.length > 0
+    ? ` texts=${detail.textCounts.slice(0, 3).map((item) => JSON.stringify(item.text)).join(", ")}`
+    : "";
+  const scoreSummary = detail.score === null
+    ? ""
+    : ` score=${detail.score.minimum.toFixed(4)}..${detail.score.maximum.toFixed(4)}`;
+  const summary = `Recognition ${detail.node} ${detail.status} (${detail.algorithm}) x${detail.occurrenceCount}${textSummary}${scoreSummary}`;
+  const representative = detail.representatives.worst ?? detail.representatives.first;
+  ledger.add(
+    "mla.recognition_detail",
+    summary,
+    evidenceSource(
+      artifacts,
+      inputPath,
+      {
+        timestamp: representative.timestamp,
+        path: null,
+        local_line: representative.mergedLine,
+      },
+      { node: detail.node },
+    ),
+    detail,
+  );
+}
+
 function emptyRuntime(warnings: string[] = []): MlaRuntimeInspectionResult {
   return {
     schema_version: "mla-runtime-inspection/v1",
@@ -304,6 +437,7 @@ type MlaTarget = {
 type LoadedMlaTarget = {
   target: MlaTarget;
   runtime: MlaRuntimeInspectionResult;
+  recognitionDetails: MlaRecognitionDetail[];
   sourceSegments: SourceSegment[];
   artifacts: Artifact[];
 };
@@ -627,6 +761,127 @@ function targetArtifacts(target: MlaTarget, artifacts: readonly Artifact[]): Art
   return artifacts.filter((artifact) => path.dirname(path.resolve(artifact.path)) === target.path);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function candidateFromUnknown(value: unknown): RecognitionDetailCandidate | null {
+  if (!isRecord(value)) return null;
+  const box = value["box"];
+  const score = value["score"];
+  const text = value["text"];
+  const candidate: RecognitionDetailCandidate = {};
+  if (Array.isArray(box) && box.length === 4 && box.every((item) => typeof item === "number")) {
+    candidate.box = box as [number, number, number, number];
+  }
+  if (typeof score === "number") candidate.score = score;
+  if (typeof text === "string") candidate.text = text;
+  return Object.keys(candidate).length === 0 ? null : candidate;
+}
+
+function candidatesFromUnknown(value: unknown): RecognitionDetailCandidate[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(candidateFromUnknown).filter((item): item is RecognitionDetailCandidate => item !== null);
+}
+
+function percentile(sorted: number[], ratio: number): number {
+  if (sorted.length === 0) return 0;
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * ratio) - 1));
+  return sorted[index] ?? 0;
+}
+
+function extractRecognitionDetails(
+  analyzed: Awaited<ReturnType<typeof analyzeLogContent>>,
+): MlaRecognitionDetail[] {
+  const groups = new Map<string, {
+    algorithm: string;
+    node: string;
+    status: "succeeded" | "failed";
+    count: number;
+    texts: Map<string, number>;
+    scores: number[];
+    samples: RecognitionDetailSample[];
+  }>();
+  for (const event of analyzed.events) {
+    if (event.message !== "Node.Recognition.Succeeded" && event.message !== "Node.Recognition.Failed") continue;
+    const payload = event.details;
+    if (!isRecord(payload)) continue;
+    const recoDetails = payload["reco_details"];
+    if (!isRecord(recoDetails)) continue;
+    const algorithm = recoDetails["algorithm"];
+    if (typeof algorithm !== "string") continue;
+    const node = recoDetails["name"];
+    if (typeof node !== "string") continue;
+    const detail = recoDetails["detail"];
+    if (!isRecord(detail)) continue;
+    const shape = detail as RecognitionDetailShape;
+    const all = candidatesFromUnknown(shape.all);
+    if (all.length === 0) continue;
+    const status = event.message === "Node.Recognition.Succeeded" ? "succeeded" : "failed";
+    if (status === "succeeded" && algorithm !== "OCR") continue;
+    const key = `${node}|${algorithm}|${status}`;
+    const group = groups.get(key) ?? {
+      algorithm,
+      node,
+      status,
+      count: 0,
+      texts: new Map<string, number>(),
+      scores: [],
+      samples: [],
+    };
+    group.count += 1;
+    for (const candidate of all) {
+      if (candidate.text !== undefined) {
+        group.texts.set(candidate.text, (group.texts.get(candidate.text) ?? 0) + 1);
+      }
+      if (candidate.score !== undefined) {
+        group.scores.push(candidate.score);
+      }
+    }
+    group.samples.push({
+      ...all[0],
+      timestamp: event.timestamp,
+      mergedLine: event._lineNumber ?? null,
+    });
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort((left, right) =>
+    [left.node, left.algorithm, left.status].join("|").localeCompare(
+      [right.node, right.algorithm, right.status].join("|"),
+    ),
+  ).map((group) => {
+    const sortedScores = [...group.scores].sort((left, right) => left - right);
+    const score = sortedScores.length === 0
+      ? null
+      : {
+        count: sortedScores.length,
+        minimum: sortedScores[0] ?? 0,
+        p50: percentile(sortedScores, 0.5),
+        p95: percentile(sortedScores, 0.95),
+        maximum: sortedScores[sortedScores.length - 1] ?? 0,
+        average: sortedScores.reduce((total, item) => total + item, 0) / sortedScores.length,
+      };
+    const samples = group.samples;
+    const first = samples[0] as RecognitionDetailSample;
+    const worst = score === null
+      ? null
+      : [...samples].sort((left, right) =>
+        (left.score ?? Infinity) - (right.score ?? Infinity)
+      )[0] ?? null;
+    return {
+      algorithm: group.algorithm,
+      node: group.node,
+      status: group.status,
+      occurrenceCount: group.count,
+      textCounts: [...group.texts.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([text, count]) => ({ text, count })),
+      score,
+      representatives: { first, worst },
+    };
+  });
+}
+
 async function loadMlaTarget(
   target: MlaTarget,
   artifacts: readonly Artifact[],
@@ -681,6 +936,7 @@ async function loadMlaTarget(
   return {
     target,
     runtime: namespaceRuntime(runtime, target.namespace),
+    recognitionDetails: extractRecognitionDetails(analyzed),
     sourceSegments,
     artifacts: targetArtifacts(target, artifacts),
   };
@@ -748,6 +1004,14 @@ export async function inspectMla(
   const completeRuntime = loadedTargets.length === 0
     ? emptyRuntime(["No analyzable MaaFramework log content was selected."])
     : mergeRuntimes(loadedTargets);
+  const taskAnomalies = summarizeTaskAnomalies(completeRuntime);
+  const tasksByExecution = new Map<string, RuntimeTask>();
+  for (const task of [
+    ...completeRuntime.sessions.flatMap((session) => session.tasks),
+    ...completeRuntime.unscoped_tasks,
+  ]) {
+    tasksByExecution.set(task.execution_id, task);
+  }
   const signalFocus = focusRuntimeSignals(completeRuntime, options.includeAllSignals === true);
   const runtime = signalFocus.runtime;
   const possibleMirroredTaskGroups = countPossibleMirroredTaskGroups(runtime);
@@ -765,6 +1029,14 @@ export async function inspectMla(
       loaded.artifacts,
       loaded.target.path,
     );
+    for (const detail of loaded.recognitionDetails) {
+      addRecognitionDetailEvidence(ledger, detail, loaded.artifacts, loaded.target.path);
+    }
+  }
+  for (const anomaly of taskAnomalies) {
+    const task = tasksByExecution.get(anomaly.executionId);
+    if (task === undefined) continue;
+    addTaskAnomalyEvidence(ledger, anomaly, task, discovery.artifacts, resolvedPath);
   }
   const evidence = ledger.values();
   const selectedArtifactIds = new Set(evidence.map((item) => item.source.artifactId));
@@ -849,6 +1121,7 @@ export async function inspectMla(
       possibleMirroredTaskGroups,
       failures: runtime.failures.length,
       outcomes: runtime.outcomes.length,
+      taskAnomalies: taskAnomalies.length,
       signals: runtime.signals.length,
       signalsTotal: signalFocus.selection.total,
       evidence: evidence.length,

@@ -27,7 +27,7 @@ const HELP = `MaaEvidenceKit — deterministic MaaFramework evidence extraction
 
 Usage:
   maa-evidence mla inspect <path> [--from ISO] [--to ISO] [--keyword TEXT] [--all-signals] [--format json|text|mermaid]
-  maa-evidence mse inspect <path> [--task NAME] [--syntax-mode maafw|maa] [--format json|text|mermaid]
+  maa-evidence mse inspect <path> [--task NAME] [--depth N] [--syntax-mode maafw|maa] [--format json|text|mermaid]
   maa-evidence inspect <path> [--from ISO] [--to ISO] [--task NAME] [--no-mla] [--no-mse]
   maa-evidence window --input result.json (--evidence-id ID | --artifact-id ID) [--line N]
   maa-evidence view --input result.json --format json|text|mermaid
@@ -99,6 +99,9 @@ async function runMse(parsed: ParsedArguments): Promise<void> {
     ...(option(parsed, "--resource") === undefined
       ? {}
       : { resource: option(parsed, "--resource") as string }),
+    ...(integerOption(parsed, "--depth") === undefined
+      ? {}
+      : { depth: integerOption(parsed, "--depth") as number }),
   });
   await emitInspection(result, parsed);
 }
@@ -115,7 +118,13 @@ async function runCombined(parsed: ParsedArguments): Promise<void> {
       },
     mse: flag(parsed, "--no-mse")
       ? false
-      : { syntaxMode: syntaxMode(parsed), tasks: options(parsed, "--task") },
+      : {
+        syntaxMode: syntaxMode(parsed),
+        tasks: options(parsed, "--task"),
+        ...(integerOption(parsed, "--depth") === undefined
+          ? {}
+          : { depth: integerOption(parsed, "--depth") as number }),
+      },
   });
   await emitInspection(result, parsed);
 }

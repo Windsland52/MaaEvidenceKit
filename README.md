@@ -65,6 +65,12 @@ maa-evidence view --input inspection.json --format mermaid
 
 MSE 未提供 `--task` 时只执行 Interface、资源组合和静态诊断预检，不自动展开项目中的
 全部内部 pipeline 节点。需要节点关系时由 harness 传入相关任务名，避免无关证据和耗时膨胀。
+传入 `--task` 后，MSE 会沿执行路径递归展开 `next` / `anchor` / `on_error` 等引用；
+默认展开两层，可用 `--depth N` 控制深度。图中只保留执行路径边，模板、颜色、OCR 等
+资源引用仍保留在 `mse.reference` evidence 中。以失败节点作为 `--task` 时，MSE 还会
+反向扫描执行路径，找出哪些任务引用了该节点，便于定位“谁把流程带到失败点”。
+图中节点会附带 `desc` / `recognition` / `action` / `customRecognition` /
+`customAction` 摘要字段，便于在不打开完整配置的情况下判断节点职责。
 
 当提供时间范围时，MLA 先将目录加载聚焦到匹配文件，MEK 再过滤窗口外的任务和直接事实。
 当前 MLA 1.3.0 仍可能完整读取一个匹配的日志文件；输出会明确携带该限制，避免把它误解成
@@ -73,8 +79,15 @@ MSE 未提供 `--task` 时只执行 Interface、资源组合和静态诊断预�
 MLA 默认输出其优先级为 `high` 的信号和每个任务的高亮信号，并在 `details.selection.signals`
 记录完整数量与入选数量。需要穷举普通、低优先级信号时使用 `--all-signals`，SDK 则设置
 `includeAllSignals: true`；筛选只依据 MLA 的通用信号语义，不包含应用项目名称或节点特判。
+识别类 `mla.signal` 会包含 `terminalMatches` 和 `candidateStatistics`，可按候选节点查看
+评估次数、匹配次数和未成功尝试次数，便于定位循环中持续失败的子节点。
 标准 `on_error` / `vision` 图片会作为本地路径交给 MLA 与当前及旋转日志关联；只有被运行事实
 实际引用的图片才标为 `selected`，图片字节不会嵌入结果。
+MLA 识别事件中的 OCR 文本和识别分数会聚合成 `mla.recognition_detail` evidence：同一
+`node + algorithm + status` 合并为一条记录，保留出现次数、常见文本、分数分布和代表样本。
+默认只保留失败识别和成功 OCR，避免把重复成功的模板匹配刷成海量证据。
+对标记为成功但运行期间出现 `next_list_timeout`、`action_failure` 或日志结束仍未停止的
+重复节点序列，MEK 会输出 `mla.task_anomaly` evidence，避免把框架任务成功直接当作业务成功。
 若多个日志中出现字段完全一致的任务，MEK 会发出 `mla_possible_mirrored_tasks`，但不会在缺少
 实例关联证据时自动合并；`statistics.tasks` 始终表示观测到的任务记录数，而非已证明唯一的执行数。
 

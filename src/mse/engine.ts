@@ -28,6 +28,26 @@ const CONFINEMENT_ERROR =
   "MSE project access escaped the configured project root.";
 const NO_ACTIVE_RESOURCE_PATH_WARNING =
   "No activated MSE resource paths were readable.";
+const MAX_EXPANDED_TASKS = 500;
+
+export const EXECUTION_REFERENCE_KINDS = new Set([
+  "task.next",
+  "task.anchor",
+  "task.interrupt",
+  "task.on_error",
+]);
+
+function configTaskTargets(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (typeof item === "string") return [item];
+    if (typeof item === "object" && item !== null && typeof (item as { name?: unknown })["name"] === "string") {
+      return [(item as { name: string }).name];
+    }
+    return [];
+  });
+}
 
 export type MseCompatibility = {
   status: "supported" | "partial" | "unsupported";
@@ -739,6 +759,21 @@ async function resolveTask(
           column: referencePosition[1]
         });
       }
+      for (const [kind, configField] of [
+        ["task.interrupt", "interrupt"],
+        ["task.on_error", "on_error"],
+      ] as const) {
+        const targets = configTaskTargets(toJsonRecord(info.obj)[configField]);
+        for (const target of targets) {
+          references.push({
+            kind,
+            target,
+            source_path: relativeSourcePath(projectRoot, info.file),
+            line: definitionPosition[0],
+            column: definitionPosition[1],
+          });
+        }
+      }
     }
   }
   return {
@@ -759,7 +794,8 @@ export async function runMseTaskResolution(
   requestedTasks: string[],
   syntaxMode: MseSyntaxMode,
   requestedController?: string,
-  requestedResource?: string
+  requestedResource?: string,
+  requestedDepth?: number,
 ): Promise<MseTaskResolutionResult> {
   const tasks = [...new Set(requestedTasks.map((item) => item.trim()))]
     .filter((item) => item.length > 0);
@@ -849,14 +885,60 @@ export async function runMseTaskResolution(
         if (bundle.paths.length > 0) hasActivatedResourcePaths = true;
         await bundle.flush(true);
         confinement.assertNoViolations();
-        for (const task of tasks) {
-          resolutions.push(
-            await resolveTask(bundle, projectRoot, task, controller, resource, locate)
-          );
+        const maxDepth = requestedDepth ?? 2;
+        const queue = tasks.map((name) => ({ name, depth: 0 }));
+        const resolvedNames = new Set<string>();
+        let expandedCount = 0;
+        let expansionTruncated = false;
+        while (queue.length > 0 && !expansionTruncated) {
+          const item = queue.shift();
+          if (item === undefined) break;
+          const { name: task, depth } = item;
+          if (resolvedNames.has(task)) continue;
+          resolvedNames.add(task);
+          const resolved = await resolveTask(bundle, projectRoot, task, controller, resource, locate);
+          resolutions.push(resolved);
+          expandedCount += 1;
+          if (expandedCount >= MAX_EXPANDED_TASKS) {
+            expansionTruncated = true;
+            break;
+          }
+          for (const reference of resolved.references) {
+            if (!EXECUTION_REFERENCE_KINDS.has(reference.kind)) continue;
+            if (depth + 1 <= maxDepth && !resolvedNames.has(reference.target)) {
+              queue.push({ name: reference.target, depth: depth + 1 });
+            }
+          }
+        }
+        if (!expansionTruncated) {
+          for (const candidate of bundle.topLayer.getTaskList()) {
+            if (resolvedNames.has(candidate)) continue;
+            const resolved = await resolveTask(bundle, projectRoot, candidate, controller, resource, locate);
+            const referencesFocused = resolved.references.filter(
+              (reference) =>
+                EXECUTION_REFERENCE_KINDS.has(reference.kind)
+                && resolvedNames.has(reference.target),
+            );
+            if (referencesFocused.length === 0) continue;
+            resolvedNames.add(candidate);
+            resolutions.push(resolved);
+            expandedCount += 1;
+            if (expandedCount >= MAX_EXPANDED_TASKS) {
+              expansionTruncated = true;
+              break;
+            }
+          }
         }
       }
     }
     const warnings: string[] = [];
+    if (resolutions.length >= MAX_EXPANDED_TASKS) {
+      warnings.push(
+        "Execution-path expansion was truncated at "
+        + MAX_EXPANDED_TASKS
+        + " resolved tasks."
+      );
+    }
     if (configurationsTruncated) {
       warnings.push(
         "Controller/resource configurations were truncated at "

@@ -9,6 +9,7 @@ import {
   countPossibleMirroredTaskGroups,
   focusRuntimeSignals,
   namespaceRuntime,
+  summarizeTaskAnomalies,
 } from "../../src/mla/engine.js";
 import type { MlaRuntimeInspectionResult } from "../../src/mla/translate.js";
 
@@ -70,6 +71,84 @@ test("extracts source-backed runtime facts and filters them by time", async () =
   expect(focused.warnings.some((item) => item.code === "mla_time_window_file_granularity")).toBe(true);
   expect(renderText(focused)).toContain("First: succeeded");
   expect(renderText(focused)).not.toContain("Second: failed");
+});
+
+test("extracts aggregated OCR text and TemplateMatch score recognition details", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-recognition-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Node.Recognition.Succeeded", {
+      name: "OriginiumOCR",
+      task_id: 1,
+      reco_details: {
+        algorithm: "OCR",
+        box: [982, 8, 68, 40],
+        name: "OriginiumOCR",
+        reco_id: 400000002,
+        detail: {
+          all: [{ box: [982, 8, 68, 40], score: 0.99992, text: "292049" }],
+        },
+      },
+    }),
+    event("2026-07-19 10:02:00.000", "Node.Recognition.Failed", {
+      name: "FindCarryToNextVoucher",
+      task_id: 1,
+      reco_details: {
+        algorithm: "TemplateMatch",
+        box: null,
+        name: "FindCarryToNextVoucher",
+        reco_id: 400000017,
+        detail: {
+          all: [{ box: [830, 516, 82, 82], score: 0.212474 }],
+        },
+      },
+    }),
+    event("2026-07-19 10:03:00.000", "Node.Recognition.Failed", {
+      name: "FindCarryToNextVoucher",
+      task_id: 1,
+      reco_details: {
+        algorithm: "TemplateMatch",
+        box: null,
+        name: "FindCarryToNextVoucher",
+        reco_id: 400000023,
+        detail: {
+          all: [{ box: [830, 333, 82, 82], score: 0.212808 }],
+        },
+      },
+    }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const recognitionEvidence = result.evidence.filter((item) => item.kind === "mla.recognition_detail");
+
+  expect(recognitionEvidence).toHaveLength(2);
+  const ocr = recognitionEvidence.find(
+    (item) => (item.data as { node?: string } | undefined)?.node === "OriginiumOCR",
+  );
+  const template = recognitionEvidence.find(
+    (item) => (item.data as { node?: string } | undefined)?.node === "FindCarryToNextVoucher",
+  );
+
+  expect(ocr?.data).toMatchObject({
+    algorithm: "OCR",
+    status: "succeeded",
+    occurrenceCount: 1,
+    textCounts: [{ text: "292049", count: 1 }],
+  });
+  expect((ocr?.data as { representatives?: { first?: { text?: string } } } | undefined)?.representatives?.first?.text)
+    .toBe("292049");
+  expect(template?.data).toMatchObject({
+    algorithm: "TemplateMatch",
+    status: "failed",
+    occurrenceCount: 2,
+  });
+  const templateScore = (template?.data as { score?: { count?: number; minimum?: number; maximum?: number } } | undefined)?.score;
+  expect(templateScore?.count).toBe(2);
+  expect(templateScore?.minimum).toBeCloseTo(0.212474);
+  expect(templateScore?.maximum).toBeCloseTo(0.212808);
 });
 
 test("selects and merges independent log bundles from a project directory", async () => {
@@ -385,4 +464,144 @@ test("namespaces every task-to-signal reference together with its signal", () =>
       }),
   };
   expect(countPossibleMirroredTaskGroups(repeatedWithinOneTarget)).toBe(0);
+});
+
+test("summarizes anomalies for succeeded tasks with timeouts, action failures, or endless repetition", () => {
+  const position = {
+    timestamp: "2026-07-19 10:00:00.000",
+    source: "file:maafw.log",
+    path: "maafw.log",
+    local_line: 1,
+  };
+  const baseStatistics = {
+    node_executions: 1,
+    succeeded_nodes: 1,
+    failed_nodes: 0,
+    running_nodes: 0,
+    recognition_attempts: 0,
+    unsuccessful_recognition_attempts: 0,
+    node_executions_with_recognition: 0,
+    node_executions_with_mixed_recognition_results: 0,
+    recognition_activity_groups: 0,
+    maximum_recognition_attempts_per_node: 0,
+    maximum_unsuccessful_recognition_attempts_per_node: 0,
+    action_attempts: 0,
+    action_failures: 0,
+    next_list_timeouts: 0,
+    error_image_references: 0,
+    unique_error_images: 0,
+    vision_image_references: 0,
+    unique_vision_images: 0,
+  };
+  const makeTask = (
+    executionId: string,
+    taskId: number,
+    statistics: typeof baseStatistics,
+    signalIds: string[] = [],
+  ): MlaRuntimeInspectionResult["sessions"][number]["tasks"][number] => ({
+    execution_id: executionId,
+    task_id: taskId,
+    name: `Task${taskId}`,
+    hash: `hash${taskId}`,
+    uuid: `uuid${taskId}`,
+    status: "succeeded",
+    completeness: "complete",
+    started_at: position.timestamp,
+    ended_at: position.timestamp,
+    observed_duration_ms: 1,
+    first_node: "NodeA",
+    last_node: "NodeA",
+    statistics,
+    direct_failure_ids: [],
+    outcome_ids: [],
+    signal_ids: signalIds,
+    signal_highlights: { recognition_activity: [], repetitions: signalIds },
+    evidence: { start: position, end: position },
+  });
+  const runtime: MlaRuntimeInspectionResult = {
+    schema_version: "mla-runtime-inspection/v1",
+    sessions: [{
+      session_id: "session:1",
+      start_kind: "process_start",
+      framework_status: "resolved",
+      framework_version: "v5.12.2",
+      versions: ["v5.12.2"],
+      start: { source: "file:maafw.log", path: "maafw.log", line: 1, timestamp: position.timestamp },
+      end: { source: "file:maafw.log", path: "maafw.log", line: 2, timestamp: position.timestamp },
+      tasks: [
+        makeTask("execution:1", 1, { ...baseStatistics, next_list_timeouts: 2, action_failures: 1 }),
+        makeTask("execution:2", 2, baseStatistics, ["repeat:1"]),
+        makeTask("execution:3", 3, baseStatistics),
+      ],
+      summary: {
+        task_executions: 3,
+        succeeded_tasks: 3,
+        failed_tasks: 0,
+        running_tasks: 0,
+        direct_failures: 0,
+        next_list_timeouts: 2,
+        action_failures: 1,
+        signals: 1,
+      },
+    }],
+    unscoped_tasks: [],
+    failures: [],
+    outcomes: [],
+    signals: [{
+      session_id: "session:1",
+      execution_id: "execution:2",
+      task_id: 2,
+      task_name: "Task2",
+      signal_id: "repeat:1",
+      kind: "repeated_node",
+      pattern: ["NodeA"],
+      segment_count: 1,
+      total_repeat_count: 5,
+      maximum_repeat_count: 5,
+      duration_ms: { count: 1, minimum: 1, p50: 1, p95: 1, maximum: 1, average: 1 },
+      terminations: { left_pattern: 0, task_ended: 0, still_repeating_at_log_end: 1 },
+      representatives: {
+        first: {
+          pattern: ["NodeA"], first_seen_at: position.timestamp, last_seen_at: position.timestamp,
+          repeat_count: 5, duration_ms: 1, termination: "still_repeating_at_log_end", evidence: position,
+        },
+        longest: {
+          pattern: ["NodeA"], first_seen_at: position.timestamp, last_seen_at: position.timestamp,
+          repeat_count: 5, duration_ms: 1, termination: "still_repeating_at_log_end", evidence: position,
+        },
+        last: {
+          pattern: ["NodeA"], first_seen_at: position.timestamp, last_seen_at: position.timestamp,
+          repeat_count: 5, duration_ms: 1, termination: "still_repeating_at_log_end", evidence: position,
+        },
+      },
+      detector: {
+        name: "repeated-completed-node-sequence", version: 1, minimum_repeats: 3, maximum_pattern_length: 8,
+      },
+      priority: "high",
+      priority_reasons: ["still_repeating_at_log_end"],
+    }],
+    warnings: [],
+  };
+
+  const anomalies = summarizeTaskAnomalies(runtime);
+
+  expect(anomalies).toHaveLength(2);
+  expect(anomalies[0]).toMatchObject({
+    executionId: "execution:1",
+    taskName: "Task1",
+    status: "succeeded",
+    observed: ["next_list_timeout", "action_failure"],
+    nextListTimeouts: 2,
+    actionFailures: 1,
+    stillRepeatingAtLogEnd: 0,
+  });
+  expect(anomalies[1]).toMatchObject({
+    executionId: "execution:2",
+    taskName: "Task2",
+    status: "succeeded",
+    observed: ["still_repeating_at_log_end"],
+    nextListTimeouts: 0,
+    actionFailures: 0,
+    stillRepeatingAtLogEnd: 1,
+  });
 });
