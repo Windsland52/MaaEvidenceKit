@@ -91,6 +91,8 @@ OCR text observed at issue time with the expected pipeline text.
 
 Recognition `mla.signal` entries include `candidateStatistics` and `terminalMatches`. Use them to
 see which candidate nodes were evaluated, matched, or repeatedly unsuccessful inside a cycle.
+Repeated-node signals also include `exitCandidates`: candidates inside the cycle that were
+evaluated but never matched, which pinpoints the recognition condition preventing loop exit.
 
 When a task reports `succeeded` but its execution also contains `next_list_timeout`,
 `action_failure`, or a repeated sequence still running at log end, MEK emits

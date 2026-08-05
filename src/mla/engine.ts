@@ -81,6 +81,38 @@ export type MlaTaskAnomaly = {
   stillRepeatingAtLogEnd: number;
 };
 
+export type MlaCycleExitCandidate = {
+  node: string;
+  evaluationCount: number;
+  matchedAttemptCount: number;
+  unsuccessfulAttemptCount: number;
+  terminalMatchCount: number;
+};
+
+export function cycleExitCandidates(
+  runtime: MlaRuntimeInspectionResult,
+  signal: MlaRuntimeInspectionResult["signals"][number],
+): MlaCycleExitCandidate[] {
+  if (signal.kind === "recognition_activity") return [];
+  const byNode = new Map<string, MlaCycleExitCandidate[]>();
+  for (const candidate of runtime.signals) {
+    if (candidate.kind !== "recognition_activity" || candidate.execution_id !== signal.execution_id) continue;
+    byNode.set(candidate.pipeline_node_name, candidate.candidate_statistics.map((item) => ({
+      node: item.name,
+      evaluationCount: item.evaluation_count,
+      matchedAttemptCount: item.matched_attempt_count,
+      unsuccessfulAttemptCount: item.unsuccessful_attempt_count,
+      terminalMatchCount: item.terminal_match_count,
+    })));
+  }
+  return [...new Set(signal.pattern.flatMap((node) => byNode.get(node) ?? []))]
+    .filter((candidate) =>
+      candidate.evaluationCount > 0
+      && candidate.matchedAttemptCount === 0
+      && candidate.terminalMatchCount === 0,
+    );
+}
+
 export type MlaInspectOptions = {
   timeRange?: TimeRange;
   keywords?: string[];
@@ -314,6 +346,7 @@ function addRuntimeEvidence(
           durationMs: signal.duration_ms,
           terminations: signal.terminations,
           representative,
+          exitCandidates: cycleExitCandidates(runtime, signal),
         },
     );
   }
@@ -353,7 +386,12 @@ export function summarizeTaskAnomalies(runtime: MlaRuntimeInspectionResult): Mla
         stillRepeatingAtLogEnd += signal.terminations.still_repeating_at_log_end;
       }
     }
-    if (stillRepeatingAtLogEnd > 0) observed.push("still_repeating_at_log_end");
+    if (
+      stillRepeatingAtLogEnd > 0
+      && (task.statistics.next_list_timeouts > 0 || task.statistics.action_failures > 0)
+    ) {
+      observed.push("still_repeating_at_log_end");
+    }
     if (observed.length === 0) continue;
     anomalies.push({
       executionId: task.execution_id,

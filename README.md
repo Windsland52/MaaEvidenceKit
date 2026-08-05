@@ -81,6 +81,8 @@ MLA 默认输出其优先级为 `high` 的信号和每个任务的高亮信号�
 `includeAllSignals: true`；筛选只依据 MLA 的通用信号语义，不包含应用项目名称或节点特判。
 识别类 `mla.signal` 会包含 `terminalMatches` 和 `candidateStatistics`，可按候选节点查看
 评估次数、匹配次数和未成功尝试次数，便于定位循环中持续失败的子节点。
+重复节点信号还会包含 `exitCandidates`：循环内被评估但从未匹配成功的候选，用于定位阻止
+循环退出的识别条件。
 标准 `on_error` / `vision` 图片会作为本地路径交给 MLA 与当前及旋转日志关联；只有被运行事实
 实际引用的图片才标为 `selected`，图片字节不会嵌入结果。
 MLA 识别事件中的 OCR 文本和识别分数会聚合成 `mla.recognition_detail` evidence：同一
