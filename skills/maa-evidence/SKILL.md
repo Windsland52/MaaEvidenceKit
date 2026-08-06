@@ -13,7 +13,8 @@ Sentry investigation, source research, and diagnostic judgment in the host harne
 - For MaaFramework runtime behavior, run `maa-evidence mla inspect <folder>`.
 - For pipeline, Interface, resource, or task definitions, run
   `maa-evidence mse inspect <project> --task <name>`.
-- When both MLA and MSE inputs are present, prefer `maa-evidence inspect <folder>`; it emits
+- Use `maa-evidence inspect <folder>` only after the question requires both runtime and static
+  evidence and both inputs are already available under the same material root. It emits
   `combined.pipeline_reference` to connect runtime failure nodes with static pipeline tasks.
   Matches carry `pipelineControllers`, `pipelineResources`, and `pipelineDefinitions`
   source locations; nodes absent from the project emit a
@@ -29,7 +30,6 @@ Sentry investigation, source research, and diagnostic judgment in the host harne
   configuration combinations.
 - MSE graph nodes include `desc`, `recognition`, `action`, `customRecognition`, and
   `customAction` summaries so the harness can judge node purpose without expanding full config.
-- When both supported logs and project source are present, run `maa-evidence inspect <folder>`.
 - For GUI/custom logs only, inspect them with host tools. Derive a timestamp or task name, then call
   MEK only if MaaFramework evidence is needed. Simple project-specific service logs usually need
   keyword search instead of a parser: prefer `rg` (e.g. `rg -i "err|failed" go-service.log`), fall back to
@@ -56,6 +56,44 @@ choosing individual log files for MEK. If an archive part is absent, report it a
 
 Use the issue-time project checkout when investigating a historical release. Do not use current
 source to deny behavior from an older revision.
+
+## Investigate issues in stages
+
+Do not serialize independent network and local preparation work:
+
+1. Fetch issue metadata, body, and comments first. As soon as attachment URLs are known, download
+   independent files or multipart groups concurrently within host/network limits. In parallel,
+   extract version, controller, resource, task, and time hints from issue text and supported local
+   metadata. Do not make MEK interpret the issue text.
+2. Verify all required archive parts, then extract archives in the harness. Start MLA as soon as the
+   complete MaaFramework log directory is ready; do not wait for source checkout or MSE.
+3. Read the focused MLA result before acquiring source. Use its tasks, failed nodes, timestamps,
+   recognition details, actions, warnings, and missing evidence to decide whether static evidence
+   can answer a remaining question.
+4. Acquire the issue-time source and run MSE only when static definitions, expected recognition
+   configuration, execution edges, or source locations are needed. Do not run MSE merely because a
+   repository or source archive is available.
+5. Use saved inspection results for follow-ups. Batch independent searches/views/windows instead of
+   restarting the CLI for each evidence ID.
+
+Suitable MLA-only questions include what ran, when it ran, observed OCR/template candidates, action
+results, repeated runtime sequences, and framework task status. MSE becomes relevant when the answer
+needs the issue-version node definition, configured threshold/text/template, controller/resource
+resolution, or static predecessor/successor relation.
+
+When MSE is justified:
+
+- resolve the release/tag/commit from issue-time evidence and fail explicitly if it cannot be
+  obtained; never silently substitute current HEAD;
+- pass every known `--task`, `--controller`, and `--resource` value;
+- begin with the smallest useful `--depth`;
+- use `--no-referencers` for a shared node when only its definition and forward path are needed;
+- expand referencers, depth, or additional tasks only after the focused result leaves a specific
+  evidence gap.
+
+Run issue/source research, generic-log inspection, image interpretation, and Sentry queries in
+parallel only when they are independently relevant. Do not block the primary MLA path on optional
+Sentry or VLM work.
 
 ## Extract evidence
 

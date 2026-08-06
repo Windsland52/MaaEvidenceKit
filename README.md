@@ -241,6 +241,11 @@ Issue/本地日志与 Sentry 没有共享 `event_id` 或隐私安全的 `run_id`
 两者认定为同一次事件。详细规则见
 [`skills/maa-evidence/references/sentry.md`](skills/maa-evidence/references/sentry.md)。
 
+Issue 调查采用分阶段快路径：harness 并发获取独立附件并提取 issue 中的版本/时间提示，日志
+完整后立即先运行聚焦 MLA；只有剩余问题确实需要节点定义、配置阈值或静态执行关系时，才获取
+issue-time 源码并运行聚焦 MSE。已知 task/controller/resource 必须传给 MSE，共享节点只需定义
+和前向路径时使用 `--no-referencers`。多个后续证据查询使用 `batch`，不重复启动 CLI 和解析结果。
+
 ## 遥测与反馈
 
 核心检查离线运行。匿名运行遥测（仅聚合计数，不含路径、参数、用户名、日志、源码或截图）
