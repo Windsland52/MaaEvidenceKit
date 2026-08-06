@@ -10,6 +10,7 @@ export {
   previewFeedback,
   submitFeedback,
   type FeedbackAttachmentPreview,
+  type FeedbackCategory,
   type FeedbackPreview,
   type FeedbackRequest,
 } from "./report.js";

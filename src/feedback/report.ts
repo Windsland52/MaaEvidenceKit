@@ -13,8 +13,10 @@ export type FeedbackAttachmentPreview = {
   large: boolean;
 };
 
+export type FeedbackCategory = "blocker" | "bug" | "suggestion" | "other";
+
 export type FeedbackPreview = {
-  category: "extraction-gap";
+  category: FeedbackCategory;
   component: "mla" | "mse" | "discovery" | "views" | "other";
   message: string;
   attachments: FeedbackAttachmentPreview[];
@@ -24,6 +26,7 @@ export type FeedbackPreview = {
 
 export type FeedbackRequest = {
   message: string;
+  category?: FeedbackCategory;
   component?: FeedbackPreview["component"];
   attachmentPaths?: string[];
 };
@@ -32,6 +35,10 @@ export async function previewFeedback(request: FeedbackRequest): Promise<Feedbac
   const message = request.message.trim();
   if (message.length === 0) throw new Error("Feedback message must not be empty.");
   if (message.length > 10_000) throw new Error("Feedback message must not exceed 10,000 characters.");
+  const category = request.category ?? "other";
+  if (!["blocker", "bug", "suggestion", "other"].includes(category)) {
+    throw new Error(`Unknown feedback category: ${category}`);
+  }
   const attachments: FeedbackAttachmentPreview[] = [];
   for (const rawPath of new Set(request.attachmentPaths ?? [])) {
     const resolved = path.resolve(rawPath);
@@ -62,7 +69,7 @@ export async function previewFeedback(request: FeedbackRequest): Promise<Feedbac
       : ["Sentry also rejects compressed requests above 40 MB; highly incompressible attachments may fail even below the 200 MB uncompressed limit."]),
   ];
   return {
-    category: "extraction-gap",
+    category,
     component: request.component ?? "other",
     message,
     attachments,

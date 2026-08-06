@@ -18,6 +18,7 @@ const VALUE_OPTIONS = new Set([
   "--max-lines",
   "--message",
   "--output",
+  "--category",
   "--component",
   "--depth",
   "--attachment",

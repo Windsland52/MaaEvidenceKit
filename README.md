@@ -174,7 +174,8 @@ maa-evidence telemetry disable
 
 CI 和非交互环境默认发送聚合遥测，但从不弹出交互提示。原始日志、截图或源代码等附件
 **不会自动发送**，只能通过交互式 `feedback` 命令发送，并且每次都必须预览后输入 `UPLOAD`。
-20MB 只是配额警告，不是 MEK 拒绝上限。完整说明见 [`PRIVACY.md`](PRIVACY.md)。
+反馈按严重程度分为 `blocker`（无法使用/崩溃）、`bug`、`suggestion`、`other` 四类，默认
+`other`。20MB 只是配额警告，不是 MEK 拒绝上限。完整说明见 [`PRIVACY.md`](PRIVACY.md)。
 
 ## 架构
 
@@ -184,7 +185,7 @@ src/
   mla/         日志发现与 MLA 集成
   mse/         MSE 集成与静态关系图
   views/       JSON、文本和 Mermaid
-  feedback/    同意状态、匿名遥测和提取缺口反馈
+  feedback/    同意状态、匿名遥测和分级反馈
   cli/         命令行入口
   inspect.ts   可选组合检查
   index.ts     SDK 公共入口

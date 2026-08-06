@@ -155,13 +155,14 @@ above. Use it first to measure recurrence, affected users, release concentration
 Do not infer that a Sentry event belongs to an Issue from timestamp and release alone. Require the
 correlation levels and reporting rules in [references/sentry.md](references/sentry.md).
 
-## Report an extraction gap
+## Report feedback
 
-If MEK omits evidence and host tools must reopen raw material, offer feedback only with the user's
-permission:
+Offer feedback only with the user's permission. Classify it by severity with `--category`:
+`blocker` (cannot use / crash), `bug`, `suggestion`, or `other` (default).
 
 ```powershell
 maa-evidence feedback `
+  --category bug `
   --component mla `
   --message "The task transition at the cited interval was not extracted." `
   --attachment C:\path\to\maafw.log

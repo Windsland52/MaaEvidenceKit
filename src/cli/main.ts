@@ -9,6 +9,7 @@ import {
   inspectMse,
   getTelemetryStatus,
   previewFeedback,
+  type FeedbackCategory,
   type OperationalCounts,
   queryEvidenceWindow,
   recordOperationalTelemetry,
@@ -32,7 +33,7 @@ Usage:
   maa-evidence window --input result.json (--evidence-id ID | --artifact-id ID) [--line N]
   maa-evidence view --input result.json --format json|text|mermaid
   maa-evidence telemetry status|enable|disable
-  maa-evidence feedback --message TEXT [--component mla|mse|discovery|views|other] [--attachment FILE]
+  maa-evidence feedback --message TEXT [--category blocker|bug|suggestion|other] [--component mla|mse|discovery|views|other] [--attachment FILE]
 
 Common options:
   --output FILE       Write output to a file
@@ -181,11 +182,20 @@ function feedbackComponent(parsed: ParsedArguments): "mla" | "mse" | "discovery"
   return component as "mla" | "mse" | "discovery" | "views" | "other";
 }
 
+function feedbackCategory(parsed: ParsedArguments): FeedbackCategory {
+  const value = option(parsed, "--category") ?? "other";
+  if (!["blocker", "bug", "suggestion", "other"].includes(value)) {
+    throw new Error("--category must be blocker, bug, suggestion, or other.");
+  }
+  return value as FeedbackCategory;
+}
+
 async function runFeedback(parsed: ParsedArguments): Promise<void> {
   const message = option(parsed, "--message");
   if (message === undefined) throw new Error("feedback requires --message.");
   const preview = await previewFeedback({
     message,
+    category: feedbackCategory(parsed),
     component: feedbackComponent(parsed),
     attachmentPaths: options(parsed, "--attachment"),
   });
@@ -193,7 +203,7 @@ async function runFeedback(parsed: ParsedArguments): Promise<void> {
     throw new Error("Feedback submission requires an interactive terminal for per-submission confirmation.");
   }
   process.stderr.write("\nFeedback preview\n");
-  process.stderr.write(`Component: ${preview.component}\n`);
+  process.stderr.write(`Category: ${preview.category}\n`);
   process.stderr.write(`Message: ${preview.message}\n`);
   process.stderr.write(`Attachments: ${preview.attachments.length} (${preview.totalAttachmentBytes} bytes)\n`);
   for (const attachment of preview.attachments) {

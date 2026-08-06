@@ -77,6 +77,27 @@ test("feedback previews original material without uploading it", async () => {
   expect(preview.warnings.join(" ")).toContain("private data");
 });
 
+test("feedback accepts only the four severity categories", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-feedback-category-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  await writeFile(log, "content", "utf8");
+
+  const blocker = await previewFeedback({
+    message: "CLI crashes on startup.",
+    category: "blocker",
+    attachmentPaths: [log],
+  });
+  expect(blocker.category).toBe("blocker");
+
+  const implicit = await previewFeedback({ message: "default category" });
+  expect(implicit.category).toBe("other");
+
+  await expect(previewFeedback({ message: "bad", category: "nope" as never })).rejects.toThrow(
+    "Unknown feedback category",
+  );
+});
+
 test("feedback rejects material beyond Sentry's uncompressed event limit", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-feedback-limit-"));
   temporaryRoots.push(root);

@@ -41,7 +41,7 @@ The Sentry SDK is configured with `sendDefaultPii: false` and a client-side even
 Feedback is a separate, user-initiated action. A feedback submission may contain:
 
 - the message entered by the user;
-- the selected MEK component and feedback category;
+- the selected feedback severity (`blocker`, `bug`, `suggestion`, or `other`) and MEK component;
 - files explicitly selected by the user, including complete original logs or screenshots.
 
 Before any submission, the CLI displays the message, attachment paths, sizes, and privacy
