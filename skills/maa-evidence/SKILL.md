@@ -101,6 +101,8 @@ before concluding the business task succeeded.
 
 MLA failure facts may reference standard `on_error` or `vision` images by local path. Open only the
 referenced images needed for the question; MEK does not embed or interpret their pixels.
+Each failure-referenced image is also emitted as `mla.failure_image` evidence with its path and
+associated node, so a visual harness can open the exact screenshot without re-parsing the log.
 
 Treat task counts as observed records. If `mla_possible_mirrored_tasks` is present, do not claim
 the records are unique executions and do not merge them without instance or run correlation evidence.

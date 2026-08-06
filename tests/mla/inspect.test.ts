@@ -273,9 +273,12 @@ test("correlates standard MaaFramework error images with failures from rotated l
   const result = await inspectMla(root);
   const failure = result.details.runtime.failures[0];
   const image = result.artifacts.find((artifact) => artifact.path === imagePath);
+  const failureImage = result.evidence.find((item) => item.kind === "mla.failure_image");
 
   expect(failure?.error_images).toEqual([`file:${imagePath.replaceAll("\\", "/")}`]);
   expect(image?.status).toBe("selected");
+  expect(failureImage?.source.artifactId).toBe(image?.id);
+  expect(failureImage?.data).toMatchObject({ imagePath: imagePath.replaceAll("\\", "/"), kind: "error" });
 });
 
 test("namespaces every task-to-signal reference together with its signal", () => {

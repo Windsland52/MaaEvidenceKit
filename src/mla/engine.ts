@@ -234,6 +234,19 @@ function artifactForPosition(
   };
 }
 
+function imageArtifactForReference(
+  artifacts: readonly Artifact[],
+  reference: string,
+): Artifact | undefined {
+  const candidate = normalizeCandidate(reference.startsWith("file:") ? reference.slice(5) : reference);
+  return artifacts.find((item) => {
+    if (item.kind !== "image") return false;
+    const relative = normalizeCandidate(item.relativePath);
+    const absolute = normalizeCandidate(item.path);
+    return relative === candidate || absolute === candidate || candidate.endsWith(`/${relative}`);
+  });
+}
+
 function evidenceSource(
   artifacts: readonly Artifact[],
   inputPath: string,
@@ -280,6 +293,39 @@ function addRuntimeEvidence(
   }
   for (const task of runtime.unscoped_tasks) addTaskEvidence(ledger, task, artifacts, inputPath);
   for (const failure of runtime.failures) {
+    const imageReferences = [...failure.error_images, ...failure.vision_images];
+    for (const imageRef of imageReferences) {
+      const imagePath = imageRef.startsWith("file:") ? imageRef.slice(5) : imageRef;
+      const imageArtifact = imageArtifactForReference(artifacts, imageRef);
+      ledger.add(
+        "mla.failure_image",
+        `Failure ${failure.node_name} references image ${imagePath}.`,
+        imageArtifact === undefined
+          ? evidenceSource(artifacts, inputPath, {
+            timestamp: failure.evidence.timestamp,
+            path: imagePath,
+            local_line: null,
+          }, {
+            task: failure.task_name,
+            node: failure.node_name,
+          })
+          : {
+            artifactId: imageArtifact.id,
+            path: imageArtifact.relativePath,
+            ...(failure.evidence.timestamp === null ? {} : { timestamp: failure.evidence.timestamp }),
+            task: failure.task_name,
+            node: failure.node_name,
+          },
+        {
+          failureId: failure.failure_id,
+          imagePath,
+          kind: failure.error_images.includes(imageRef) ? "error" : "vision",
+          taskId: failure.task_id,
+          taskName: failure.task_name,
+          timestamp: failure.evidence.timestamp,
+        },
+      );
+    }
     ledger.add(
       "mla.failure",
       `Node ${failure.node_name} reported ${failure.kind} in task ${failure.task_name}.`,
@@ -1064,7 +1110,7 @@ export async function inspectMla(
     addRuntimeEvidence(
       ledger,
       projectRuntimeSignals(loaded.runtime, selectedSignalIds),
-      loaded.artifacts,
+      [...loaded.artifacts, ...discovery.artifacts],
       loaded.target.path,
     );
     for (const detail of loaded.recognitionDetails) {
