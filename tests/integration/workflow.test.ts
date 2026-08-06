@@ -436,7 +436,9 @@ test("combined inspection links runtime recognition evidence to static MSE confi
     pipelineControllers?: string[];
     pipelineResources?: string[];
     staticConfigurations?: Array<{
-      effectiveConfig?: Record<string, unknown>;
+      recognition?: unknown;
+      customRecognition?: unknown;
+      definitionEvidenceIds?: string[];
       definitions?: Array<{ sourcePath?: string; line?: number; column?: number }>;
     }>;
   } | undefined;
@@ -452,14 +454,19 @@ test("combined inspection links runtime recognition evidence to static MSE confi
     pipelineResources: ["Official"],
   });
   expect(data?.recognitionEvidenceId).toMatch(/^evidence-/);
-  expect(data?.staticConfigurations?.[0]?.effectiveConfig).toMatchObject({
+  expect(data?.staticConfigurations?.[0]).toMatchObject({
     recognition: "OCR",
-    threshold: 0.95,
-    template: "start.png",
+    customRecognition: null,
   });
+  expect(data?.staticConfigurations?.[0]).not.toHaveProperty("effectiveConfig");
   expect(data?.staticConfigurations?.[0]?.definitions?.[0]).toMatchObject({
     sourcePath: expect.stringMatching(/combat\.json$/),
   });
+  const definitionEvidenceId = data?.staticConfigurations?.[0]?.definitionEvidenceIds?.[0];
+  const definitionEvidence = result.evidence.find((item) => item.id === definitionEvidenceId);
+  expect(definitionEvidence).toMatchObject({ kind: "mse.task_definition" });
+  expect((definitionEvidence?.data as { effectiveConfig?: Record<string, unknown> } | undefined)?.effectiveConfig)
+    .toMatchObject({ recognition: "OCR", threshold: 0.95, template: "start.png" });
   expect(result.warnings.some((item) => item.code === "combined.recognition_pipeline_reference_missing"))
     .toBe(false);
 });

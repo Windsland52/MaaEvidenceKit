@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   EVIDENCE_SCHEMA_VERSION,
   EvidenceLedger,
+  relativePortablePath,
   type Artifact,
   type Evidence,
   type InspectionResult,
@@ -87,8 +88,10 @@ type RuntimeMseNodeSelection = {
 type RecognitionPipelineConfiguration = {
   controller: string | null;
   resource: string | null;
-  effectiveConfig: Record<string, unknown>;
+  recognition: unknown | null;
+  customRecognition: unknown | null;
   definitions: PipelineDefinitionEvidence[];
+  definitionEvidenceIds: string[];
 };
 
 type RecognitionPipelineReferenceEvidenceData = {
@@ -102,6 +105,27 @@ type RecognitionPipelineReferenceEvidenceData = {
   pipelineResources: string[];
   staticConfigurations: RecognitionPipelineConfiguration[];
 };
+
+type MseTaskDefinitionDetails = {
+  name?: string;
+  controller?: string | null;
+  resource?: string | null;
+};
+
+type ResolvedTaskConfiguration = {
+  projectRoot: string;
+  task: MseResolvedTask;
+};
+
+function taskDefinitionEvidenceKey(
+  name: string,
+  controller: string | null,
+  resource: string | null,
+  sourcePath: string,
+  line: number,
+): string {
+  return JSON.stringify([name, controller, resource, sourcePath, line]);
+}
 
 function selectRuntimeNodesForMse(mla: MlaInspectionResult | null): RuntimeMseNodeSelection {
   if (mla === null) {
@@ -242,11 +266,32 @@ function addRecognitionPipelineReferences(
   mse: MseInspectionResult,
   selectedRuntimeNodes: ReadonlySet<string>,
 ): Set<string> {
-  const configurationsByNode = new Map<string, MseResolvedTask[]>();
+  const definitionEvidenceIds = new Map<string, string[]>();
+  for (const evidence of mse.evidence) {
+    if (evidence.kind !== "mse.task_definition") continue;
+    const data = evidence.data as MseTaskDefinitionDetails | undefined;
+    if (
+      data?.name === undefined
+      || data.controller === undefined
+      || data.resource === undefined
+      || evidence.source.line === undefined
+    ) continue;
+    const key = taskDefinitionEvidenceKey(
+      data.name,
+      data.controller,
+      data.resource,
+      evidence.source.path,
+      evidence.source.line,
+    );
+    const ids = definitionEvidenceIds.get(key) ?? [];
+    ids.push(evidence.id);
+    definitionEvidenceIds.set(key, ids);
+  }
+  const configurationsByNode = new Map<string, ResolvedTaskConfiguration[]>();
   for (const project of mse.details.projects) {
     for (const task of project.resolution?.resolutions ?? []) {
       const configurations = configurationsByNode.get(task.name) ?? [];
-      configurations.push(task);
+      configurations.push({ projectRoot: project.projectRoot, task });
       configurationsByNode.set(task.name, configurations);
     }
   }
@@ -261,18 +306,28 @@ function addRecognitionPipelineReferences(
       || data.occurrenceCount === undefined
     ) continue;
     if (!selectedRuntimeNodes.has(data.node)) continue;
-    const configurations = (configurationsByNode.get(data.node) ?? []).filter((item) => item.found);
+    const configurations = (configurationsByNode.get(data.node) ?? []).filter((item) => item.task.found);
     const pipelineFound = configurations.length > 0;
     if (!pipelineFound) unfoundNodes.add(data.node);
-    const staticConfigurations = configurations.map((item) => ({
-      controller: item.controller,
-      resource: item.resource,
-      effectiveConfig: item.effective_config,
-      definitions: pipelineDefinitions(item),
+    const staticConfigurations = configurations.map(({ projectRoot, task }) => ({
+      controller: task.controller,
+      resource: task.resource,
+      recognition: task.effective_config["recognition"] ?? null,
+      customRecognition: task.effective_config["custom_recognition"] ?? null,
+      definitions: pipelineDefinitions(task),
+      definitionEvidenceIds: [...new Set(task.definitions.flatMap((definition) =>
+        definitionEvidenceIds.get(taskDefinitionEvidenceKey(
+          task.name,
+          task.controller,
+          task.resource,
+          relativePortablePath(mse.input.path, path.resolve(projectRoot, definition.source_path)),
+          definition.line,
+        )) ?? []
+      ))].sort(),
     })).sort((left, right) =>
-      [left.controller ?? "", left.resource ?? "", JSON.stringify(left.definitions)]
+      [left.controller ?? "", left.resource ?? "", JSON.stringify(left.definitionEvidenceIds)]
         .join("|")
-        .localeCompare([right.controller ?? "", right.resource ?? "", JSON.stringify(right.definitions)].join("|")),
+        .localeCompare([right.controller ?? "", right.resource ?? "", JSON.stringify(right.definitionEvidenceIds)].join("|")),
     );
     const payload: RecognitionPipelineReferenceEvidenceData = {
       recognitionEvidenceId: recognition.id,
@@ -281,9 +336,9 @@ function addRecognitionPipelineReferences(
       status: data.status,
       occurrenceCount: data.occurrenceCount,
       pipelineFound,
-      pipelineControllers: [...new Set(configurations.map((item) => item.controller)
+      pipelineControllers: [...new Set(configurations.map((item) => item.task.controller)
         .filter((item): item is string => item !== null))].sort(),
-      pipelineResources: [...new Set(configurations.map((item) => item.resource)
+      pipelineResources: [...new Set(configurations.map((item) => item.task.resource)
         .filter((item): item is string => item !== null))].sort(),
       staticConfigurations,
     };

@@ -20,8 +20,9 @@ Sentry investigation, source research, and diagnostic judgment in the host harne
   `combined.pipeline_reference` to connect runtime failure nodes with static pipeline tasks, and
   `combined.recognition_pipeline_reference` to connect runtime recognition evidence with static
   MSE configuration. Recognition references carry controller/resource, definition locations, and
-  MSE `effectiveConfig`, so inspect that configuration directly rather than inferring a cause from
-  the runtime score. Nodes absent from the supplied static snapshot emit a
+  `definitionEvidenceIds`; retrieve those `mse.task_definition` records when full MSE
+  `effectiveConfig` is needed. Do not infer a cause from the runtime score. Nodes absent from the
+  supplied static snapshot emit a
   `combined.recognition_pipeline_reference_missing` warning.
   Automatic runtime-node correlation selects at most 128 unique names, prioritizing failure nodes,
   then failed and frequent recognition observations. Check

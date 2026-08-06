@@ -272,9 +272,10 @@ evidence，把运行时失败节点与静态 pipeline 任务关联起来，便�
 `combined.pipeline_reference_missing` 提示。
 
 每条 `mla.recognition_detail` 还会产生 `combined.recognition_pipeline_reference`：它关联
-运行时算法、状态、聚合次数与同名 pipeline 节点的 controller/resource、定义位置和 MSE
-`effectiveConfig`。因此 harness 可在同一 evidence 中对照 OCR 文本或模板分数与静态
-`threshold`、`template` 等实际存在的配置字段。它只表示运行时名称与提供的静态快照匹配，
+运行时算法、状态、聚合次数与同名 pipeline 节点的 controller/resource、recognition 摘要、
+定义位置和 `definitionEvidenceIds`。完整 `effectiveConfig` 不会在 relation 中重复复制；harness
+可直接 `view` 被引用的 `mse.task_definition` evidence，对照 OCR 文本或模板分数与静态
+`threshold`、`template` 等实际存在的配置字段。该关系只表示运行时名称与提供的静态快照匹配，
 不表示配置导致了本次识别结果；若节点不在该快照中，会以 `pipelineFound: false` 及
 `combined.recognition_pipeline_reference_missing` 提示明确输出。
 自动运行时到 MSE 的关联最多选择 128 个不同节点：failure 节点优先，其余按失败识别次数、
