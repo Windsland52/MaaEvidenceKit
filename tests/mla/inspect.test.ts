@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, expect, test } from "vitest";
 
-import { inspectMla, renderText } from "../../src/index.js";
+import { inspectMla, queryEvidenceWindow, renderText } from "../../src/index.js";
 import {
   correlateCycleBlockers,
   countPossibleMirroredTaskGroups,
@@ -167,6 +167,70 @@ test("extracts aggregated OCR text and TemplateMatch score recognition details",
   expect(templateScore?.count).toBe(2);
   expect(templateScore?.minimum).toBeCloseTo(0.212474);
   expect(templateScore?.maximum).toBeCloseTo(0.212808);
+});
+
+test("maps recognition details to rotated source files and applies time ranges", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-recognition-sources-"));
+  temporaryRoots.push(root);
+  const oldLog = path.join(root, "maafw.bak.2026.07.19-10.30.00.000.log");
+  const currentLog = path.join(root, "maafw.log");
+  const recognition = (time: string, name: string, text: string): string => event(
+    time,
+    "Node.Recognition.Succeeded",
+    {
+      name,
+      reco_details: {
+        algorithm: "OCR",
+        box: [0, 0, 10, 10],
+        name,
+        reco_id: 1,
+        detail: { all: [{ box: [0, 0, 10, 10], score: 0.99, text }] },
+      },
+    },
+  );
+  await writeFile(oldLog, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    recognition("2026-07-19 10:01:00.000", "OldOCR", "old"),
+  ].join("\n"), "utf8");
+  await writeFile(currentLog, [
+    "[2026-07-19 11:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 11:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    recognition("2026-07-19 11:01:00.000", "CurrentOCR", "current"),
+  ].join("\n"), "utf8");
+
+  const complete = await inspectMla(root);
+  const completeDetails = complete.evidence.filter((item) => item.kind === "mla.recognition_detail");
+  const byNode = new Map(
+    completeDetails.map((item) => [(item.data as { node?: string } | undefined)?.node, item]),
+  );
+  expect(byNode.get("OldOCR")?.source).toMatchObject({
+    path: path.basename(oldLog),
+    line: 3,
+  });
+  expect(byNode.get("CurrentOCR")?.source).toMatchObject({
+    path: path.basename(currentLog),
+    line: 3,
+  });
+  const currentEvidence = byNode.get("CurrentOCR");
+  expect(currentEvidence).toBeDefined();
+  if (currentEvidence !== undefined) {
+    const window = await queryEvidenceWindow(complete, {
+      evidenceId: currentEvidence.id,
+      before: 0,
+      after: 0,
+    });
+    expect(window.path).toBe(path.basename(currentLog));
+    expect(window.text).toContain("CurrentOCR");
+  }
+
+  const focused = await inspectMla(root, {
+    timeRange: { from: "2026-07-19 11:00:00", to: "2026-07-19 11:10:00" },
+  });
+  const focusedNodes = focused.evidence
+    .filter((item) => item.kind === "mla.recognition_detail")
+    .map((item) => (item.data as { node?: string } | undefined)?.node);
+  expect(focusedNodes).toEqual(["CurrentOCR"]);
 });
 
 

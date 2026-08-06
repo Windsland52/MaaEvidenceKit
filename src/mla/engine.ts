@@ -706,6 +706,7 @@ function addRecognitionDetailEvidence(
   detail: MlaRecognitionDetail,
   artifacts: readonly Artifact[],
   inputPath: string,
+  sourceSegments: readonly SourceSegment[],
 ): void {
   const textSummary = detail.textCounts.length > 0
     ? ` texts=${detail.textCounts.slice(0, 3).map((item) => JSON.stringify(item.text)).join(", ")}`
@@ -730,15 +731,28 @@ function addRecognitionDetailEvidence(
     evidenceSource(
       artifacts,
       inputPath,
-      {
-        timestamp: representative.timestamp,
-        path: null,
-        local_line: representative.mergedLine,
-      },
+      positionForMergedLine(sourceSegments, representative.timestamp, representative.mergedLine),
       { node: detail.node },
     ),
     detail,
   );
+}
+
+function positionForMergedLine(
+  sourceSegments: readonly SourceSegment[],
+  timestamp: string,
+  mergedLine: number | null,
+): RuntimePosition {
+  if (mergedLine === null) return { timestamp, path: null, local_line: null };
+  const segment = sourceSegments.find((item) =>
+    mergedLine >= item.startLine && mergedLine < item.startLine + item.lineCount
+  );
+  if (segment === undefined) return { timestamp, path: null, local_line: null };
+  return {
+    timestamp,
+    path: segment.path,
+    local_line: mergedLine - segment.startLine + 1,
+  };
 }
 
 function emptyRuntime(warnings: string[] = []): MlaRuntimeInspectionResult {
@@ -1198,6 +1212,7 @@ function percentile(sorted: number[], ratio: number): number {
 
 function extractRecognitionDetails(
   analyzed: Awaited<ReturnType<typeof analyzeLogContent>>,
+  timeRange: TimeRange | undefined,
 ): MlaRecognitionDetail[] {
   const groups = new Map<string, {
     algorithm: string;
@@ -1222,6 +1237,7 @@ function extractRecognitionDetails(
   }>();
   for (const event of analyzed.events) {
     if (event.message !== "Node.Recognition.Succeeded" && event.message !== "Node.Recognition.Failed") continue;
+    if (!timestampWithin(event.timestamp, timeRange)) continue;
     const payload = event.details;
     if (!isRecord(payload)) continue;
     const recoDetails = payload["reco_details"];
@@ -1413,7 +1429,7 @@ async function loadMlaTarget(
   return {
     target,
     runtime: namespaceRuntime(runtime, target.namespace),
-    recognitionDetails: extractRecognitionDetails(analyzed),
+    recognitionDetails: extractRecognitionDetails(analyzed, timeRange),
     sourceSegments,
     artifacts: targetArtifacts(target, artifacts),
   };
@@ -1509,7 +1525,13 @@ export async function inspectMla(
       loaded.target.path,
     );
     for (const detail of loaded.recognitionDetails) {
-      addRecognitionDetailEvidence(ledger, detail, loaded.artifacts, loaded.target.path);
+      addRecognitionDetailEvidence(
+        ledger,
+        detail,
+        loaded.artifacts,
+        loaded.target.path,
+        loaded.sourceSegments,
+      );
     }
   }
   for (const anomaly of taskAnomalies) {
