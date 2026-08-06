@@ -212,6 +212,12 @@ test("maps recognition details to rotated source files and applies time ranges",
     path: path.basename(currentLog),
     line: 3,
   });
+  expect((byNode.get("CurrentOCR")?.data as {
+    representatives?: { first?: { source?: { path?: string; line?: number } } };
+  } | undefined)?.representatives?.first?.source).toMatchObject({
+    path: path.basename(currentLog),
+    line: 3,
+  });
   const currentEvidence = byNode.get("CurrentOCR");
   expect(currentEvidence).toBeDefined();
   if (currentEvidence !== undefined) {

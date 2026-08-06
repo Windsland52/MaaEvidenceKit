@@ -104,6 +104,8 @@ MLA 会按 `node + algorithm + status` 把识别事件聚合为 `mla.recognition
 `descendantRecognition` 有界保留叶子识别路径、候选计数和 best 样本；超过深度或数量上限时
 `descendantRecognitionTruncated` 会明确标记。OCR 文本、模板分数、ColorMatch 的 count 等
 候选字段统一抽取；`detail` 为空的 DirectHit 等不产生记录。
+聚合记录的 `representatives` / `best` 样本还会附带各自的 `source` locator，便于 harness
+追问某一次观测，而不是只能打开聚合记录的主 source。
 对标记为成功但运行期间出现 `next_list_timeout`、`action_failure` 或日志结束仍未停止的
 重复节点序列，MEK 会输出 `mla.task_anomaly` evidence，避免把框架任务成功直接当作业务成功。
 若循环内某个候选节点所有评估都失败（`unsuccessfulAttemptCount === evaluationCount` 且

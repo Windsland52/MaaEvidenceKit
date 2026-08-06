@@ -70,6 +70,7 @@ type RecognitionDescendantSummary = {
 type RecognitionDetailSample = RecognitionDetailCandidate & {
   timestamp: string;
   mergedLine: number | null;
+  source?: EvidenceSource;
 };
 
 export type MlaRecognitionDetail = {
@@ -745,6 +746,24 @@ function addRecognitionDetailEvidence(
     : "";
   const summary = `Recognition ${detail.node} ${detail.status} (${detail.algorithm}) x${detail.occurrenceCount}${textSummary}${scoreSummary}${filteredSummary}${bestSummary}${childSummary}`;
   const representative = detail.representatives.worst ?? detail.representatives.first;
+  const sourceForSample = (sample: RecognitionDetailSample): EvidenceSource | undefined => {
+    if (sample.mergedLine === null) return undefined;
+    const position = positionForMergedLine(sourceSegments, sample.timestamp, sample.mergedLine);
+    if (position.path === null || position.local_line === null) return undefined;
+    return evidenceSource(artifacts, inputPath, position, { node: detail.node });
+  };
+  const withSampleSource = (sample: RecognitionDetailSample): RecognitionDetailSample => {
+    const source = sourceForSample(sample);
+    return source === undefined ? sample : { ...sample, source };
+  };
+  const detailWithSources: MlaRecognitionDetail = {
+    ...detail,
+    representatives: {
+      first: withSampleSource(detail.representatives.first),
+      worst: detail.representatives.worst === null ? null : withSampleSource(detail.representatives.worst),
+    },
+    best: detail.best.map(withSampleSource),
+  };
   ledger.add(
     "mla.recognition_detail",
     summary,
@@ -754,7 +773,7 @@ function addRecognitionDetailEvidence(
       positionForMergedLine(sourceSegments, representative.timestamp, representative.mergedLine),
       { node: detail.node },
     ),
-    detail,
+    detailWithSources,
   );
 }
 
