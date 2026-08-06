@@ -2,9 +2,11 @@ import path from "node:path";
 
 import {
   EVIDENCE_SCHEMA_VERSION,
+  EvidenceLedger,
   type Artifact,
   type Evidence,
   type InspectionResult,
+  type InspectionWarning,
 } from "./evidence/index.js";
 import { discoverArtifacts, inspectMla, type MlaInspectOptions, type MlaInspectionResult } from "./mla/index.js";
 import { discoverMseProjects, inspectMse, type MseInspectOptions, type MseInspectionResult } from "./mse/index.js";
@@ -22,6 +24,112 @@ export type CombinedInspectionDetails = {
 export type CombinedInspectionResult = InspectionResult<CombinedInspectionDetails> & {
   kind: "combined";
 };
+
+type PipelineDefinitionEvidence = {
+  sourcePath: string;
+  line: number;
+  column: number;
+  controller: string | null;
+  resource: string | null;
+};
+
+type PipelineReferenceEvidenceData = {
+  failureId: string;
+  failureKind: string;
+  node: string;
+  task: string;
+  pipelineFound: boolean;
+  pipelineControllers: string[];
+  pipelineResources: string[];
+  pipelineDefinitions: PipelineDefinitionEvidence[];
+};
+
+type MlaFailureDetails = {
+  node_name?: string;
+  task_name?: string;
+  failure_id?: string;
+};
+
+function addPipelineReferences(
+  ledger: EvidenceLedger,
+  mla: MlaInspectionResult,
+  mse: MseInspectionResult,
+): Set<string> {
+  const graphNodes = new Map<string, Array<{
+    found: boolean;
+    controller: string | null;
+    resource: string | null;
+    definitions: PipelineDefinitionEvidence[];
+  }>>();
+  for (const project of mse.details.projects) {
+    for (const node of project.graph.nodes) {
+      const group = graphNodes.get(node.name) ?? [];
+      group.push({
+        found: node.found,
+        controller: node.controller,
+        resource: node.resource,
+        definitions: node.definitions.map((definition) => ({
+          sourcePath: definition.source_path,
+          line: definition.line,
+          column: definition.column,
+          controller: node.controller,
+          resource: node.resource,
+        })),
+      });
+      graphNodes.set(node.name, group);
+    }
+  }
+  const unfoundNodes = new Set<string>();
+  for (const failure of mla.evidence) {
+    if (failure.kind !== "mla.failure") continue;
+    const data = failure.data as MlaFailureDetails | undefined;
+    const node = data?.node_name;
+    if (node === undefined || data === undefined) continue;
+    const pipelineNodes = graphNodes.get(node) ?? [];
+    const foundNodes = pipelineNodes.filter((item) => item.found);
+    const pipelineFound = foundNodes.length > 0;
+    const controllers = [...new Set(foundNodes.map((item) => item.controller).filter((item): item is string => item !== null))];
+    const resources = [...new Set(foundNodes.map((item) => item.resource).filter((item): item is string => item !== null))];
+    const pipelineDefinitions = [...new Map(
+      foundNodes.flatMap((item) => item.definitions).map((definition) => [
+        `${definition.sourcePath}:${definition.line}:${definition.column}:${definition.controller ?? ""}:${definition.resource ?? ""}`,
+        definition,
+      ]),
+    ).values()].sort((left, right) =>
+      [left.sourcePath, left.line, left.column, left.controller ?? "", left.resource ?? ""].join("|")
+        .localeCompare([right.sourcePath, right.line, right.column, right.controller ?? "", right.resource ?? ""].join("|")),
+    );
+    if (!pipelineFound) unfoundNodes.add(node);
+    const payload: PipelineReferenceEvidenceData = {
+      failureId: data.failure_id ?? failure.id,
+      failureKind: failure.kind,
+      node,
+      task: data.task_name ?? "",
+      pipelineFound,
+      pipelineControllers: controllers,
+      pipelineResources: resources,
+      pipelineDefinitions,
+    };
+    ledger.add(
+      "combined.pipeline_reference",
+      pipelineFound
+        ? `Failure node ${node} exists in the MSE pipeline.`
+        : `Failure node ${node} was not found in the MSE pipeline.`,
+      {
+        artifactId: failure.source.artifactId,
+        path: failure.source.path,
+        ...(failure.source.line === undefined ? {} : { line: failure.source.line }),
+        ...(failure.source.timestamp === undefined ? {} : { timestamp: failure.source.timestamp }),
+        ...(data.task_name === undefined
+          ? {}
+          : { task: data.task_name }),
+        node,
+      },
+      payload,
+    );
+  }
+  return unfoundNodes;
+}
 
 function mergeArtifacts(groups: readonly Artifact[][]): Artifact[] {
   const artifacts = new Map<string, Artifact>();
@@ -60,15 +168,36 @@ export async function inspect(
   const shouldInspectMla = options.mla !== false
     && artifactDiscovery.artifacts.some((artifact) => artifact.kind === "maa_log");
   const shouldInspectMse = options.mse !== false && mseDiscovery.projects.length > 0;
-  const [mla, mse] = await Promise.all([
-    shouldInspectMla ? inspectMla(resolvedPath, options.mla || {}) : Promise.resolve(null),
-    shouldInspectMse ? inspectMse(resolvedPath, options.mse || {}) : Promise.resolve(null),
-  ]);
+  const mla = shouldInspectMla ? await inspectMla(resolvedPath, options.mla || {}) : null;
+  const failureNodes = shouldInspectMse && mla !== null
+    ? [...new Set(mla.evidence
+      .filter((item) => item.kind === "mla.failure")
+      .map((item) => (item.data as MlaFailureDetails | undefined)?.node_name)
+      .filter((item): item is string => item !== undefined))]
+    : [];
+  const mseOption = options.mse === false ? undefined : options.mse;
+  const mseTasks = failureNodes.length > 0 ? failureNodes : mseOption?.tasks;
+  const mse = shouldInspectMse ? await inspectMse(resolvedPath, {
+    ...(mseOption),
+    ...(mseTasks === undefined ? {} : { tasks: mseTasks }),
+  }) : null;
   const componentResults = [mla, mse].filter((item) => item !== null);
   const artifacts = componentResults.length === 0
     ? artifactDiscovery.artifacts
     : mergeArtifacts(componentResults.map((item) => item.artifacts));
-  const evidence = mergeEvidence(componentResults.map((item) => item.evidence));
+  const mergedEvidence = mergeEvidence(componentResults.map((item) => item.evidence));
+  const combinedLedger = new EvidenceLedger();
+  const combinedWarnings: InspectionWarning[] = [];
+  if (mla !== null && mse !== null) {
+    const unfoundNodes = addPipelineReferences(combinedLedger, mla, mse);
+    if (unfoundNodes.size > 0) {
+      combinedWarnings.push({
+        code: "combined.pipeline_reference_missing",
+        message: `Runtime failure nodes were not found in the MSE pipeline: ${[...unfoundNodes].sort().join(", ")}.`,
+      });
+    }
+  }
+  const evidence = [...mergedEvidence, ...combinedLedger.values()];
   const missingEvidence = componentResults.flatMap((item) => item.missingEvidence);
   if (!shouldInspectMla) {
     missingEvidence.push({
@@ -98,6 +227,7 @@ export async function inspect(
     warnings: [
       ...artifactDiscovery.warnings,
       ...componentResults.flatMap((item) => item.warnings),
+      ...combinedWarnings,
     ],
     statistics: {
       scannedFiles: artifactDiscovery.scannedFileCount,

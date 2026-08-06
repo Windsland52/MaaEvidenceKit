@@ -121,6 +121,13 @@ const window = await queryEvidenceWindow(runtime, {
 });
 ```
 
+当 MLA 与 MSE 同时可用时，`inspect` 会额外输出 `combined.pipeline_reference`
+evidence，把运行时失败节点与静态 pipeline 任务关联起来，便于判断失败节点是否
+存在于当前项目配置中。匹配到的节点会携带 `pipelineControllers`、
+`pipelineResources` 和 `pipelineDefinitions`（源码路径/行/列定位）；匹配不到的节点
+会输出 `pipelineFound: false`，并在 `warnings` 中给出
+`combined.pipeline_reference_missing` 提示。
+
 核心输出使用 `maa-evidence/v1`，包含：
 
 - `artifacts`：发现、选择、跳过或无法读取的材料；

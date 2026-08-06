@@ -13,6 +13,11 @@ Sentry investigation, source research, and diagnostic judgment in the host harne
 - For MaaFramework runtime behavior, run `maa-evidence mla inspect <folder>`.
 - For pipeline, Interface, resource, or task definitions, run
   `maa-evidence mse inspect <project> --task <name>`.
+- When both MLA and MSE inputs are present, prefer `maa-evidence inspect <folder>`; it emits
+  `combined.pipeline_reference` to connect runtime failure nodes with static pipeline tasks.
+  Matches carry `pipelineControllers`, `pipelineResources`, and `pipelineDefinitions`
+  source locations; nodes absent from the project emit a
+  `combined.pipeline_reference_missing` warning.
 - Use `--depth N` to control recursive execution-path expansion. The default two levels
   shows the requested task plus its immediate execution references and their direct targets.
   The graph contains only execution edges; template/color/locale references stay in evidence.
