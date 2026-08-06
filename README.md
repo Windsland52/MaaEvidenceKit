@@ -62,6 +62,13 @@ maa-evidence window --input inspection.json --evidence-id evidence-abc123
 maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format json
 maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format text
 
+# 从已有结果中快速查找相关 evidence ID
+maa-evidence search --input inspection.json `
+  --kind mla.recognition_detail `
+  --node DailyProtocolMissionsPick `
+  --text "一键领取" `
+  --limit 20
+
 # 将已有结果渲染为通用文本或 Mermaid
 maa-evidence view --input inspection.json --format text
 maa-evidence view --input inspection.json --format mermaid
@@ -127,6 +134,7 @@ import {
   inspectMse,
   evidenceById,
   queryEvidenceWindow,
+  searchEvidence,
   view,
 } from "maa-evidence-kit";
 
@@ -140,6 +148,12 @@ const runtime = await inspectMla("C:/debug", {
 const project = await inspectMse("C:/project", { tasks: ["StartUp"] });
 const combined = await inspect("C:/materials");
 const text = view(combined, { format: "text" });
+const matches = searchEvidence(combined, {
+  kinds: ["mla.recognition_detail"],
+  nodes: ["DailyProtocolMissionsPick"],
+  text: ["一键领取"],
+  limit: 20,
+});
 const selectedEvidence = evidenceById(combined.evidence, "evidence-abc123");
 const window = await queryEvidenceWindow(runtime, {
   evidenceId: runtime.evidence[0]?.id,
@@ -150,6 +164,12 @@ const window = await queryEvidenceWindow(runtime, {
 `view --evidence-id` 查看该条事实的完整 `data`，使用 `window --evidence-id` 查看其来源日志上下文。
 `view --evidence-id` 支持 JSON 和 text；`window` 默认保持 JSON，也支持 `--format text`。
 未知 evidence ID 会明确报错，不会静默返回空结果。
+
+`search` 只读取已有 inspection JSON，不重新解析原日志。`--kind`、`--node`、`--task`
+执行区分大小写的精确匹配；可重复传入同一选项表示任一值均可。重复的 `--text` 条件执行
+大小写不敏感的 AND 匹配，搜索 evidence 的摘要、source 和结构化 data。
+`--from` / `--to` 只匹配带 source timestamp 的 evidence。结果默认最多返回 50 条索引、
+上限 500 条，并明确给出 `totalMatches` 和 `truncated`；完整 data 仍通过 `view --evidence-id` 获取。
 
 当 MLA 与 MSE 同时可用时，`inspect` 会额外输出 `combined.pipeline_reference`
 evidence，把运行时失败节点与静态 pipeline 任务关联起来，便于判断失败节点是否

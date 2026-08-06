@@ -3,10 +3,12 @@ import { expect, test } from "vitest";
 import {
   EVIDENCE_SCHEMA_VERSION,
   renderEvidence,
+  renderEvidenceSearch,
   renderEvidenceWindow,
   renderText,
   type Evidence,
   type EvidenceWindow,
+  type EvidenceSearchResult,
   type InspectionResult,
 } from "../../src/index.js";
 
@@ -68,4 +70,24 @@ test("renders an evidence window as text without changing its JSON shape", () =>
 
   expect(renderEvidenceWindow(window, "text")).toContain("Lines: 1-2");
   expect(JSON.parse(renderEvidenceWindow(window, "json"))).toEqual(window);
+});
+
+test("renders a bounded evidence search index as text", () => {
+  const result: EvidenceSearchResult = {
+    schemaVersion: "maa-evidence-search/v1",
+    query: { kinds: ["mla.recognition_detail"], limit: 20 },
+    totalMatches: 2,
+    returned: 1,
+    truncated: true,
+    evidence: [{
+      id: "evidence-1",
+      kind: "mla.recognition_detail",
+      summary: "OCR observation",
+      source: { artifactId: "artifact-1", path: "maafw.log", line: 10 },
+    }],
+  };
+
+  const text = renderEvidenceSearch(result, "text");
+  expect(text).toContain("1 returned / 2 total (truncated)");
+  expect(text).toContain("evidence-1 [mla.recognition_detail]");
 });

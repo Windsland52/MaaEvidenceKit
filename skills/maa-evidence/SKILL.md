@@ -147,9 +147,20 @@ maa-evidence window --input inspection.json --evidence-id evidence-abc123 --form
 For a follow-up question about one fact, first select its stable ID from the JSON ledger, then use:
 
 ```powershell
+maa-evidence search --input inspection.json `
+  --kind mla.recognition_detail `
+  --node DailyProtocolMissionsPick `
+  --text "claim" `
+  --limit 20
 maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format json
 maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format text
 ```
+
+`search` reads the saved inspection only; it does not re-run MLA or MSE. Kind, node, and task
+filters are exact and case-sensitive. Repeated values within one exact filter are OR alternatives;
+repeated `--text` values are case-insensitive AND terms across the summary, source, and structured
+data. Time filters exclude evidence without a source timestamp. Results are bounded indexes without
+the potentially large `data` field; use the returned ID with `view` to retrieve the full record.
 
 The single-evidence JSON output is the original structured record, including its deterministic
 `data` and source locator. Use `window` separately when the raw source lines are needed. Unknown

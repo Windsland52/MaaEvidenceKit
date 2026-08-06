@@ -13,10 +13,13 @@ const VALUE_OPTIONS = new Set([
   "--from",
   "--input",
   "--keyword",
+  "--kind",
   "--line",
+  "--limit",
   "--max-characters",
   "--max-lines",
   "--message",
+  "--node",
   "--output",
   "--category",
   "--component",
@@ -25,6 +28,7 @@ const VALUE_OPTIONS = new Set([
   "--resource",
   "--syntax-mode",
   "--task",
+  "--text",
   "--to",
 ]);
 

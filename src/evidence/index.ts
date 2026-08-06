@@ -20,3 +20,10 @@ export {
   type EvidenceWindow,
   type EvidenceWindowQuery,
 } from "./window.js";
+export {
+  EVIDENCE_SEARCH_SCHEMA_VERSION,
+  searchEvidence,
+  type EvidenceSearchItem,
+  type EvidenceSearchQuery,
+  type EvidenceSearchResult,
+} from "./search.js";

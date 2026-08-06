@@ -175,6 +175,7 @@ test("CLI writes JSON inspection and can query a cited source window", async () 
   const windowPath = path.join(root, "window.json");
   const evidencePath = path.join(root, "evidence.json");
   const windowTextPath = path.join(root, "window.txt");
+  const searchPath = path.join(root, "search.json");
 
   expect(await main(["inspect", root, "--format", "json", "--output", inspectionPath])).toBe(0);
   const inspection = JSON.parse(await readFile(inspectionPath, "utf8")) as {
@@ -199,6 +200,27 @@ test("CLI writes JSON inspection and can query a cited source window", async () 
   ])).toBe(0);
   const window = JSON.parse(await readFile(windowPath, "utf8")) as { text: string };
   expect(window.text).toContain("MAA Process Start");
+  expect(await main([
+    "search",
+    "--input",
+    inspectionPath,
+    "--kind",
+    "mla.session",
+    "--text",
+    "v5.12.2",
+    "--format",
+    "json",
+    "--output",
+    searchPath,
+  ])).toBe(0);
+  const search = JSON.parse(await readFile(searchPath, "utf8")) as {
+    totalMatches: number;
+    evidence: Array<{ id: string; source: object; data?: unknown }>;
+  };
+  expect(search.totalMatches).toBeGreaterThan(0);
+  expect(search.evidence[0]?.id).toMatch(/^evidence-/);
+  expect(search.evidence[0]?.source).toBeDefined();
+  expect(search.evidence[0]?.data).toBeUndefined();
   expect(await main([
     "view",
     "--input",

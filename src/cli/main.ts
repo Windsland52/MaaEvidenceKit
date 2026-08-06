@@ -16,6 +16,8 @@ import {
   renderEvidenceWindow,
   evidenceById,
   renderEvidence,
+  renderEvidenceSearch,
+  searchEvidence,
   setTelemetryEnabled,
   submitFeedback,
   view,
@@ -35,6 +37,7 @@ Usage:
   maa-evidence inspect <path> [--from ISO] [--to ISO] [--task NAME] [--no-mla] [--no-mse]
   maa-evidence window --input result.json (--evidence-id ID | --artifact-id ID) [--line N]
   maa-evidence view --input result.json [--evidence-id ID] --format json|text|mermaid
+  maa-evidence search --input result.json [--kind KIND] [--node NODE] [--task TASK] [--text TEXT] [--from ISO] [--to ISO] [--limit N] [--format json|text]
   maa-evidence telemetry status|enable|disable
   maa-evidence feedback --message TEXT [--category blocker|bug|suggestion|other] [--component mla|mse|discovery|views|other] [--attachment FILE]
 
@@ -174,6 +177,22 @@ async function runView(parsed: ParsedArguments): Promise<void> {
   await emit(renderEvidence(evidenceById(result.evidence, evidenceId), format), option(parsed, "--output"));
 }
 
+async function runSearch(parsed: ParsedArguments): Promise<void> {
+  const result = await readInspection(option(parsed, "--input") ?? "");
+  const range = timeRange(parsed);
+  const search = searchEvidence(result, {
+    kinds: options(parsed, "--kind"),
+    nodes: options(parsed, "--node"),
+    tasks: options(parsed, "--task"),
+    text: options(parsed, "--text"),
+    ...(range === undefined ? {} : { timeRange: range }),
+    ...(integerOption(parsed, "--limit") === undefined ? {} : { limit: integerOption(parsed, "--limit") as number }),
+  });
+  const format = option(parsed, "--format") ?? (process.stdout.isTTY ? "text" : "json");
+  if (format !== "json" && format !== "text") throw new Error("search --format must be json or text.");
+  await emit(renderEvidenceSearch(search, format), option(parsed, "--output"));
+}
+
 async function runTelemetry(parsed: ParsedArguments): Promise<void> {
   const action = requirePositional(parsed, 1, "telemetry action");
   if (action === "status") {
@@ -257,7 +276,7 @@ function countsFromInspection(result: InspectionResult): OperationalCounts {
 
 async function withOperationalTelemetry(
   command: string,
-  component: "mla" | "mse" | "combined" | "view" | "window",
+  component: "mla" | "mse" | "combined" | "view" | "window" | "search",
   operation: () => Promise<InspectionResult | void>,
 ): Promise<void> {
   const startedAt = performance.now();
@@ -303,6 +322,9 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<numb
         return 0;
       case "view":
         await withOperationalTelemetry("view", "view", () => runView(parsed));
+        return 0;
+      case "search":
+        await withOperationalTelemetry("search", "search", () => runSearch(parsed));
         return 0;
       case "telemetry":
         await runTelemetry(parsed);
