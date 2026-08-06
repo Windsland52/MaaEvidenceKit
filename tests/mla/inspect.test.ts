@@ -745,6 +745,174 @@ test("summarizes anomalies for succeeded tasks with timeouts, action failures, o
     stillRepeatingAtLogEnd: 0,
   });
 });
+test("flags cycle candidates whose evaluations all failed in task anomalies", () => {
+  const position = {
+    timestamp: "2026-07-19 10:00:00.000",
+    source: "file:maafw.log",
+    path: "maafw.log",
+    local_line: 1,
+  };
+  const baseStatistics = {
+    node_executions: 1,
+    succeeded_nodes: 1,
+    failed_nodes: 0,
+    running_nodes: 0,
+    recognition_attempts: 0,
+    unsuccessful_recognition_attempts: 0,
+    node_executions_with_recognition: 0,
+    node_executions_with_mixed_recognition_results: 0,
+    recognition_activity_groups: 0,
+    maximum_recognition_attempts_per_node: 0,
+    maximum_unsuccessful_recognition_attempts_per_node: 0,
+    action_attempts: 0,
+    action_failures: 0,
+    next_list_timeouts: 0,
+    error_image_references: 0,
+    unique_error_images: 0,
+    vision_image_references: 0,
+    unique_vision_images: 0,
+  };
+  const repeated = {
+    session_id: "session:1",
+    execution_id: "execution:1",
+    task_id: 1,
+    task_name: "Task1",
+    signal_id: "repeat:1",
+    kind: "repeated_node" as const,
+    pattern: ["NodeA"],
+    segment_count: 1,
+    total_repeat_count: 5,
+    maximum_repeat_count: 5,
+    duration_ms: { count: 1, minimum: 1, p50: 1, p95: 1, maximum: 1, average: 1 },
+    terminations: { left_pattern: 0, task_ended: 0, still_repeating_at_log_end: 0 },
+    representatives: {
+      first: {
+        pattern: ["NodeA"], first_seen_at: position.timestamp, last_seen_at: position.timestamp,
+        repeat_count: 5, duration_ms: 1, termination: "task_ended" as const, evidence: position,
+      },
+      longest: {
+        pattern: ["NodeA"], first_seen_at: position.timestamp, last_seen_at: position.timestamp,
+        repeat_count: 5, duration_ms: 1, termination: "task_ended" as const, evidence: position,
+      },
+      last: {
+        pattern: ["NodeA"], first_seen_at: position.timestamp, last_seen_at: position.timestamp,
+        repeat_count: 5, duration_ms: 1, termination: "task_ended" as const, evidence: position,
+      },
+    },
+    detector: {
+      name: "repeated-completed-node-sequence" as const,
+      version: 1 as const,
+      minimum_repeats: 3 as const,
+      maximum_pattern_length: 8 as const,
+    },
+    priority: "high" as const,
+    priority_reasons: ["high_unsuccessful_attempts"],
+  };
+  const recognitionA = {
+    session_id: "session:1",
+    execution_id: "execution:1",
+    task_id: 1,
+    task_name: "Task1",
+    signal_id: "reco:1",
+    kind: "recognition_activity" as const,
+    pipeline_node_name: "NodeA",
+    next_list: [],
+    occurrence_count: 5,
+    occurrences_with_mixed_results: 0,
+    terminal_outcomes: { matched: 0, timeout: 0, running: 0, unmatched: 5 },
+    terminal_matches: [],
+    candidate_statistics: [{
+      name: "TargetA",
+      evaluation_count: 5,
+      matched_attempt_count: 0,
+      unsuccessful_attempt_count: 5,
+      running_attempt_count: 0,
+      terminal_match_count: 0,
+    }],
+    unmapped_attempt_count: 0,
+    attempts: { count: 5, minimum: 1, p50: 1, p95: 1, maximum: 1, average: 1 },
+    unsuccessful_attempts: { count: 5, minimum: 1, p50: 1, p95: 1, maximum: 1, average: 1 },
+    duration_ms: { count: 5, minimum: 1, p50: 1, p95: 1, maximum: 1, average: 1 },
+    representatives: {
+      first: {
+        node_id: 11, started_at: position.timestamp, ended_at: position.timestamp,
+        attempt_count: 5, unsuccessful_attempts: 5, terminal_match: null,
+        evidence: { start: position, end: position },
+      },
+      worst: {
+        node_id: 11, started_at: position.timestamp, ended_at: position.timestamp,
+        attempt_count: 5, unsuccessful_attempts: 5, terminal_match: null,
+        evidence: { start: position, end: position },
+      },
+      last: {
+        node_id: 11, started_at: position.timestamp, ended_at: position.timestamp,
+        attempt_count: 5, unsuccessful_attempts: 5, terminal_match: null,
+        evidence: { start: position, end: position },
+      },
+    },
+    priority: "high" as const,
+    priority_reasons: ["high_unsuccessful_attempts"],
+  };
+  const runtime: MlaRuntimeInspectionResult = {
+    schema_version: "mla-runtime-inspection/v1",
+    sessions: [{
+      session_id: "session:1",
+      start_kind: "process_start",
+      framework_status: "resolved",
+      framework_version: "v5.12.2",
+      versions: ["v5.12.2"],
+      start: { source: "file:maafw.log", path: "maafw.log", line: 1, timestamp: position.timestamp },
+      end: { source: "file:maafw.log", path: "maafw.log", line: 2, timestamp: position.timestamp },
+      tasks: [{
+        execution_id: "execution:1",
+        task_id: 1,
+        name: "Task1",
+        hash: "hash1",
+        uuid: "uuid1",
+        status: "succeeded",
+        completeness: "complete",
+        started_at: position.timestamp,
+        ended_at: position.timestamp,
+        observed_duration_ms: 1,
+        first_node: "NodeA",
+        last_node: "NodeA",
+        statistics: baseStatistics,
+        direct_failure_ids: [],
+        outcome_ids: [],
+        signal_ids: ["repeat:1"],
+        signal_highlights: { recognition_activity: [], repetitions: ["repeat:1"] },
+        evidence: { start: position, end: position },
+      }],
+      summary: {
+        task_executions: 1,
+        succeeded_tasks: 1,
+        failed_tasks: 0,
+        running_tasks: 0,
+        direct_failures: 0,
+        next_list_timeouts: 0,
+        action_failures: 0,
+        signals: 1,
+      },
+    }],
+    unscoped_tasks: [],
+    failures: [],
+    outcomes: [],
+    signals: [repeated, recognitionA] as unknown as MlaRuntimeInspectionResult["signals"],
+    warnings: [],
+  };
+
+  const anomalies = summarizeTaskAnomalies(runtime);
+
+  expect(anomalies).toHaveLength(1);
+  expect(anomalies[0]).toMatchObject({
+    executionId: "execution:1",
+    taskName: "Task1",
+    status: "succeeded",
+    observed: ["all_evaluations_failed"],
+    allEvaluationsFailed: 1,
+  });
+});
+
 
 test("identifies cycle candidates that never matched", () => {
   const baseSignal = {

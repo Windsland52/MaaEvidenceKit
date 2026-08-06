@@ -104,6 +104,9 @@ MLA 会按 `node + algorithm + status` 把识别事件聚合为 `mla.recognition
 ColorMatch 的 count 等候选字段统一抽取；`detail` 为空的 DirectHit 等不产生记录。
 对标记为成功但运行期间出现 `next_list_timeout`、`action_failure` 或日志结束仍未停止的
 重复节点序列，MEK 会输出 `mla.task_anomaly` evidence，避免把框架任务成功直接当作业务成功。
+若循环内某个候选节点所有评估都失败（`unsuccessfulAttemptCount === evaluationCount` 且
+`runningAttemptCount === 0`），`mla.task_anomaly` 会额外标记 `all_evaluations_failed`，
+只陈述“全部尝试都失败”这一观测事实，不推断是 max_hit 还是手动 disable 导致。
 若多个日志中出现字段完全一致的任务，MEK 会发出 `mla_possible_mirrored_tasks`，但不会在缺少
 实例关联证据时自动合并；`statistics.tasks` 始终表示观测到的任务记录数，而非已证明唯一的执行数。
 

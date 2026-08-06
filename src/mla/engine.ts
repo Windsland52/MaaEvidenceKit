@@ -106,6 +106,7 @@ export type MlaTaskAnomaly = {
   nextListTimeouts: number;
   actionFailures: number;
   stillRepeatingAtLogEnd: number;
+  allEvaluationsFailed: number;
 };
 
 export type MlaCycleExitCandidate = {
@@ -635,13 +636,24 @@ export function summarizeTaskAnomalies(runtime: MlaRuntimeInspectionResult): Mla
     if (task.status !== "succeeded") continue;
     const observed: string[] = [];
     let stillRepeatingAtLogEnd = 0;
+    let allEvaluationsFailed = 0;
     if (task.statistics.next_list_timeouts > 0) observed.push("next_list_timeout");
     if (task.statistics.action_failures > 0) observed.push("action_failure");
     for (const signal of signalsByTask.get(task.execution_id) ?? []) {
       if (signal.kind === "repeated_node" || signal.kind === "repeated_node_cycle") {
         stillRepeatingAtLogEnd += signal.terminations.still_repeating_at_log_end;
+        for (const outcome of cycleCandidateOutcomes(runtime, signal)) {
+          if (
+            outcome.evaluationCount > 0
+            && outcome.unsuccessfulAttemptCount === outcome.evaluationCount
+            && outcome.runningAttemptCount === 0
+          ) {
+            allEvaluationsFailed += 1;
+          }
+        }
       }
     }
+    if (allEvaluationsFailed > 0) observed.push("all_evaluations_failed");
     if (
       stillRepeatingAtLogEnd > 0
       && (task.statistics.next_list_timeouts > 0 || task.statistics.action_failures > 0)
@@ -658,6 +670,7 @@ export function summarizeTaskAnomalies(runtime: MlaRuntimeInspectionResult): Mla
       nextListTimeouts: task.statistics.next_list_timeouts,
       actionFailures: task.statistics.action_failures,
       stillRepeatingAtLogEnd,
+      allEvaluationsFailed,
     });
   }
   return anomalies.sort((left, right) => left.executionId.localeCompare(right.executionId));

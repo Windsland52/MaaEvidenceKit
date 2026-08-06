@@ -119,6 +119,10 @@ When a task reports `succeeded` but its execution also contains `next_list_timeo
 `action_failure`, or a repeated sequence still running at log end, MEK emits
 `mla.task_anomaly`. Treat framework success as only a partial fact and investigate the anomaly
 before concluding the business task succeeded.
+When a cycle candidate node had every evaluation fail (`unsuccessfulAttemptCount ===
+evaluationCount` and `runningAttemptCount === 0`), `mla.task_anomaly` also marks
+`all_evaluations_failed`. This states only that all attempts failed; it does not
+infer whether max_hit or a manual disable caused the skip.
 
 MLA failure facts may reference standard `on_error` or `vision` images by local path. Open only the
 referenced images needed for the question; MEK does not embed or interpret their pixels.
