@@ -180,6 +180,8 @@ test("CLI writes JSON inspection and can query a cited source window", async () 
   const batchRequestsPath = path.join(root, "batch-requests.json");
   const batchPath = path.join(root, "batch.json");
   const focusedCombinedPath = path.join(root, "focused-combined.json");
+  const resolvedMsePath = path.join(root, "resolved-mse.json");
+  const resolvedMseProfilePath = path.join(root, "resolved-mse-profile.json");
 
   expect(await main([
     "inspect",
@@ -242,6 +244,38 @@ test("CLI writes JSON inspection and can query a cited source window", async () 
     controller: "Adb",
     resource: "Official",
   });
+  expect(await main([
+    "mse",
+    "resolve",
+    root,
+    "--task",
+    "Start",
+    "--controller",
+    "Adb",
+    "--resource",
+    "Official",
+    "--no-referencers",
+    "--format",
+    "json",
+    "--output",
+    resolvedMsePath,
+    "--profile",
+    resolvedMseProfilePath,
+  ])).toBe(0);
+  const resolvedMse = JSON.parse(await readFile(resolvedMsePath, "utf8")) as {
+    details: { mode?: string };
+    evidence: Array<{ kind: string }>;
+  };
+  const resolvedMseProfile = JSON.parse(await readFile(resolvedMseProfilePath, "utf8")) as {
+    command: string;
+    stages: Array<{ name: string }>;
+  };
+  expect(resolvedMse.details.mode).toBe("resolution");
+  expect(resolvedMse.evidence.some((item) => item.kind === "mse.task_definition")).toBe(true);
+  expect(resolvedMse.evidence.some((item) => item.kind === "mse.interface")).toBe(false);
+  expect(resolvedMseProfile.command).toBe("mse.resolve");
+  expect(resolvedMseProfile.stages.map((stage) => stage.name)).toContain("mse.resolution");
+  expect(resolvedMseProfile.stages.map((stage) => stage.name)).not.toContain("mse.preflight");
   const inspection = JSON.parse(await readFile(inspectionPath, "utf8")) as {
     schemaVersion: string;
     evidence: Array<{ id: string; source: { line?: number } }>;

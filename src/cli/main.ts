@@ -19,6 +19,7 @@ import {
   evidenceById,
   renderEvidence,
   renderEvidenceSearch,
+  resolveMse,
   searchEvidence,
   setTelemetryEnabled,
   submitFeedback,
@@ -39,6 +40,7 @@ const HELP = `MaaEvidenceKit — deterministic MaaFramework evidence extraction
 Usage:
   maa-evidence mla inspect <path> [--from ISO] [--to ISO] [--keyword TEXT] [--all-signals] [--format json|text|mermaid]
   maa-evidence mse inspect <path> [--task NAME] [--depth N] [--controller NAME] [--resource NAME] [--no-referencers] [--syntax-mode maafw|maa] [--format json|text|mermaid]
+  maa-evidence mse resolve <path> --task NAME [--depth N] [--controller NAME] [--resource NAME] [--no-referencers] [--syntax-mode maafw|maa] [--format json|text|mermaid]
   maa-evidence inspect <path> [--from ISO] [--to ISO] [--task NAME] [--controller NAME] [--resource NAME] [--no-referencers] [--no-mla] [--no-mse]
   maa-evidence window --input result.json (--evidence-id ID | --artifact-id ID) [--line N]
   maa-evidence view --input result.json [--evidence-id ID] --format json|text|mermaid
@@ -76,6 +78,14 @@ function syntaxMode(parsed: ParsedArguments): MseSyntaxMode {
   return value;
 }
 
+function mseCommand(parsed: ParsedArguments): "inspect" | "resolve" {
+  const value = requirePositional(parsed, 1, "MSE command");
+  if (value !== "inspect" && value !== "resolve") {
+    throw new Error("The MSE namespace supports 'inspect' and 'resolve'.");
+  }
+  return value;
+}
+
 function outputFormat(parsed: ParsedArguments): ViewFormat {
   const value = option(parsed, "--format") ?? (process.stdout.isTTY ? "text" : "json");
   if (value !== "json" && value !== "text" && value !== "mermaid") {
@@ -104,10 +114,9 @@ async function runMla(parsed: ParsedArguments): Promise<InspectionResult> {
 }
 
 async function runMse(parsed: ParsedArguments): Promise<InspectionResult> {
-  if (requirePositional(parsed, 1, "MSE command") !== "inspect") {
-    throw new Error("The MSE namespace currently supports only 'inspect'.");
-  }
-  const result = await inspectMse(requirePositional(parsed, 2, "project path"), {
+  const command = mseCommand(parsed);
+  const inputPath = requirePositional(parsed, 2, "project path");
+  const commonOptions = {
     syntaxMode: syntaxMode(parsed),
     tasks: options(parsed, "--task"),
     includeReferencers: !flag(parsed, "--no-referencers"),
@@ -120,7 +129,10 @@ async function runMse(parsed: ParsedArguments): Promise<InspectionResult> {
     ...(integerOption(parsed, "--depth") === undefined
       ? {}
       : { depth: integerOption(parsed, "--depth") as number }),
-  });
+  };
+  const result = command === "inspect"
+    ? await inspectMse(inputPath, commonOptions)
+    : await resolveMse(inputPath, commonOptions);
   await emitInspection(result, parsed);
   return result;
 }
@@ -358,7 +370,12 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<numb
         await runOperationalCommand(parsed, "mla.inspect", "mla", () => runMla(parsed));
         return 0;
       case "mse":
-        await runOperationalCommand(parsed, "mse.inspect", "mse", () => runMse(parsed));
+        await runOperationalCommand(
+          parsed,
+          `mse.${mseCommand(parsed)}`,
+          "mse",
+          () => runMse(parsed),
+        );
         return 0;
       case "inspect":
         await runOperationalCommand(parsed, "inspect", "combined", () => runCombined(parsed));

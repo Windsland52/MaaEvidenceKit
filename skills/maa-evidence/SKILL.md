@@ -11,8 +11,10 @@ Sentry investigation, source research, and diagnostic judgment in the host harne
 ## Choose the smallest useful operation
 
 - For MaaFramework runtime behavior, run `maa-evidence mla inspect <folder>`.
-- For pipeline, Interface, resource, or task definitions, run
-  `maa-evidence mse inspect <project> --task <name>`.
+- For an exact pipeline task definition or forward execution path when task/controller/resource are
+  already known, run `maa-evidence mse resolve <project> --task <name> --no-referencers`.
+- For Interface bindings, resource/configuration diagnostics, compatibility, or a task investigation
+  that also needs those preflight facts, run `maa-evidence mse inspect <project> --task <name>`.
 - Use `maa-evidence inspect <folder>` only after the question requires both runtime and static
   evidence and both inputs are already available under the same material root. It emits
   `combined.pipeline_reference` to connect runtime failure nodes with static pipeline tasks.
@@ -91,6 +93,14 @@ When MSE is justified:
 - expand referencers, depth, or additional tasks only after the focused result leaves a specific
   evidence gap.
 
+Prefer `mse resolve` as the first static operation when MLA already supplies a task and the question
+only needs its issue-version definition or forward execution path. It skips Interface preflight and
+full artifact inventory, requires at least one task, and returns `details.mode: "resolution"` in a
+normal `maa-evidence/v1` MSE inspection. It still inventories source files actually used by emitted
+definitions/references, so evidence windows remain authorized. Do not use the absence of
+`mse.interface`, `mse.task_binding`, or `mse.diagnostic` in this mode as evidence that those facts do
+not exist; rerun `mse inspect` when they become relevant.
+
 Run issue/source research, generic-log inspection, image interpretation, and Sentry queries in
 parallel only when they are independently relevant. Do not block the primary MLA path on optional
 Sentry or VLM work.
@@ -160,6 +170,7 @@ Prefer JSON for reasoning:
 ```powershell
 maa-evidence mla inspect C:\path\to\materials --format json --output mla.json
 maa-evidence mse inspect C:\path\to\project --task StartUp --format json --output mse.json
+maa-evidence mse resolve C:\path\to\project --task StartUp --no-referencers --format json --output mse-resolved.json
 maa-evidence inspect C:\path\to\materials --format json --output inspection.json
 ```
 

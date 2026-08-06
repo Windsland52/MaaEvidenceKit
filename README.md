@@ -56,6 +56,14 @@ maa-evidence mla inspect C:\path\to\materials `
 # 只检查指定项目任务
 maa-evidence mse inspect C:\path\to\project --task StartUp --format text
 
+# 已知任务和配置时，只解析静态定义/执行关系，跳过完整预检
+maa-evidence mse resolve C:\path\to\project `
+  --task StartUp `
+  --controller Adb `
+  --resource Official `
+  --no-referencers `
+  --format json
+
 # 查询公共节点定义时关闭可能很大的反向引用展开
 maa-evidence mse inspect C:\path\to\project `
   --controller Win32-Front `
@@ -105,6 +113,14 @@ MSE 未提供 `--task` 时只执行 Interface、资源组合和静态诊断预�
 资源组合重复解析。SDK 对应设置 `includeReferencers: false`。
 图中节点会附带 `desc` / `recognition` / `action` / `customRecognition` /
 `customAction` 摘要字段，便于在不打开完整配置的情况下判断节点职责。
+
+当 harness 已从运行日志确定 task，且问题只需要 issue-time pipeline 定义或前向执行关系时，
+使用 `mse resolve`。它要求至少一个 `--task`，直接执行受限任务解析，跳过 Interface 预检和
+全项目 artifact inventory；输出仍是 `maa-evidence/v1`，`kind` 为 `mse`，并以
+`details.mode: "resolution"` 明确轻量模式。被定义或引用的 pipeline 文件仍会登记为 artifact，
+因此其 evidence 可继续使用 `window`。该模式不会输出 `mse.interface`、`mse.task_binding` 或
+`mse.diagnostic`，不能用来回答 Interface 绑定、资源组合完整性或兼容性问题；这些问题必须使用
+`mse inspect`。未知任务会产生 `mse_task_definition_missing`，不会被静默当作空成功。
 
 当提供时间范围时，MLA 先将目录加载聚焦到匹配文件，MEK 再过滤窗口外的任务和直接事实。
 当前 MLA 1.3.0 仍可能完整读取一个匹配的日志文件；输出会明确携带该限制，避免把它误解成
@@ -165,6 +181,7 @@ import {
   evidenceById,
   queryEvidenceBatch,
   queryEvidenceWindow,
+  resolveMse,
   searchEvidence,
   view,
 } from "maa-evidence-kit";
@@ -177,6 +194,12 @@ const runtime = await inspectMla("C:/debug", {
 });
 
 const project = await inspectMse("C:/project", { tasks: ["StartUp"] });
+const resolvedProject = await resolveMse("C:/project", {
+  tasks: ["StartUp"],
+  controller: "Adb",
+  resource: "Official",
+  includeReferencers: false,
+});
 const combined = await inspect("C:/materials");
 const text = view(combined, { format: "text" });
 const matches = searchEvidence(combined, {
@@ -223,7 +246,7 @@ const answers = await queryEvidenceBatch(runtime, [
 严格校验，任一项非法、ID 未知或窗口读取失败时整批明确失败，不返回容易误用的部分结果。
 批次不支持引用同批 `search` 动态返回的 ID；这种依赖关系应先批量搜索，再用第二批读取事实和窗口。
 
-`--profile FILE` 可用于 `mla inspect`、`mse inspect`、组合 `inspect` 及已有结果的查询命令。
+`--profile FILE` 可用于 `mla inspect`、`mse inspect`、`mse resolve`、组合 `inspect` 及已有结果的查询命令。
 它输出本地 `maa-evidence-profile/v1` 旁路 JSON，聚合 discovery、MLA load/parse、MSE
 preflight/resolution、inspection load、render 和 output write 等阶段的 `count`、总耗时与最大耗时。
 profile 与 inspection 输出必须使用不同文件；失败命令也会写 `status: error`，但不会写异常消息、

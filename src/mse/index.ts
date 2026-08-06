@@ -19,3 +19,10 @@ export {
   type MseInspectionResult,
   type MseProjectInspection,
 } from "./inspect.js";
+export {
+  resolveMse,
+  type MseResolveOptions,
+  type MseResolutionInspectionDetails,
+  type MseResolutionInspectionResult,
+  type MseResolvedProjectInspection,
+} from "./resolve.js";

@@ -4,7 +4,13 @@ import path from "node:path";
 
 import { afterEach, expect, test } from "vitest";
 
-import { inspectMse, renderMermaid, renderText } from "../../src/index.js";
+import {
+  inspectMse,
+  queryEvidenceWindow,
+  renderMermaid,
+  renderText,
+  resolveMse,
+} from "../../src/index.js";
 
 const temporaryRoots: string[] = [];
 
@@ -30,6 +36,12 @@ test("loads a public MSE project and exposes task relations as evidence", async 
 
   const result = await inspectMse(root, { tasks: ["Start"] });
   const preflightOnly = await inspectMse(root);
+  const resolvedOnly = await resolveMse(root, {
+    tasks: ["Start"],
+    controller: "Adb",
+    resource: "Official",
+    includeReferencers: false,
+  });
   const graph = result.details.projects[0]?.graph;
 
   expect(result.details.projects[0]?.preflight.compatibility.status).toBe("supported");
@@ -44,6 +56,47 @@ test("loads a public MSE project and exposes task relations as evidence", async 
   expect(preflightOnly.details.projects[0]?.graph).toEqual({ nodes: [], edges: [] });
   expect(preflightOnly.evidence.some((item) => item.kind === "mse.task_binding")).toBe(true);
   expect(preflightOnly.evidence.some((item) => item.kind === "mse.task_definition")).toBe(false);
+  expect(resolvedOnly.details.mode).toBe("resolution");
+  expect(resolvedOnly.details.projects[0]?.resolution.requested_tasks).toEqual(["Start"]);
+  expect(resolvedOnly.details.projects[0]?.graph.edges).toEqual(expect.arrayContaining([
+    expect.objectContaining({ kind: "task.next" }),
+  ]));
+  expect(resolvedOnly.evidence.some((item) => item.kind === "mse.task_definition")).toBe(true);
+  expect(resolvedOnly.evidence.some((item) => item.kind === "mse.reference")).toBe(true);
+  expect(resolvedOnly.evidence.some((item) => item.kind === "mse.interface")).toBe(false);
+  expect(resolvedOnly.evidence.some((item) => item.kind === "mse.task_binding")).toBe(false);
+  expect(resolvedOnly.artifacts.every((artifact) => artifact.kind === "pipeline")).toBe(true);
+  expect(renderText(resolvedOnly)).toContain("[task.next] Done");
+  const definition = resolvedOnly.evidence.find((item) => item.kind === "mse.task_definition");
+  expect(definition).toBeDefined();
+  const definitionWindow = await queryEvidenceWindow(resolvedOnly, {
+    evidenceId: definition?.id ?? "",
+    before: 0,
+    after: 1,
+  });
+  expect(definitionWindow.text).toContain("Start");
+});
+
+test("requires focused tasks and reports unresolved definitions in lightweight resolution", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mse-resolve-missing-"));
+  temporaryRoots.push(root);
+  const assets = path.join(root, "assets");
+  await mkdir(path.join(assets, "resource", "base", "pipeline"), { recursive: true });
+  await writeFile(path.join(assets, "interface.json"), JSON.stringify({
+    controller: [{ name: "Adb" }],
+    resource: [{ name: "Official", path: ["resource/base"], controller: ["Adb"] }],
+  }), "utf8");
+
+  await expect(resolveMse(root, { tasks: [] })).rejects.toThrow("at least one task");
+  const result = await resolveMse(root, {
+    tasks: ["Missing"],
+    controller: "Adb",
+    resource: "Official",
+    includeReferencers: false,
+  });
+  expect(result.missingEvidence).toEqual(expect.arrayContaining([
+    expect.objectContaining({ code: "mse_task_definition_missing" }),
+  ]));
 });
 
 test("expands execution paths recursively and separates on_error references", async () => {

@@ -6,7 +6,6 @@ import {
   artifactId,
   relativePortablePath,
   type Artifact,
-  type EvidenceSource,
   type InspectionResult,
 } from "../evidence/index.js";
 import { discoverArtifacts } from "../mla/discovery.js";
@@ -20,8 +19,9 @@ import {
   type MseTaskResolutionResult,
 } from "./engine.js";
 import { buildMseGraph, type MseGraph } from "./graph.js";
+import { addMseResolutionEvidence, mseSourceFor } from "./evidence.js";
+import { MAX_MSE_SELECTED_TASKS, normalizeMseTasks } from "./selection.js";
 
-const MAX_RESOLVED_TASKS = 500;
 
 export type MseInspectOptions = {
   syntaxMode?: MseSyntaxMode;
@@ -51,11 +51,6 @@ export type MseInspectionDetails = {
 
 export type MseInspectionResult = InspectionResult<MseInspectionDetails> & { kind: "mse" };
 
-function normalizeTasks(tasks: string[] | undefined): string[] {
-  if (tasks === undefined) return [];
-  return [...new Set(tasks.map((item) => item.trim()).filter(Boolean))].sort();
-}
-
 function scopeArtifacts(
   artifacts: readonly Artifact[],
   projectRoot: string,
@@ -66,39 +61,6 @@ function scopeArtifacts(
     const relativePath = relativePortablePath(inputRoot, absolute);
     return { ...item, id: artifactId(relativePath), path: absolute, relativePath };
   });
-}
-
-function sourceFor(
-  artifacts: Artifact[],
-  inputRoot: string,
-  projectRoot: string,
-  sourcePath: string,
-  line?: number,
-  node?: string,
-): EvidenceSource {
-  const absolute = path.resolve(projectRoot, sourcePath);
-  const relativePath = relativePortablePath(inputRoot, absolute);
-  const comparableRelativePath = process.platform === "win32" ? relativePath.toLowerCase() : relativePath;
-  let artifact = artifacts.find((item) => {
-    const candidate = process.platform === "win32" ? item.relativePath.toLowerCase() : item.relativePath;
-    return candidate === comparableRelativePath;
-  });
-  if (artifact === undefined) {
-    artifact = {
-      id: artifactId(relativePath),
-      path: absolute,
-      relativePath,
-      kind: sourcePath.toLowerCase().includes("interface") ? "interface" : "pipeline",
-      status: "selected",
-    };
-    artifacts.push(artifact);
-  }
-  return {
-    artifactId: artifact.id,
-    path: artifact.relativePath,
-    ...(line === undefined ? {} : { line }),
-    ...(node === undefined ? {} : { node }),
-  };
 }
 
 function addProjectEvidence(
@@ -112,7 +74,7 @@ function addProjectEvidence(
     ledger.add(
       "mse.interface",
       `MSE loaded ${preflight.interface_path} with ${preflight.compatibility.status} compatibility.`,
-      sourceFor(artifacts, inputRoot, projectRoot, preflight.interface_path),
+      mseSourceFor(artifacts, inputRoot, projectRoot, preflight.interface_path),
       {
         compatibility: preflight.compatibility,
         controllers: preflight.controllers,
@@ -127,7 +89,7 @@ function addProjectEvidence(
       binding.entry === null
         ? `Interface task ${binding.name} has no resolved entry.`
         : `Interface task ${binding.name} enters pipeline task ${binding.entry}.`,
-      sourceFor(artifacts, inputRoot, projectRoot, preflight.interface_path, undefined, binding.entry ?? binding.name),
+      mseSourceFor(artifacts, inputRoot, projectRoot, preflight.interface_path, undefined, binding.entry ?? binding.name),
       binding,
     );
   }
@@ -135,7 +97,7 @@ function addProjectEvidence(
     ledger.add(
       "mse.diagnostic",
       `MSE ${diagnostic.level}: ${diagnostic.message}`,
-      sourceFor(
+      mseSourceFor(
         artifacts,
         inputRoot,
         projectRoot,
@@ -145,36 +107,8 @@ function addProjectEvidence(
       diagnostic,
     );
   }
-  if (resolution === null) return;
-  for (const task of resolution.resolutions) {
-    for (const definition of task.definitions) {
-      ledger.add(
-        "mse.task_definition",
-        `Pipeline task ${task.name} is defined for controller ${task.controller ?? "default"} and resource ${task.resource ?? "default"}.`,
-        sourceFor(artifacts, inputRoot, projectRoot, definition.source_path, definition.line, task.name),
-        {
-          name: task.name,
-          controller: task.controller,
-          resource: task.resource,
-          rawConfig: definition.raw_config,
-          effectiveConfig: task.effective_config,
-        },
-      );
-    }
-    for (const reference of task.references) {
-      ledger.add(
-        "mse.reference",
-        `Pipeline task ${task.name} references ${reference.target} through ${reference.kind}.`,
-        sourceFor(artifacts, inputRoot, projectRoot, reference.source_path, reference.line, task.name),
-        {
-          from: task.name,
-          to: reference.target,
-          kind: reference.kind,
-          controller: task.controller,
-          resource: task.resource,
-        },
-      );
-    }
+  if (resolution !== null) {
+    addMseResolutionEvidence(ledger, artifacts, inputRoot, projectRoot, resolution);
   }
 }
 
@@ -185,18 +119,18 @@ export async function inspectMse(
   const resolvedPath = path.resolve(inputPath);
   const inputRoot = resolvedPath;
   const syntaxMode = options.syntaxMode ?? "maafw";
-  const requestedTasks = normalizeTasks(options.tasks);
+  const requestedTasks = normalizeMseTasks(options.tasks);
   const discovery = await profileStage("mse.discovery", () => discoverMseProjects(resolvedPath));
   const projects: MseProjectInspection[] = [];
   const artifacts: Artifact[] = [];
   const missingEvidence = [];
   const warnings = [...discovery.warnings];
   for (const candidate of discovery.projects) {
-    const selectedTasks = requestedTasks.slice(0, MAX_RESOLVED_TASKS);
-    if (requestedTasks.length > MAX_RESOLVED_TASKS) {
+    const selectedTasks = requestedTasks.slice(0, MAX_MSE_SELECTED_TASKS);
+    if (requestedTasks.length > MAX_MSE_SELECTED_TASKS) {
       warnings.push({
         code: "mse_task_resolution_truncated",
-        message: `MSE graph resolution is limited to the first ${MAX_RESOLVED_TASKS} selected task names.`,
+        message: `MSE graph resolution is limited to the first ${MAX_MSE_SELECTED_TASKS} selected task names.`,
       });
     }
     // Artifact inventory, Interface diagnostics, and an explicitly requested task
