@@ -104,6 +104,9 @@ evaluated but never matched, which pinpoints the recognition condition preventin
 Each evaluated candidate in a repeated-node cycle is also emitted as
 `mla.cycle_candidate_outcome` with matched/unsuccessful counts and a
 `persistentFailure` flag for candidates that were evaluated but never matched.
+Persistent-failure candidates are also emitted separately as
+`mla.cycle_exit_blocker` so the harness can identify which candidate blocked cycle exit
+and read the observed evaluation counts without deriving conclusions in MEK.
 
 When a task reports `succeeded` but its execution also contains `next_list_timeout`,
 `action_failure`, or a repeated sequence still running at log end, MEK emits

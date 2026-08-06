@@ -9,6 +9,7 @@ import {
   countPossibleMirroredTaskGroups,
   countRuntimeSignals,
   cycleCandidateOutcomes,
+  cycleExitBlockers,
   cycleExitCandidates,
   focusRuntimeSignals,
   namespaceRuntime,
@@ -933,4 +934,8 @@ test("decomposes cycle candidate success/failure outcomes", () => {
       },
     },
   ]);
+
+  const blockers = cycleExitBlockers(runtime, repeatedSignal);
+  expect(blockers.map((item) => item.candidate)).toEqual(["TargetA"]);
+  expect(blockers[0]?.persistentFailure).toBe(true);
 });

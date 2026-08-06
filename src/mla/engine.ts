@@ -168,6 +168,13 @@ export function cycleCandidateOutcomes(
     .sort((left, right) => left.candidate.localeCompare(right.candidate));
 }
 
+export function cycleExitBlockers(
+  runtime: MlaRuntimeInspectionResult,
+  signal: MlaRuntimeInspectionResult["signals"][number],
+): MlaCycleCandidateOutcome[] {
+  return cycleCandidateOutcomes(runtime, signal).filter((item) => item.persistentFailure);
+}
+
 export type MlaInspectOptions = {
   timeRange?: TimeRange;
   keywords?: string[];
@@ -451,7 +458,8 @@ function addRuntimeEvidence(
         },
     );
     if (signal.kind !== "recognition_activity") {
-      for (const outcome of cycleCandidateOutcomes(runtime, signal)) {
+      const outcomes = cycleCandidateOutcomes(runtime, signal);
+      for (const outcome of outcomes) {
         ledger.add(
           "mla.cycle_candidate_outcome",
           outcome.persistentFailure
@@ -462,6 +470,17 @@ function addRuntimeEvidence(
             node: outcome.pipelineNode,
           }),
           outcome,
+        );
+      }
+      for (const blocker of cycleExitBlockers(runtime, signal)) {
+        ledger.add(
+          "mla.cycle_exit_blocker",
+          `Candidate ${blocker.candidate} prevented cycle exit after ${blocker.evaluationCount} evaluations without a match inside cycle ${signal.pattern.join(" → ")}.`,
+          evidenceSource(artifacts, inputPath, blocker.evidence, {
+            task: signal.task_name,
+            node: blocker.pipelineNode,
+          }),
+          blocker,
         );
       }
     }

@@ -89,6 +89,8 @@ MLA 默认输出其优先级为 `high` 的信号和每个任务的高亮信号�
 重复节点信号还会为每个被评估的候选子节点输出 `mla.cycle_candidate_outcome` evidence：
 携带 evaluation / matched / unsuccessful 计数，并标记 `persistentFailure`（被评估但从未匹配、
 也从未形成终端匹配），便于直接看出循环里持续失败的子节点。
+其中 `persistentFailure` 的候选还会单独输出为 `mla.cycle_exit_blocker` evidence，
+标记“阻止循环退出”的候选及其观测计数，供 harness 据此定位退出条件为何未满足。
 标准 `on_error` / `vision` 图片会作为本地路径交给 MLA 与当前及旋转日志关联；只有被运行事实
 实际引用的图片才标为 `selected`，图片字节不会嵌入结果。
 被失败事实引用的图片会额外输出为 `mla.failure_image` evidence，直接携带图片路径和关联节点，
