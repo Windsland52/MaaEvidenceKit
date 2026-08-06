@@ -10,6 +10,7 @@ import {
 } from "./evidence/index.js";
 import { discoverArtifacts, inspectMla, type MlaInspectOptions, type MlaInspectionResult } from "./mla/index.js";
 import { discoverMseProjects, inspectMse, type MseInspectOptions, type MseInspectionResult } from "./mse/index.js";
+import { profileStage, profileStageSync } from "./profiling.js";
 
 export type InspectOptions = {
   mla?: MlaInspectOptions | false;
@@ -161,10 +162,10 @@ export async function inspect(
   options: InspectOptions = {},
 ): Promise<CombinedInspectionResult> {
   const resolvedPath = path.resolve(inputPath);
-  const [artifactDiscovery, mseDiscovery] = await Promise.all([
+  const [artifactDiscovery, mseDiscovery] = await profileStage("combined.discovery", () => Promise.all([
     discoverArtifacts(resolvedPath),
     discoverMseProjects(resolvedPath),
-  ]);
+  ]));
   const shouldInspectMla = options.mla !== false
     && artifactDiscovery.artifacts.some((artifact) => artifact.kind === "maa_log");
   const shouldInspectMse = options.mse !== false && mseDiscovery.projects.length > 0;
@@ -182,14 +183,17 @@ export async function inspect(
     ...(mseTasks === undefined ? {} : { tasks: mseTasks }),
   }) : null;
   const componentResults = [mla, mse].filter((item) => item !== null);
-  const artifacts = componentResults.length === 0
-    ? artifactDiscovery.artifacts
-    : mergeArtifacts(componentResults.map((item) => item.artifacts));
-  const mergedEvidence = mergeEvidence(componentResults.map((item) => item.evidence));
+  const artifacts = profileStageSync("combined.materialization", () =>
+    componentResults.length === 0
+      ? artifactDiscovery.artifacts
+      : mergeArtifacts(componentResults.map((item) => item.artifacts)));
+  const mergedEvidence = profileStageSync("combined.materialization", () =>
+    mergeEvidence(componentResults.map((item) => item.evidence)));
   const combinedLedger = new EvidenceLedger();
   const combinedWarnings: InspectionWarning[] = [];
   if (mla !== null && mse !== null) {
-    const unfoundNodes = addPipelineReferences(combinedLedger, mla, mse);
+    const unfoundNodes = profileStageSync("combined.correlation", () =>
+      addPipelineReferences(combinedLedger, mla, mse));
     if (unfoundNodes.size > 0) {
       combinedWarnings.push({
         code: "combined.pipeline_reference_missing",

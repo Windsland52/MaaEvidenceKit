@@ -21,6 +21,7 @@ const VALUE_OPTIONS = new Set([
   "--message",
   "--node",
   "--output",
+  "--profile",
   "--category",
   "--component",
   "--depth",

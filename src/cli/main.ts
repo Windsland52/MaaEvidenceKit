@@ -28,9 +28,11 @@ import {
   type TimeRange,
   type ViewFormat,
 } from "../index.js";
+import { profileStage, profileStageSync } from "../profiling.js";
 import { flag, integerOption, option, options, parseArguments, type ParsedArguments } from "./args.js";
 import { readBatchRequests } from "./batch-input.js";
 import { emit, readInspection } from "./io.js";
+import { withLocalProfile } from "./profile.js";
 
 const HELP = `MaaEvidenceKit — deterministic MaaFramework evidence extraction
 
@@ -48,6 +50,7 @@ Usage:
 Common options:
   --output FILE       Write output to a file
   --format FORMAT     json, text, or mermaid
+  --profile FILE      Write local stage timings as JSON
   --version           Show the MaaEvidenceKit version
   -h, --help          Show this help
 `;
@@ -82,7 +85,8 @@ function outputFormat(parsed: ParsedArguments): ViewFormat {
 }
 
 async function emitInspection(result: InspectionResult, parsed: ParsedArguments): Promise<void> {
-  await emit(view(result, { format: outputFormat(parsed) }), option(parsed, "--output"));
+  const rendered = profileStageSync("render", () => view(result, { format: outputFormat(parsed) }));
+  await emit(rendered, option(parsed, "--output"));
 }
 
 async function runMla(parsed: ParsedArguments): Promise<InspectionResult> {
@@ -154,7 +158,7 @@ async function runCombined(parsed: ParsedArguments): Promise<InspectionResult> {
 
 async function runWindow(parsed: ParsedArguments): Promise<void> {
   const result = await readInspection(option(parsed, "--input") ?? "");
-  const window = await queryEvidenceWindow(result, {
+  const evidenceWindow = await profileStage("evidence.window", () => queryEvidenceWindow(result, {
     ...(option(parsed, "--evidence-id") === undefined
       ? {}
       : { evidenceId: option(parsed, "--evidence-id") as string }),
@@ -170,12 +174,13 @@ async function runWindow(parsed: ParsedArguments): Promise<void> {
     ...(integerOption(parsed, "--max-characters") === undefined
       ? {}
       : { maxCharacters: integerOption(parsed, "--max-characters") as number }),
-  });
+  }));
   const format = option(parsed, "--format") ?? "json";
   if (format !== "json" && format !== "text") {
     throw new Error("window --format must be json or text.");
   }
-  await emit(renderEvidenceWindow(window, format), option(parsed, "--output"));
+  const rendered = profileStageSync("render", () => renderEvidenceWindow(evidenceWindow, format));
+  await emit(rendered, option(parsed, "--output"));
 }
 
 async function runView(parsed: ParsedArguments): Promise<void> {
@@ -183,17 +188,20 @@ async function runView(parsed: ParsedArguments): Promise<void> {
   const evidenceId = option(parsed, "--evidence-id");
   const format = outputFormat(parsed);
   if (evidenceId === undefined) {
-    await emit(view(result, { format }), option(parsed, "--output"));
+    const rendered = profileStageSync("render", () => view(result, { format }));
+    await emit(rendered, option(parsed, "--output"));
     return;
   }
   if (format === "mermaid") throw new Error("view --evidence-id supports only json or text.");
-  await emit(renderEvidence(evidenceById(result.evidence, evidenceId), format), option(parsed, "--output"));
+  const evidence = profileStageSync("evidence.view", () => evidenceById(result.evidence, evidenceId));
+  const rendered = profileStageSync("render", () => renderEvidence(evidence, format));
+  await emit(rendered, option(parsed, "--output"));
 }
 
 async function runSearch(parsed: ParsedArguments): Promise<void> {
   const result = await readInspection(option(parsed, "--input") ?? "");
   const range = timeRange(parsed);
-  const search = searchEvidence(result, {
+  const search = profileStageSync("evidence.search", () => searchEvidence(result, {
     artifactIds: options(parsed, "--artifact-id"),
     kinds: options(parsed, "--kind"),
     nodes: options(parsed, "--node"),
@@ -201,17 +209,20 @@ async function runSearch(parsed: ParsedArguments): Promise<void> {
     text: options(parsed, "--text"),
     ...(range === undefined ? {} : { timeRange: range }),
     ...(integerOption(parsed, "--limit") === undefined ? {} : { limit: integerOption(parsed, "--limit") as number }),
-  });
+  }));
   const format = option(parsed, "--format") ?? (process.stdout.isTTY ? "text" : "json");
   if (format !== "json" && format !== "text") throw new Error("search --format must be json or text.");
-  await emit(renderEvidenceSearch(search, format), option(parsed, "--output"));
+  const rendered = profileStageSync("render", () => renderEvidenceSearch(search, format));
+  await emit(rendered, option(parsed, "--output"));
 }
 
 async function runBatch(parsed: ParsedArguments): Promise<void> {
   const result = await readInspection(option(parsed, "--input") ?? "");
-  const requests = await readBatchRequests(option(parsed, "--requests") ?? "");
-  const batch = await queryEvidenceBatch(result, requests);
-  await emit(JSON.stringify(batch, null, 2), option(parsed, "--output"));
+  const requests = await profileStage("batch.requests_load", () =>
+    readBatchRequests(option(parsed, "--requests") ?? ""));
+  const batch = await profileStage("evidence.batch", () => queryEvidenceBatch(result, requests));
+  const rendered = profileStageSync("render", () => JSON.stringify(batch, null, 2));
+  await emit(rendered, option(parsed, "--output"));
 }
 
 async function runTelemetry(parsed: ParsedArguments): Promise<void> {
@@ -321,6 +332,16 @@ async function withOperationalTelemetry(
   }
 }
 
+async function runOperationalCommand(
+  parsed: ParsedArguments,
+  command: string,
+  component: "mla" | "mse" | "combined" | "view" | "window" | "search" | "batch",
+  operation: () => Promise<InspectionResult | void>,
+): Promise<void> {
+  await withOperationalTelemetry(command, component, () =>
+    withLocalProfile(command, parsed, operation));
+}
+
 export async function main(args: string[] = process.argv.slice(2)): Promise<number> {
   try {
     const parsed = parseArguments(args);
@@ -334,25 +355,25 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<numb
     }
     switch (requirePositional(parsed, 0, "command")) {
       case "mla":
-        await withOperationalTelemetry("mla.inspect", "mla", () => runMla(parsed));
+        await runOperationalCommand(parsed, "mla.inspect", "mla", () => runMla(parsed));
         return 0;
       case "mse":
-        await withOperationalTelemetry("mse.inspect", "mse", () => runMse(parsed));
+        await runOperationalCommand(parsed, "mse.inspect", "mse", () => runMse(parsed));
         return 0;
       case "inspect":
-        await withOperationalTelemetry("inspect", "combined", () => runCombined(parsed));
+        await runOperationalCommand(parsed, "inspect", "combined", () => runCombined(parsed));
         return 0;
       case "window":
-        await withOperationalTelemetry("window", "window", () => runWindow(parsed));
+        await runOperationalCommand(parsed, "window", "window", () => runWindow(parsed));
         return 0;
       case "view":
-        await withOperationalTelemetry("view", "view", () => runView(parsed));
+        await runOperationalCommand(parsed, "view", "view", () => runView(parsed));
         return 0;
       case "search":
-        await withOperationalTelemetry("search", "search", () => runSearch(parsed));
+        await runOperationalCommand(parsed, "search", "search", () => runSearch(parsed));
         return 0;
       case "batch":
-        await withOperationalTelemetry("batch", "batch", () => runBatch(parsed));
+        await runOperationalCommand(parsed, "batch", "batch", () => runBatch(parsed));
         return 0;
       case "telemetry":
         await runTelemetry(parsed);

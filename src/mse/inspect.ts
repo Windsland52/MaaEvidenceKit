@@ -10,6 +10,7 @@ import {
   type InspectionResult,
 } from "../evidence/index.js";
 import { discoverArtifacts } from "../mla/discovery.js";
+import { profileStage, profileStageSync } from "../profiling.js";
 import { discoverMseProjects } from "./discovery.js";
 import {
   runMseProjectPreflight,
@@ -185,7 +186,7 @@ export async function inspectMse(
   const inputRoot = resolvedPath;
   const syntaxMode = options.syntaxMode ?? "maafw";
   const requestedTasks = normalizeTasks(options.tasks);
-  const discovery = await discoverMseProjects(resolvedPath);
+  const discovery = await profileStage("mse.discovery", () => discoverMseProjects(resolvedPath));
   const projects: MseProjectInspection[] = [];
   const artifacts: Artifact[] = [];
   const missingEvidence = [];
@@ -202,11 +203,11 @@ export async function inspectMse(
     // resolution are independent read-only operations. Run them together so a
     // focused graph does not pay for two sequential full-project loads.
     const [artifactDiscovery, preflight, resolution] = await Promise.all([
-      discoverArtifacts(candidate.projectRoot),
-      runMseProjectPreflight(candidate.projectRoot, syntaxMode),
+      profileStage("mse.artifact_discovery", () => discoverArtifacts(candidate.projectRoot)),
+      profileStage("mse.preflight", () => runMseProjectPreflight(candidate.projectRoot, syntaxMode)),
       selectedTasks.length === 0
         ? Promise.resolve(null)
-        : runMseTaskResolution(
+        : profileStage("mse.resolution", () => runMseTaskResolution(
           candidate.projectRoot,
           selectedTasks,
           syntaxMode,
@@ -214,7 +215,7 @@ export async function inspectMse(
           options.resource,
           options.depth,
           options.includeReferencers ?? true,
-        ),
+        )),
     ]);
     artifacts.push(...scopeArtifacts(artifactDiscovery.artifacts, candidate.projectRoot, inputRoot));
     missingEvidence.push(...artifactDiscovery.missingEvidence);
@@ -223,7 +224,9 @@ export async function inspectMse(
       projectRoot: candidate.projectRoot,
       preflight,
       resolution,
-      graph: resolution === null ? { nodes: [], edges: [] } : buildMseGraph(resolution),
+      graph: resolution === null
+        ? { nodes: [], edges: [] }
+        : profileStageSync("mse.graph", () => buildMseGraph(resolution)),
     });
   }
   if (projects.length === 0) {
@@ -237,7 +240,8 @@ export async function inspectMse(
   const materializedArtifacts = [...uniqueArtifacts.values()];
   const ledger = new EvidenceLedger();
   for (const project of projects) {
-    addProjectEvidence(ledger, materializedArtifacts, inputRoot, project);
+    profileStageSync("mse.evidence_materialization", () =>
+      addProjectEvidence(ledger, materializedArtifacts, inputRoot, project));
     for (const message of project.preflight.warnings) {
       warnings.push({ code: "mse_warning", message });
     }

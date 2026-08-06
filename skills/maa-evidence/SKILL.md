@@ -129,6 +129,30 @@ These caches contain user material even though operational telemetry does not. A
 normal access controls and retention policy, and never attach cached content to MEK feedback without
 the same per-submission preview and explicit confirmation as the original files.
 
+## Profile unexplained local latency
+
+Do not enable profiling for every routine run. When a local MEK command remains unexpectedly slow,
+rerun the smallest representative operation with a separate profile path:
+
+```powershell
+maa-evidence mla inspect C:\path\to\materials `
+  --format json `
+  --output inspection.json `
+  --profile profile.json
+```
+
+The `maa-evidence-profile/v1` file contains only the MEK version, command category, success/error
+status, wall-clock duration, and aggregate stage names/counts/durations. It does not contain paths,
+arguments, evidence, or exception messages and is never sent through operational telemetry. Treat
+it as local diagnostic output, not evidence. `mla.load_parse` isolates upstream log loading and
+analysis; `mse.preflight` and `mse.resolution` may overlap because they run concurrently;
+`inspection.load`, `render`, and `output.write` expose follow-up overhead. Concurrent stage totals
+can exceed command wall-clock duration, so do not sum them as a serial critical path.
+
+Use the profile to choose a response rather than to form a diagnosis: narrow MLA only when the
+question permits it, focus or defer MSE, batch follow-ups, or investigate local I/O. Do not cite
+timings as facts about the reported Maa run.
+
 ## Extract evidence
 
 Prefer JSON for reasoning:

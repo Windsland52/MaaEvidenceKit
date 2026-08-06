@@ -36,6 +36,14 @@ Operational telemetry does not intentionally contain command arguments, file pat
 variables, usernames, logs, source code, screenshots, exception messages, or stack traces.
 The Sentry SDK is configured with `sendDefaultPii: false` and a client-side event allowlist.
 
+## Local performance profiles
+
+When explicitly requested with `--profile FILE`, MEK writes a local JSON file containing its
+version, command category, success/error status, wall-clock duration, and aggregate stage
+names/counts/durations. It does not include command arguments, paths, evidence, or exception
+messages. Performance profiles are not attached to operational telemetry or feedback automatically.
+They remain local unless the user explicitly selects the file as a confirmed feedback attachment.
+
 ## Extraction-gap feedback
 
 Feedback is a separate, user-initiated action. A feedback submission may contain:

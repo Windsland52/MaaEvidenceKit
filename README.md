@@ -83,6 +83,12 @@ maa-evidence batch --input inspection.json `
   --requests queries.json `
   --output answers.json
 
+# 将本地阶段耗时写入旁路文件（不会混入 evidence）
+maa-evidence mla inspect C:\path\to\materials `
+  --format json `
+  --output inspection.json `
+  --profile profile.json
+
 # 将已有结果渲染为通用文本或 Mermaid
 maa-evidence view --input inspection.json --format text
 maa-evidence view --input inspection.json --format mermaid
@@ -217,6 +223,13 @@ const answers = await queryEvidenceBatch(runtime, [
 严格校验，任一项非法、ID 未知或窗口读取失败时整批明确失败，不返回容易误用的部分结果。
 批次不支持引用同批 `search` 动态返回的 ID；这种依赖关系应先批量搜索，再用第二批读取事实和窗口。
 
+`--profile FILE` 可用于 `mla inspect`、`mse inspect`、组合 `inspect` 及已有结果的查询命令。
+它输出本地 `maa-evidence-profile/v1` 旁路 JSON，聚合 discovery、MLA load/parse、MSE
+preflight/resolution、inspection load、render 和 output write 等阶段的 `count`、总耗时与最大耗时。
+profile 与 inspection 输出必须使用不同文件；失败命令也会写 `status: error`，但不会写异常消息、
+路径或命令参数。并发阶段会重叠，所以各阶段总耗时之和可能大于命令墙钟耗时。该文件不是
+evidence，也不会通过运行遥测自动发送。
+
 当 MLA 与 MSE 同时可用时，`inspect` 会额外输出 `combined.pipeline_reference`
 evidence，把运行时失败节点与静态 pipeline 任务关联起来，便于判断失败节点是否
 存在于当前项目配置中。匹配到的节点会携带 `pipelineControllers`、
@@ -279,6 +292,7 @@ src/
   views/       JSON、文本和 Mermaid
   feedback/    同意状态、匿名遥测和分级反馈
   cli/         命令行入口
+  profiling.ts 本地旁路阶段计时
   inspect.ts   可选组合检查
   index.ts     SDK 公共入口
 ```

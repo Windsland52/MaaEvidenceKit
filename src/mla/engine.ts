@@ -24,6 +24,7 @@ import {
   type InspectionResult,
   type TimeRange,
 } from "../evidence/index.js";
+import { profileStage, profileStageSync } from "../profiling.js";
 import { discoverArtifacts } from "./discovery.js";
 import { translateRuntimeInspection, type MlaRuntimeInspectionResult } from "./translate.js";
 
@@ -1742,29 +1743,29 @@ export async function inspectMla(
   if (!metadata.isDirectory() && resolvedPath.toLowerCase().endsWith(".zip")) {
     throw new Error("Archive extraction belongs to the calling harness; pass the extracted directory.");
   }
-  const discovery = await discoverArtifacts(resolvedPath);
+  const discovery = await profileStage("mla.discovery", () => discoverArtifacts(resolvedPath));
   const focus = focusFromOptions(options);
-  const targets = await selectMlaTargets(
+  const targets = await profileStage("mla.target_selection", () => selectMlaTargets(
     resolvedPath,
     metadata.isDirectory(),
     discovery.artifacts,
     focus !== undefined,
-  );
+  ));
   const loadedTargets: LoadedMlaTarget[] = [];
-  const targetMissingEvidence = [];
+  const targetMissingEvidence: MlaInspectionResult["missingEvidence"] = [];
   const coveredFiles = new Set<string>();
   const imageMapsByDirectory = buildImageMapsByLogDirectory(targets, discovery.artifacts);
   for (const target of targets) {
     if (target.kind === "file" && coveredFiles.has(pathKey(target.path))) continue;
     try {
       const imageDirectory = target.kind === "directory" ? target.path : path.dirname(target.path);
-      const loaded = await loadMlaTarget(
+      const loaded = await profileStage("mla.load_parse", () => loadMlaTarget(
         target,
         discovery.artifacts,
         focus,
         options.timeRange,
         imageMapsByDirectory.get(pathKey(imageDirectory)),
-      );
+      ));
       if (loaded === null) {
         if (focus === undefined) {
           targetMissingEvidence.push({
@@ -1791,6 +1792,7 @@ export async function inspectMla(
       });
     }
   }
+  return profileStageSync("mla.evidence_materialization", () => {
   const completeRuntime = loadedTargets.length === 0
     ? emptyRuntime(["No analyzable MaaFramework log content was selected."])
     : mergeRuntimes(loadedTargets);
@@ -1961,4 +1963,5 @@ export async function inspectMla(
       },
     },
   };
+  });
 }

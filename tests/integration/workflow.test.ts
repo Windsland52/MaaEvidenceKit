@@ -172,6 +172,7 @@ test("CLI writes JSON inspection and can query a cited source window", async () 
   process.env["MAA_EVIDENCE_CONFIG_DIR"] = configDirectory;
   await setTelemetryEnabled(false, configDirectory);
   const inspectionPath = path.join(root, "inspection.json");
+  const profilePath = path.join(root, "inspection-profile.json");
   const windowPath = path.join(root, "window.json");
   const evidencePath = path.join(root, "evidence.json");
   const windowTextPath = path.join(root, "window.txt");
@@ -180,7 +181,35 @@ test("CLI writes JSON inspection and can query a cited source window", async () 
   const batchPath = path.join(root, "batch.json");
   const focusedCombinedPath = path.join(root, "focused-combined.json");
 
-  expect(await main(["inspect", root, "--format", "json", "--output", inspectionPath])).toBe(0);
+  expect(await main([
+    "inspect",
+    root,
+    "--format",
+    "json",
+    "--output",
+    inspectionPath,
+    "--profile",
+    profilePath,
+  ])).toBe(0);
+  const profile = JSON.parse(await readFile(profilePath, "utf8")) as {
+    schemaVersion: string;
+    command: string;
+    status: string;
+    stages: Array<{ name: string }>;
+  };
+  expect(profile).toMatchObject({
+    schemaVersion: "maa-evidence-profile/v1",
+    command: "inspect",
+    status: "ok",
+  });
+  expect(profile.stages.map((stage) => stage.name)).toEqual(expect.arrayContaining([
+    "combined.discovery",
+    "mla.discovery",
+    "mla.load_parse",
+    "mse.preflight",
+    "render",
+    "output.write",
+  ]));
   expect(await main([
     "inspect",
     root,
