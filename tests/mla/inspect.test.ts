@@ -155,6 +155,92 @@ test("extracts aggregated OCR text and TemplateMatch score recognition details",
   expect(templateScore?.maximum).toBeCloseTo(0.212808);
 });
 
+
+test("extracts recognition detail generically across algorithms", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-recognition-generic-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  const recoEvent = (
+    time: string,
+    message: string,
+    recoDetails: Record<string, unknown>,
+    name: string,
+  ): string => event(time, message, { name, reco_details: recoDetails });
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    recoEvent("2026-07-19 10:01:00.000", "Node.Recognition.Succeeded", {
+      algorithm: "TemplateMatch",
+      box: [0, 0, 10, 10],
+      name: "TemplateOk",
+      reco_id: 1,
+      detail: {
+        all: [{ box: [0, 0, 10, 10], score: 0.998994 }],
+        best: { box: [0, 0, 10, 10], score: 0.998994 },
+        filtered: [{ box: [0, 0, 10, 10], score: 0.998994 }],
+      },
+    }, "TemplateOk"),
+    recoEvent("2026-07-19 10:02:00.000", "Node.Recognition.Succeeded", {
+      algorithm: "ColorMatch",
+      box: [0, 0, 10, 10],
+      name: "ColorOk",
+      reco_id: 2,
+      detail: {
+        all: [{ box: [0, 0, 10, 10], count: 964 }],
+        best: { box: [0, 0, 10, 10], count: 964 },
+        filtered: [{ box: [0, 0, 10, 10], count: 964 }],
+      },
+    }, "ColorOk"),
+    recoEvent("2026-07-19 10:03:00.000", "Node.Recognition.Succeeded", {
+      algorithm: "Or",
+      box: null,
+      name: "OrNode",
+      reco_id: 3,
+      detail: [{
+        algorithm: "ColorMatch",
+        box: [0, 0, 10, 10],
+        name: "OrChild",
+        reco_id: 4,
+        detail: {
+          all: [{ box: [0, 0, 10, 10], count: 964 }],
+          best: { box: [0, 0, 10, 10], count: 964 },
+          filtered: [{ box: [0, 0, 10, 10], count: 964 }],
+        },
+      }],
+    }, "OrNode"),
+    recoEvent("2026-07-19 10:04:00.000", "Node.Recognition.Succeeded", {
+      algorithm: "DirectHit",
+      box: [0, 0, 10, 10],
+      name: "DirectOk",
+      reco_id: 5,
+      detail: null,
+    }, "DirectOk"),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const recognitionEvidence = result.evidence.filter((item) => item.kind === "mla.recognition_detail");
+  const byNode = new Map(
+    recognitionEvidence.map((item) => [(item.data as { node?: string } | undefined)?.node, item]),
+  );
+  const templateData = byNode.get("TemplateOk")?.data as { detailShape?: string; candidateCounts?: { filtered?: { average?: number }; all?: { average?: number } }; best?: Array<{ score?: number }> } | undefined;
+  const colorData = byNode.get("ColorOk")?.data as { detailShape?: string; best?: Array<{ count?: number }>; score?: { count?: number } } | undefined;
+  const orData = byNode.get("OrNode")?.data as { detailShape?: string; childRecognition?: Array<{ name?: string | null; algorithm?: string | null; occurrenceCount?: number }> } | undefined;
+
+  expect(byNode.has("DirectOk")).toBe(false);
+  expect(templateData?.detailShape).toBe("candidate_list");
+  expect(templateData?.candidateCounts?.filtered?.average).toBe(1);
+  expect(templateData?.best?.[0]?.score).toBeCloseTo(0.998994);
+  expect(colorData?.detailShape).toBe("candidate_list");
+  expect(colorData?.best?.[0]?.count).toBe(964);
+  expect(colorData?.score).toBeNull();
+  expect(orData?.detailShape).toBe("child_array");
+  expect(orData?.childRecognition?.[0]).toMatchObject({
+    name: "OrChild",
+    algorithm: "ColorMatch",
+    occurrenceCount: 1,
+  });
+});
+
 test("inspectMla exposes complete signal totals alongside focused selection", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-counts-"));
   temporaryRoots.push(root);

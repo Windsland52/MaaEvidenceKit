@@ -37,13 +37,25 @@ type RecognitionDetailCandidate = {
   box?: [number, number, number, number];
   score?: number;
   text?: string;
+  count?: number;
+  label?: string;
+  clsIndex?: number;
 };
 
-type RecognitionDetailShape = {
-  all?: unknown;
-  best?: unknown;
-  filtered?: unknown;
+type RecognitionChildSummary = {
+  name: string | null;
+  algorithm: string | null;
+  box: [number, number, number, number] | null;
+  allCount: number | null;
+  filteredCount: number | null;
+  best: RecognitionDetailCandidate | null;
 };
+
+type RecognitionDetailShape =
+  | { kind: "none" }
+  | { kind: "candidate_list"; all: RecognitionDetailCandidate[]; filtered: RecognitionDetailCandidate[]; best: RecognitionDetailCandidate | null }
+  | { kind: "child_array"; children: RecognitionChildSummary[] }
+  | { kind: "unknown" };
 
 type RecognitionDetailSample = RecognitionDetailCandidate & {
   timestamp: string;
@@ -68,6 +80,20 @@ export type MlaRecognitionDetail = {
     first: RecognitionDetailSample;
     worst: RecognitionDetailSample | null;
   };
+  detailShape: "candidate_list" | "child_array" | "none" | "unknown" | "mixed";
+  candidateCounts: {
+    all: { count: number; minimum: number; maximum: number; average: number } | null;
+    filtered: { count: number; minimum: number; maximum: number; average: number } | null;
+    bestPresent: number;
+  } | null;
+  best: RecognitionDetailSample[];
+  childRecognition: Array<{
+    name: string | null;
+    algorithm: string | null;
+    occurrenceCount: number;
+    allCount: number | null;
+    filteredCount: number | null;
+  }>;
 };
 
 export type MlaTaskAnomaly = {
@@ -557,6 +583,16 @@ function addTaskAnomalyEvidence(
   );
 }
 
+function candidateSummaryText(candidate: RecognitionDetailCandidate | undefined): string {
+  if (candidate === undefined) return "";
+  const parts: string[] = [];
+  if (candidate.score !== undefined) parts.push(`score=${candidate.score.toFixed(4)}`);
+  if (candidate.text !== undefined) parts.push(JSON.stringify(candidate.text));
+  if (candidate.count !== undefined) parts.push(`count=${candidate.count}`);
+  if (candidate.label !== undefined) parts.push(`label=${candidate.label}`);
+  return parts.join(" ");
+}
+
 function addRecognitionDetailEvidence(
   ledger: EvidenceLedger,
   detail: MlaRecognitionDetail,
@@ -569,7 +605,16 @@ function addRecognitionDetailEvidence(
   const scoreSummary = detail.score === null
     ? ""
     : ` score=${detail.score.minimum.toFixed(4)}..${detail.score.maximum.toFixed(4)}`;
-  const summary = `Recognition ${detail.node} ${detail.status} (${detail.algorithm}) x${detail.occurrenceCount}${textSummary}${scoreSummary}`;
+  const filteredSummary = detail.candidateCounts === null || detail.candidateCounts?.filtered === null
+    ? ""
+    : ` filtered=${detail.candidateCounts?.filtered?.average.toFixed(1)}`;
+  const bestSummary = detail.best.length > 0
+    ? ` best=${candidateSummaryText(detail.best[0])}`
+    : "";
+  const childSummary = detail.childRecognition.length > 0
+    ? ` children=${detail.childRecognition.length}`
+    : "";
+  const summary = `Recognition ${detail.node} ${detail.status} (${detail.algorithm}) x${detail.occurrenceCount}${textSummary}${scoreSummary}${filteredSummary}${bestSummary}${childSummary}`;
   const representative = detail.representatives.worst ?? detail.representatives.first;
   ledger.add(
     "mla.recognition_detail",
@@ -965,23 +1010,76 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function candidateBox(value: unknown): [number, number, number, number] | null {
+  if (!Array.isArray(value) || value.length !== 4 || !value.every((item) => typeof item === "number")) {
+    return null;
+  }
+  return value as [number, number, number, number];
+}
+
 function candidateFromUnknown(value: unknown): RecognitionDetailCandidate | null {
   if (!isRecord(value)) return null;
-  const box = value["box"];
-  const score = value["score"];
-  const text = value["text"];
   const candidate: RecognitionDetailCandidate = {};
-  if (Array.isArray(box) && box.length === 4 && box.every((item) => typeof item === "number")) {
-    candidate.box = box as [number, number, number, number];
-  }
-  if (typeof score === "number") candidate.score = score;
-  if (typeof text === "string") candidate.text = text;
+  const box = candidateBox(value["box"]);
+  if (box !== null) candidate.box = box;
+  if (typeof value["score"] === "number") candidate.score = value["score"];
+  if (typeof value["text"] === "string") candidate.text = value["text"];
+  if (typeof value["count"] === "number") candidate.count = value["count"];
+  if (typeof value["label"] === "string") candidate.label = value["label"];
+  if (typeof value["cls_index"] === "number") candidate.clsIndex = value["cls_index"];
   return Object.keys(candidate).length === 0 ? null : candidate;
 }
 
 function candidatesFromUnknown(value: unknown): RecognitionDetailCandidate[] {
   if (!Array.isArray(value)) return [];
   return value.map(candidateFromUnknown).filter((item): item is RecognitionDetailCandidate => item !== null);
+}
+
+function bestFromUnknown(value: unknown): RecognitionDetailCandidate | null {
+  return candidateFromUnknown(value);
+}
+
+function parseRecognitionDetail(detail: unknown): RecognitionDetailShape {
+  if (detail === null || detail === undefined) return { kind: "none" };
+  if (Array.isArray(detail)) {
+    return {
+      kind: "child_array",
+      children: detail.slice(0, 8).filter(isRecord).map((child) => {
+        const childShape = parseRecognitionDetail(child["detail"]);
+        return {
+          name: typeof child["name"] === "string" ? child["name"] : null,
+          algorithm: typeof child["algorithm"] === "string" ? child["algorithm"] : null,
+          box: candidateBox(child["box"]),
+          allCount: childShape.kind === "candidate_list" ? childShape.all.length : null,
+          filteredCount: childShape.kind === "candidate_list" ? childShape.filtered.length : null,
+          best: childShape.kind === "candidate_list" ? childShape.best : null,
+        };
+      }),
+    };
+  }
+  if (!isRecord(detail)) return { kind: "unknown" };
+  const all = candidatesFromUnknown(detail["all"]);
+  const filtered = candidatesFromUnknown(detail["filtered"]);
+  const best = bestFromUnknown(detail["best"]);
+  if (
+    all.length > 0
+    || filtered.length > 0
+    || best !== null
+    || Array.isArray(detail["all"])
+    || Array.isArray(detail["filtered"])
+  ) {
+    return { kind: "candidate_list", all, filtered, best };
+  }
+  return { kind: "unknown" };
+}
+
+function lengthStats(values: number[]): { count: number; minimum: number; maximum: number; average: number } {
+  return {
+    count: values.length,
+    minimum: values.length === 0 ? 0 : Math.min(...values),
+    maximum: values.length === 0 ? 0 : Math.max(...values),
+    average: values.length === 0 ? 0 : values.reduce((total, item) => total + item, 0) / values.length,
+  };
 }
 
 function percentile(sorted: number[], ratio: number): number {
@@ -998,9 +1096,21 @@ function extractRecognitionDetails(
     node: string;
     status: "succeeded" | "failed";
     count: number;
+    detailShapes: Set<string>;
     texts: Map<string, number>;
     scores: number[];
+    allLengths: number[];
+    filteredLengths: number[];
+    bestPresentCount: number;
+    bestSamples: RecognitionDetailSample[];
     samples: RecognitionDetailSample[];
+    childRecognition: Map<string, {
+      name: string | null;
+      algorithm: string | null;
+      count: number;
+      allLengths: number[];
+      filteredLengths: number[];
+    }>;
   }>();
   for (const event of analyzed.events) {
     if (event.message !== "Node.Recognition.Succeeded" && event.message !== "Node.Recognition.Failed") continue;
@@ -1012,37 +1122,77 @@ function extractRecognitionDetails(
     if (typeof algorithm !== "string") continue;
     const node = recoDetails["name"];
     if (typeof node !== "string") continue;
-    const detail = recoDetails["detail"];
-    if (!isRecord(detail)) continue;
-    const shape = detail as RecognitionDetailShape;
-    const all = candidatesFromUnknown(shape.all);
-    if (all.length === 0) continue;
+    const shape = parseRecognitionDetail(recoDetails["detail"]);
+    if (shape.kind === "none" || shape.kind === "unknown") continue;
+    if (shape.kind === "child_array" && shape.children.length === 0) continue;
     const status = event.message === "Node.Recognition.Succeeded" ? "succeeded" : "failed";
-    if (status === "succeeded" && algorithm !== "OCR") continue;
     const key = `${node}|${algorithm}|${status}`;
     const group = groups.get(key) ?? {
       algorithm,
       node,
       status,
       count: 0,
+      detailShapes: new Set<string>(),
       texts: new Map<string, number>(),
       scores: [],
+      allLengths: [],
+      filteredLengths: [],
+      bestPresentCount: 0,
+      bestSamples: [],
       samples: [],
+      childRecognition: new Map<string, {
+        name: string | null;
+        algorithm: string | null;
+        count: number;
+        allLengths: number[];
+        filteredLengths: number[];
+      }>(),
     };
     group.count += 1;
-    for (const candidate of all) {
-      if (candidate.text !== undefined) {
-        group.texts.set(candidate.text, (group.texts.get(candidate.text) ?? 0) + 1);
+    group.detailShapes.add(shape.kind);
+    if (shape.kind === "candidate_list") {
+      group.allLengths.push(shape.all.length);
+      group.filteredLengths.push(shape.filtered.length);
+      if (shape.best !== null) group.bestPresentCount += 1;
+      const candidates = [...shape.all, ...shape.filtered, ...(shape.best === null ? [] : [shape.best])];
+      for (const candidate of candidates) {
+        if (candidate.text !== undefined) {
+          group.texts.set(candidate.text, (group.texts.get(candidate.text) ?? 0) + 1);
+        }
+        if (candidate.score !== undefined) {
+          group.scores.push(candidate.score);
+        }
       }
-      if (candidate.score !== undefined) {
-        group.scores.push(candidate.score);
+      const bestSample = shape.best ?? shape.all[0] ?? null;
+      group.samples.push({
+        ...bestSample,
+        timestamp: event.timestamp,
+        mergedLine: event._lineNumber ?? null,
+      });
+      if (shape.best !== null) {
+        group.bestSamples.push({
+          ...shape.best,
+          timestamp: event.timestamp,
+          mergedLine: event._lineNumber ?? null,
+        });
       }
+    } else {
+      for (const child of shape.children) {
+        const childKey = `${child.algorithm ?? ""}|${child.name ?? ""}`;
+        const entry = group.childRecognition.get(childKey) ?? {
+          name: child.name,
+          algorithm: child.algorithm,
+          count: 0,
+          allLengths: [],
+          filteredLengths: [],
+        };
+        entry.count += 1;
+        if (child.allCount !== null) entry.allLengths.push(child.allCount);
+        if (child.filteredCount !== null) entry.filteredLengths.push(child.filteredCount);
+        group.childRecognition.set(childKey, entry);
+      }
+      group.samples.push({ timestamp: event.timestamp, mergedLine: event._lineNumber ?? null });
     }
-    group.samples.push({
-      ...all[0],
-      timestamp: event.timestamp,
-      mergedLine: event._lineNumber ?? null,
-    });
     groups.set(key, group);
   }
   return [...groups.values()].sort((left, right) =>
@@ -1068,6 +1218,9 @@ function extractRecognitionDetails(
       : [...samples].sort((left, right) =>
         (left.score ?? Infinity) - (right.score ?? Infinity)
       )[0] ?? null;
+    const detailShape = group.detailShapes.size === 1
+      ? [...group.detailShapes][0] as MlaRecognitionDetail["detailShape"]
+      : "mixed" as const;
     return {
       algorithm: group.algorithm,
       node: group.node,
@@ -1078,6 +1231,22 @@ function extractRecognitionDetails(
         .map(([text, count]) => ({ text, count })),
       score,
       representatives: { first, worst },
+      detailShape,
+      candidateCounts: group.allLengths.length === 0 && group.filteredLengths.length === 0
+        ? null
+        : {
+          all: group.allLengths.length === 0 ? null : lengthStats(group.allLengths),
+          filtered: group.filteredLengths.length === 0 ? null : lengthStats(group.filteredLengths),
+          bestPresent: group.bestPresentCount,
+        },
+      best: group.bestSamples.slice(0, 3),
+      childRecognition: [...group.childRecognition.values()].slice(0, 8).map((entry) => ({
+        name: entry.name,
+        algorithm: entry.algorithm,
+        occurrenceCount: entry.count,
+        allCount: entry.allLengths.length === 0 ? null : lengthStats(entry.allLengths).average,
+        filteredCount: entry.filteredLengths.length === 0 ? null : lengthStats(entry.filteredLengths).average,
+      })),
     };
   });
 }

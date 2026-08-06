@@ -95,9 +95,10 @@ MLA 默认输出其优先级为 `high` 的信号和每个任务的高亮信号�
 实际引用的图片才标为 `selected`，图片字节不会嵌入结果。
 被失败事实引用的图片会额外输出为 `mla.failure_image` evidence，直接携带图片路径和关联节点，
 便于 harness 按需打开截图或调用视觉工具。
-MLA 识别事件中的 OCR 文本和识别分数会聚合成 `mla.recognition_detail` evidence：同一
-`node + algorithm + status` 合并为一条记录，保留出现次数、常见文本、分数分布和代表样本。
-默认只保留失败识别和成功 OCR，避免把重复成功的模板匹配刷成海量证据。
+MLA 会按 `node + algorithm + status` 把识别事件聚合为 `mla.recognition_detail` evidence，
+按 detail 的真实 shape 通用提取，而不是按算法硬编码：`all`/`filtered`/`best` 候选数组的
+数量与分数分布、`detail` 为数组时的子识别（如 Or）都会保留。OCR 文本、模板分数、
+ColorMatch 的 count 等候选字段统一抽取；`detail` 为空的 DirectHit 等不产生记录。
 对标记为成功但运行期间出现 `next_list_timeout`、`action_failure` 或日志结束仍未停止的
 重复节点序列，MEK 会输出 `mla.task_anomaly` evidence，避免把框架任务成功直接当作业务成功。
 若多个日志中出现字段完全一致的任务，MEK 会发出 `mla_possible_mirrored_tasks`，但不会在缺少
