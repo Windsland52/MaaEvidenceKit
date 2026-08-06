@@ -9,6 +9,7 @@ import {
   inspectMse,
   getTelemetryStatus,
   previewFeedback,
+  queryEvidenceBatch,
   type FeedbackCategory,
   type OperationalCounts,
   queryEvidenceWindow,
@@ -27,6 +28,7 @@ import {
   type ViewFormat,
 } from "../index.js";
 import { flag, integerOption, option, options, parseArguments, type ParsedArguments } from "./args.js";
+import { readBatchRequests } from "./batch-input.js";
 import { emit, readInspection } from "./io.js";
 
 const HELP = `MaaEvidenceKit — deterministic MaaFramework evidence extraction
@@ -38,6 +40,7 @@ Usage:
   maa-evidence window --input result.json (--evidence-id ID | --artifact-id ID) [--line N]
   maa-evidence view --input result.json [--evidence-id ID] --format json|text|mermaid
   maa-evidence search --input result.json [--artifact-id ID] [--kind KIND] [--node NODE] [--task TASK] [--text TEXT] [--from ISO] [--to ISO] [--limit N] [--format json|text]
+  maa-evidence batch --input result.json --requests queries.json
   maa-evidence telemetry status|enable|disable
   maa-evidence feedback --message TEXT [--category blocker|bug|suggestion|other] [--component mla|mse|discovery|views|other] [--attachment FILE]
 
@@ -202,6 +205,13 @@ async function runSearch(parsed: ParsedArguments): Promise<void> {
   await emit(renderEvidenceSearch(search, format), option(parsed, "--output"));
 }
 
+async function runBatch(parsed: ParsedArguments): Promise<void> {
+  const result = await readInspection(option(parsed, "--input") ?? "");
+  const requests = await readBatchRequests(option(parsed, "--requests") ?? "");
+  const batch = await queryEvidenceBatch(result, requests);
+  await emit(JSON.stringify(batch, null, 2), option(parsed, "--output"));
+}
+
 async function runTelemetry(parsed: ParsedArguments): Promise<void> {
   const action = requirePositional(parsed, 1, "telemetry action");
   if (action === "status") {
@@ -285,7 +295,7 @@ function countsFromInspection(result: InspectionResult): OperationalCounts {
 
 async function withOperationalTelemetry(
   command: string,
-  component: "mla" | "mse" | "combined" | "view" | "window" | "search",
+  component: "mla" | "mse" | "combined" | "view" | "window" | "search" | "batch",
   operation: () => Promise<InspectionResult | void>,
 ): Promise<void> {
   const startedAt = performance.now();
@@ -334,6 +344,9 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<numb
         return 0;
       case "search":
         await withOperationalTelemetry("search", "search", () => runSearch(parsed));
+        return 0;
+      case "batch":
+        await withOperationalTelemetry("batch", "batch", () => runBatch(parsed));
         return 0;
       case "telemetry":
         await runTelemetry(parsed);

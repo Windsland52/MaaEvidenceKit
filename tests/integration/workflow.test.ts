@@ -176,6 +176,8 @@ test("CLI writes JSON inspection and can query a cited source window", async () 
   const evidencePath = path.join(root, "evidence.json");
   const windowTextPath = path.join(root, "window.txt");
   const searchPath = path.join(root, "search.json");
+  const batchRequestsPath = path.join(root, "batch-requests.json");
+  const batchPath = path.join(root, "batch.json");
   const focusedCombinedPath = path.join(root, "focused-combined.json");
 
   expect(await main(["inspect", root, "--format", "json", "--output", inspectionPath])).toBe(0);
@@ -254,6 +256,40 @@ test("CLI writes JSON inspection and can query a cited source window", async () 
   expect(search.evidence[0]?.id).toMatch(/^evidence-/);
   expect(search.evidence[0]?.source).toBeDefined();
   expect(search.evidence[0]?.data).toBeUndefined();
+  await writeFile(batchRequestsPath, JSON.stringify([
+    {
+      id: "sessions",
+      operation: "search",
+      query: { kinds: ["mla.session"], text: ["v5.12.2"], limit: 5 },
+    },
+    { id: "cited", operation: "view", evidenceId: cited?.id },
+    {
+      id: "context",
+      operation: "window",
+      query: { evidenceId: cited?.id, before: 1, after: 1 },
+    },
+  ]), "utf8");
+  expect(await main([
+    "batch",
+    "--input",
+    inspectionPath,
+    "--requests",
+    batchRequestsPath,
+    "--output",
+    batchPath,
+  ])).toBe(0);
+  const batch = JSON.parse(await readFile(batchPath, "utf8")) as {
+    schemaVersion: string;
+    results: Array<{ id: string; operation: string; result: Record<string, unknown> }>;
+  };
+  expect(batch.schemaVersion).toBe("maa-evidence-batch/v1");
+  expect(batch.results.map((item) => [item.id, item.operation])).toEqual([
+    ["sessions", "search"],
+    ["cited", "view"],
+    ["context", "window"],
+  ]);
+  expect(batch.results[1]?.result["data"]).toBeDefined();
+  expect(String(batch.results[2]?.result["text"])).toContain("MAA Process Start");
   expect(await main([
     "view",
     "--input",

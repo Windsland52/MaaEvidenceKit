@@ -77,6 +77,11 @@ maa-evidence search --input inspection.json `
   --text "一键领取" `
   --limit 20
 
+# 在同一进程中批量查询已有结果
+maa-evidence batch --input inspection.json `
+  --requests queries.json `
+  --output answers.json
+
 # 将已有结果渲染为通用文本或 Mermaid
 maa-evidence view --input inspection.json --format text
 maa-evidence view --input inspection.json --format mermaid
@@ -151,6 +156,7 @@ import {
   inspectMla,
   inspectMse,
   evidenceById,
+  queryEvidenceBatch,
   queryEvidenceWindow,
   searchEvidence,
   view,
@@ -176,6 +182,11 @@ const selectedEvidence = evidenceById(combined.evidence, "evidence-abc123");
 const window = await queryEvidenceWindow(runtime, {
   evidenceId: runtime.evidence[0]?.id,
 });
+const answers = await queryEvidenceBatch(runtime, [
+  { id: "tasks", operation: "search", query: { kinds: ["mla.task"] } },
+  { id: "fact", operation: "view", evidenceId: "evidence-abc123" },
+  { id: "context", operation: "window", query: { evidenceId: "evidence-abc123" } },
+]);
 ```
 
 后续追问建议先从 JSON 结果中选择并引用 evidence ID，再使用 CLI 的
@@ -189,6 +200,21 @@ const window = await queryEvidenceWindow(runtime, {
 结构化 data 的原始值，不匹配 JSON 字段名。
 `--from` / `--to` 只匹配带 source timestamp 的 evidence。结果默认最多返回 50 条索引、
 上限 500 条，并明确给出 `totalMatches` 和 `truncated`；完整 data 仍通过 `view --evidence-id` 获取。
+
+`batch` 用一次 inspection 加载执行多个 `search`、`view` 和 `window` 请求，适合一次追问需要
+读取多条已知证据时避免重复启动 CLI 和解析大型 JSON。`--requests` 指向一个 JSON 数组：
+
+```json
+[
+  { "id": "find", "operation": "search", "query": { "kinds": ["mla.task"], "limit": 20 } },
+  { "id": "fact", "operation": "view", "evidenceId": "evidence-abc123" },
+  { "id": "context", "operation": "window", "query": { "evidenceId": "evidence-abc123", "before": 5, "after": 5 } }
+]
+```
+
+输出使用 `maa-evidence-batch/v1`，保持请求顺序和可选 `id`。每批限制 1 到 100 项；输入字段会
+严格校验，任一项非法、ID 未知或窗口读取失败时整批明确失败，不返回容易误用的部分结果。
+批次不支持引用同批 `search` 动态返回的 ID；这种依赖关系应先批量搜索，再用第二批读取事实和窗口。
 
 当 MLA 与 MSE 同时可用时，`inspect` 会额外输出 `combined.pipeline_reference`
 evidence，把运行时失败节点与静态 pipeline 任务关联起来，便于判断失败节点是否

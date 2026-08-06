@@ -1,4 +1,12 @@
 export { EvidenceLedger, artifactId } from "./ledger.js";
+export {
+  EVIDENCE_BATCH_SCHEMA_VERSION,
+  MAX_EVIDENCE_BATCH_REQUESTS,
+  queryEvidenceBatch,
+  type EvidenceBatchRequest,
+  type EvidenceBatchResult,
+  type EvidenceBatchResultItem,
+} from "./batch.js";
 export { parseTimestamp, portablePath, relativePortablePath } from "./provenance.js";
 export {
   EVIDENCE_SCHEMA_VERSION,

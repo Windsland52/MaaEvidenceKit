@@ -43,11 +43,11 @@ Do not run the complete MEK inspection merely because the command exists.
 
 ## Respect the telemetry choice
 
-On first use, let the user decide whether anonymous operational telemetry should be enabled. An
-interactive CLI asks directly. If the host runs commands non-interactively, check
-`maa-evidence telemetry status`, explain the choice when it is `undecided`, and run
-`maa-evidence telemetry enable` only after an affirmative answer. Never infer consent or enable it
-on the user's behalf. CI and non-interactive MEK commands do not send operational telemetry.
+Anonymous aggregate operational telemetry is enabled by default, including in CI and non-TTY use,
+and never prompts. It excludes paths, arguments, logs, source, screenshots, and exception messages.
+Respect `maa-evidence telemetry disable` and `MAA_EVIDENCE_TELEMETRY=0`; never re-enable telemetry
+after the user or environment disables it. Original-material feedback remains separate and always
+requires an interactive preview plus explicit `UPLOAD` confirmation.
 
 ## Prepare input
 
@@ -167,6 +167,26 @@ maa-evidence search --input inspection.json `
 maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format json
 maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format text
 ```
+
+When one follow-up needs two or more independent queries against the same saved inspection, prefer
+one batch so the CLI starts and parses the inspection only once:
+
+```json
+[
+  { "id": "find", "operation": "search", "query": { "kinds": ["mla.recognition_detail"], "nodes": ["DailyProtocolMissionsPick"], "limit": 20 } },
+  { "id": "fact", "operation": "view", "evidenceId": "evidence-abc123" },
+  { "id": "context", "operation": "window", "query": { "evidenceId": "evidence-abc123", "before": 5, "after": 5 } }
+]
+```
+
+```powershell
+maa-evidence batch --input inspection.json --requests queries.json --output answers.json
+```
+
+Batch output preserves request order and optional IDs. A batch contains 1 through 100 requests and
+fails as a whole on an invalid request or unresolved evidence/artifact ID. A request cannot consume
+IDs returned by another request in the same batch; run search and dependent view/window operations
+as two batches.
 
 `search` reads the saved inspection only; it does not re-run MLA or MSE. Artifact ID, kind, node,
 and task filters are exact and case-sensitive. Repeated values within one exact filter are OR

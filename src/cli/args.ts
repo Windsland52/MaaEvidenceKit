@@ -26,6 +26,7 @@ const VALUE_OPTIONS = new Set([
   "--depth",
   "--attachment",
   "--resource",
+  "--requests",
   "--syntax-mode",
   "--task",
   "--text",
