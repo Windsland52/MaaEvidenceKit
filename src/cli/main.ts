@@ -78,6 +78,14 @@ function syntaxMode(parsed: ParsedArguments): MseSyntaxMode {
   return value;
 }
 
+function rejectUnexpectedPositionals(parsed: ParsedArguments, expected: number): void {
+  const unexpected = parsed.positionals.slice(expected);
+  if (unexpected.length === 0) return;
+  throw new Error(
+    `Unexpected positional arguments: ${unexpected.map((value) => JSON.stringify(value)).join(", ")}.`,
+  );
+}
+
 function mseCommand(parsed: ParsedArguments): "inspect" | "resolve" {
   const value = requirePositional(parsed, 1, "MSE command");
   if (value !== "inspect" && value !== "resolve") {
@@ -367,9 +375,11 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<numb
     }
     switch (requirePositional(parsed, 0, "command")) {
       case "mla":
+        rejectUnexpectedPositionals(parsed, 3);
         await runOperationalCommand(parsed, "mla.inspect", "mla", () => runMla(parsed));
         return 0;
       case "mse":
+        rejectUnexpectedPositionals(parsed, 3);
         await runOperationalCommand(
           parsed,
           `mse.${mseCommand(parsed)}`,
@@ -378,24 +388,31 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<numb
         );
         return 0;
       case "inspect":
+        rejectUnexpectedPositionals(parsed, 2);
         await runOperationalCommand(parsed, "inspect", "combined", () => runCombined(parsed));
         return 0;
       case "window":
+        rejectUnexpectedPositionals(parsed, 1);
         await runOperationalCommand(parsed, "window", "window", () => runWindow(parsed));
         return 0;
       case "view":
+        rejectUnexpectedPositionals(parsed, 1);
         await runOperationalCommand(parsed, "view", "view", () => runView(parsed));
         return 0;
       case "search":
+        rejectUnexpectedPositionals(parsed, 1);
         await runOperationalCommand(parsed, "search", "search", () => runSearch(parsed));
         return 0;
       case "batch":
+        rejectUnexpectedPositionals(parsed, 1);
         await runOperationalCommand(parsed, "batch", "batch", () => runBatch(parsed));
         return 0;
       case "telemetry":
+        rejectUnexpectedPositionals(parsed, 2);
         await runTelemetry(parsed);
         return 0;
       case "feedback":
+        rejectUnexpectedPositionals(parsed, 1);
         await runFeedback(parsed);
         return 0;
       default:
