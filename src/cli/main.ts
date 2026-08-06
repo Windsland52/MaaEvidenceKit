@@ -41,7 +41,7 @@ Usage:
   maa-evidence mla inspect <path> [--from ISO] [--to ISO] [--keyword TEXT] [--all-signals] [--format json|text|mermaid]
   maa-evidence mse inspect <path> [--task NAME] [--depth N] [--controller NAME] [--resource NAME] [--no-referencers] [--syntax-mode maafw|maa] [--format json|text|mermaid]
   maa-evidence mse resolve <path> --task NAME [--depth N] [--controller NAME] [--resource NAME] [--no-referencers] [--syntax-mode maafw|maa] [--format json|text|mermaid]
-  maa-evidence inspect <path> [--from ISO] [--to ISO] [--task NAME] [--controller NAME] [--resource NAME] [--no-referencers] [--no-mla] [--no-mse]
+  maa-evidence inspect <path> [--from ISO] [--to ISO] [--task NAME] [--controller NAME] [--resource NAME] [--referencers|--no-referencers] [--no-mla] [--no-mse]
   maa-evidence window --input result.json (--evidence-id ID | --artifact-id ID) [--line N]
   maa-evidence view --input result.json [--evidence-id ID] --format json|text|mermaid
   maa-evidence search --input result.json [--artifact-id ID] [--kind KIND] [--node NODE] [--task TASK] [--text TEXT] [--from ISO] [--to ISO] [--limit N] [--format json|text]
@@ -147,6 +147,14 @@ async function runMse(parsed: ParsedArguments): Promise<InspectionResult> {
 
 async function runCombined(parsed: ParsedArguments): Promise<InspectionResult> {
   const range = timeRange(parsed);
+  if (flag(parsed, "--referencers") && flag(parsed, "--no-referencers")) {
+    throw new Error("--referencers and --no-referencers cannot be used together.");
+  }
+  const includeReferencers = flag(parsed, "--referencers")
+    ? true
+    : flag(parsed, "--no-referencers")
+      ? false
+      : undefined;
   const result = await inspect(requirePositional(parsed, 1, "input path"), {
     mla: flag(parsed, "--no-mla")
       ? false
@@ -160,7 +168,7 @@ async function runCombined(parsed: ParsedArguments): Promise<InspectionResult> {
       : {
         syntaxMode: syntaxMode(parsed),
         tasks: options(parsed, "--task"),
-        includeReferencers: !flag(parsed, "--no-referencers"),
+        ...(includeReferencers === undefined ? {} : { includeReferencers }),
         ...(option(parsed, "--controller") === undefined
           ? {}
           : { controller: option(parsed, "--controller") as string }),

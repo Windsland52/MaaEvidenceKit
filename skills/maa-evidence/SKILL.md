@@ -32,6 +32,9 @@ Sentry investigation, source research, and diagnostic judgment in the host harne
   then failed and frequent recognition observations. Check
   `combined.runtime_node_resolution_truncated`, `statistics.mseRuntimeNodes*`, and
   `details.correlation.runtimeNodes` before assuming every runtime node was statically resolved.
+  Automatic correlation resolves direct task definitions only (`depth: 0`, no referencers) to keep
+  combined inspection bounded. Pass explicit MSE `depth` / `includeReferencers` options, or use
+  `maa-evidence inspect --referencers --depth N`, only when execution-path context is needed.
   Matches carry `pipelineControllers`, `pipelineResources`, and `pipelineDefinitions`
   source locations; nodes absent from the project emit a
   `combined.pipeline_reference_missing` warning.

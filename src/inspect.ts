@@ -461,9 +461,16 @@ export async function inspect(
   const runtimeNodeSelection = shouldInspectMse ? selectRuntimeNodesForMse(mla) : selectRuntimeNodesForMse(null);
   const mseOption = options.mse === false ? undefined : options.mse;
   const mseTasks = runtimeNodeSelection.selected > 0 ? runtimeNodeSelection.tasks : mseOption?.tasks;
+  const automaticRuntimeCorrelation = runtimeNodeSelection.selected > 0;
   const mse = shouldInspectMse ? await inspectMse(resolvedPath, {
     ...(mseOption),
     ...(mseTasks === undefined ? {} : { tasks: mseTasks }),
+    ...(automaticRuntimeCorrelation
+      ? {
+        depth: mseOption?.depth ?? 0,
+        includeReferencers: mseOption?.includeReferencers ?? false,
+      }
+      : {}),
   }) : null;
   const componentResults = [mla, mse].filter((item) => item !== null);
   const artifacts = profileStageSync("combined.materialization", () =>

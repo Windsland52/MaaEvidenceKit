@@ -470,6 +470,7 @@ test("combined inspection links runtime recognition evidence to static MSE confi
     incompleteReasons: [],
   });
   expect(data?.recognitionEvidenceId).toMatch(/^evidence-/);
+  expect(result.details.mse?.details.selection).toMatchObject({ depth: 0, includeReferencers: false });
   expect(data?.staticConfigurations?.[0]).toMatchObject({
     recognition: "OCR",
     customRecognition: null,

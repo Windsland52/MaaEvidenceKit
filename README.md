@@ -286,6 +286,9 @@ definition evidence 链接缺失。只有完整静态范围内确认缺失才使
 总识别次数和节点名稳定排序。达到上限时会输出 `combined.runtime_node_resolution_truncated`，
 完整规模及选中/省略数量保存在 `statistics.mseRuntimeNodes*` 和
 `details.correlation.runtimeNodes`；未选择的节点不会被误报为 `pipelineFound: false`。
+自动关联只解析选中节点的直接定义（`depth: 0` 且不查找 referencer），避免静态图展开主导
+组合检查耗时。传入 `InspectOptions.mse.depth` / `includeReferencers` 可覆盖 SDK 默认；CLI 需要
+展开反向引用时使用 `inspect --referencers --depth N`。
 
 核心输出使用 `maa-evidence/v1`，包含：
 
