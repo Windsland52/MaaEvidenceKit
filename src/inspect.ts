@@ -61,6 +61,8 @@ type PipelineReferenceEvidenceData = {
   pipelineControllers: string[];
   pipelineResources: string[];
   pipelineDefinitions: PipelineDefinitionEvidence[];
+  staticResolutionStatus: StaticResolutionStatus;
+  incompleteReasons: string[];
 };
 
 type MlaFailureDetails = {
@@ -92,6 +94,7 @@ type RecognitionPipelineConfiguration = {
   customRecognition: unknown | null;
   definitions: PipelineDefinitionEvidence[];
   definitionEvidenceIds: string[];
+  definitionLinksComplete: boolean;
 };
 
 type RecognitionPipelineReferenceEvidenceData = {
@@ -104,6 +107,15 @@ type RecognitionPipelineReferenceEvidenceData = {
   pipelineControllers: string[];
   pipelineResources: string[];
   staticConfigurations: RecognitionPipelineConfiguration[];
+  staticResolutionStatus: StaticResolutionStatus;
+  incompleteReasons: string[];
+};
+
+type StaticResolutionStatus = "found" | "found_partial" | "not_found" | "incomplete";
+
+type CorrelationResolutionIssues = {
+  notFoundNodes: Set<string>;
+  incompleteNodes: Set<string>;
 };
 
 type MseTaskDefinitionDetails = {
@@ -125,6 +137,27 @@ function taskDefinitionEvidenceKey(
   line: number,
 ): string {
   return JSON.stringify([name, controller, resource, sourcePath, line]);
+}
+
+function mseStaticResolutionIncompleteReasons(mse: MseInspectionResult): string[] {
+  const reasons = new Set<string>();
+  if (mse.details.projects.some((project) => project.resolution?.configurations_truncated === true)) {
+    reasons.add("controller_resource_configurations_truncated");
+  }
+  for (const warning of mse.warnings) {
+    if (warning.code === "mse_project_scan_truncated" || warning.code === "mse_project_list_truncated") {
+      reasons.add(warning.code);
+    }
+    if (warning.code === "mse_task_resolution_truncated") {
+      reasons.add("mse_task_resolution_truncated");
+    }
+  }
+  return [...reasons].sort();
+}
+
+function staticResolutionStatus(found: boolean, incompleteReasons: readonly string[]): StaticResolutionStatus {
+  if (found) return incompleteReasons.length === 0 ? "found" : "found_partial";
+  return incompleteReasons.length === 0 ? "not_found" : "incomplete";
 }
 
 function selectRuntimeNodesForMse(mla: MlaInspectionResult | null): RuntimeMseNodeSelection {
@@ -182,7 +215,8 @@ function addPipelineReferences(
   mla: MlaInspectionResult,
   mse: MseInspectionResult,
   selectedRuntimeNodes: ReadonlySet<string>,
-): Set<string> {
+  staticIncompleteReasons: readonly string[],
+): CorrelationResolutionIssues {
   const graphNodes = new Map<string, Array<{
     found: boolean;
     controller: string | null;
@@ -207,7 +241,8 @@ function addPipelineReferences(
       graphNodes.set(node.name, group);
     }
   }
-  const unfoundNodes = new Set<string>();
+  const notFoundNodes = new Set<string>();
+  const incompleteNodes = new Set<string>();
   for (const failure of mla.evidence) {
     if (failure.kind !== "mla.failure") continue;
     const data = failure.data as MlaFailureDetails | undefined;
@@ -228,7 +263,9 @@ function addPipelineReferences(
       [left.sourcePath, left.line, left.column, left.controller ?? "", left.resource ?? ""].join("|")
         .localeCompare([right.sourcePath, right.line, right.column, right.controller ?? "", right.resource ?? ""].join("|")),
     );
-    if (!pipelineFound) unfoundNodes.add(node);
+    const resolutionStatus = staticResolutionStatus(pipelineFound, staticIncompleteReasons);
+    if (resolutionStatus === "not_found") notFoundNodes.add(node);
+    if (resolutionStatus === "incomplete" || resolutionStatus === "found_partial") incompleteNodes.add(node);
     const payload: PipelineReferenceEvidenceData = {
       failureId: data.failure_id ?? failure.id,
       failureKind: failure.kind,
@@ -238,10 +275,14 @@ function addPipelineReferences(
       pipelineControllers: controllers,
       pipelineResources: resources,
       pipelineDefinitions,
+      staticResolutionStatus: resolutionStatus,
+      incompleteReasons: [...staticIncompleteReasons],
     };
     ledger.add(
       "combined.pipeline_reference",
-      pipelineFound
+      resolutionStatus === "incomplete"
+        ? `Failure node ${node} could not be conclusively resolved in the incomplete MSE static scope.`
+        : pipelineFound
         ? `Failure node ${node} exists in the MSE pipeline.`
         : `Failure node ${node} was not found in the MSE pipeline.`,
       {
@@ -257,7 +298,7 @@ function addPipelineReferences(
       payload,
     );
   }
-  return unfoundNodes;
+  return { notFoundNodes, incompleteNodes };
 }
 
 function addRecognitionPipelineReferences(
@@ -265,7 +306,8 @@ function addRecognitionPipelineReferences(
   mla: MlaInspectionResult,
   mse: MseInspectionResult,
   selectedRuntimeNodes: ReadonlySet<string>,
-): Set<string> {
+  staticIncompleteReasons: readonly string[],
+): CorrelationResolutionIssues {
   const definitionEvidenceIds = new Map<string, string[]>();
   for (const evidence of mse.evidence) {
     if (evidence.kind !== "mse.task_definition") continue;
@@ -295,7 +337,8 @@ function addRecognitionPipelineReferences(
       configurationsByNode.set(task.name, configurations);
     }
   }
-  const unfoundNodes = new Set<string>();
+  const notFoundNodes = new Set<string>();
+  const incompleteNodes = new Set<string>();
   for (const recognition of mla.evidence) {
     if (recognition.kind !== "mla.recognition_detail") continue;
     const data = recognition.data as MlaRecognitionDetails | undefined;
@@ -308,14 +351,8 @@ function addRecognitionPipelineReferences(
     if (!selectedRuntimeNodes.has(data.node)) continue;
     const configurations = (configurationsByNode.get(data.node) ?? []).filter((item) => item.task.found);
     const pipelineFound = configurations.length > 0;
-    if (!pipelineFound) unfoundNodes.add(data.node);
-    const staticConfigurations = configurations.map(({ projectRoot, task }) => ({
-      controller: task.controller,
-      resource: task.resource,
-      recognition: task.effective_config["recognition"] ?? null,
-      customRecognition: task.effective_config["custom_recognition"] ?? null,
-      definitions: pipelineDefinitions(task),
-      definitionEvidenceIds: [...new Set(task.definitions.flatMap((definition) =>
+    const staticConfigurations = configurations.map(({ projectRoot, task }) => {
+      const definitionIds = task.definitions.map((definition) =>
         definitionEvidenceIds.get(taskDefinitionEvidenceKey(
           task.name,
           task.controller,
@@ -323,12 +360,30 @@ function addRecognitionPipelineReferences(
           relativePortablePath(mse.input.path, path.resolve(projectRoot, definition.source_path)),
           definition.line,
         )) ?? []
-      ))].sort(),
-    })).sort((left, right) =>
+      );
+      return {
+        controller: task.controller,
+        resource: task.resource,
+        recognition: task.effective_config["recognition"] ?? null,
+        customRecognition: task.effective_config["custom_recognition"] ?? null,
+        definitions: pipelineDefinitions(task),
+        definitionEvidenceIds: [...new Set(definitionIds.flat())].sort(),
+        definitionLinksComplete: definitionIds.every((ids) => ids.length > 0),
+      };
+    }).sort((left, right) =>
       [left.controller ?? "", left.resource ?? "", JSON.stringify(left.definitionEvidenceIds)]
         .join("|")
         .localeCompare([right.controller ?? "", right.resource ?? "", JSON.stringify(right.definitionEvidenceIds)].join("|")),
     );
+    const incompleteReasons = [...staticIncompleteReasons];
+    if (staticConfigurations.some((configuration) => !configuration.definitionLinksComplete)) {
+      incompleteReasons.push("definition_evidence_link_missing");
+    }
+    const resolutionStatus = staticResolutionStatus(pipelineFound, incompleteReasons);
+    if (resolutionStatus === "not_found") notFoundNodes.add(data.node);
+    if (resolutionStatus === "incomplete" || resolutionStatus === "found_partial") {
+      incompleteNodes.add(data.node);
+    }
     const payload: RecognitionPipelineReferenceEvidenceData = {
       recognitionEvidenceId: recognition.id,
       node: data.node,
@@ -341,10 +396,14 @@ function addRecognitionPipelineReferences(
       pipelineResources: [...new Set(configurations.map((item) => item.task.resource)
         .filter((item): item is string => item !== null))].sort(),
       staticConfigurations,
+      staticResolutionStatus: resolutionStatus,
+      incompleteReasons,
     };
     ledger.add(
       "combined.recognition_pipeline_reference",
-      pipelineFound
+      resolutionStatus === "incomplete"
+        ? `Recognition node ${data.node} (${data.algorithm}, ${data.status}) could not be conclusively resolved in the incomplete MSE static scope.`
+        : pipelineFound
         ? `Recognition node ${data.node} (${data.algorithm}, ${data.status}) exists in the MSE pipeline.`
         : `Recognition node ${data.node} (${data.algorithm}, ${data.status}) was not found in the MSE pipeline.`,
       {
@@ -358,7 +417,7 @@ function addRecognitionPipelineReferences(
       payload,
     );
   }
-  return unfoundNodes;
+  return { notFoundNodes, incompleteNodes };
 }
 
 function mergeArtifacts(groups: readonly Artifact[][]): Artifact[] {
@@ -423,20 +482,45 @@ export async function inspect(
   }
   if (mla !== null && mse !== null) {
     const selectedRuntimeNodes = new Set(runtimeNodeSelection.tasks);
-    const { unfoundFailureNodes, unfoundRecognitionNodes } = profileStageSync("combined.correlation", () => ({
-      unfoundFailureNodes: addPipelineReferences(combinedLedger, mla, mse, selectedRuntimeNodes),
-      unfoundRecognitionNodes: addRecognitionPipelineReferences(combinedLedger, mla, mse, selectedRuntimeNodes),
+    const staticIncompleteReasons = mseStaticResolutionIncompleteReasons(mse);
+    const { failureIssues, recognitionIssues } = profileStageSync("combined.correlation", () => ({
+      failureIssues: addPipelineReferences(
+        combinedLedger,
+        mla,
+        mse,
+        selectedRuntimeNodes,
+        staticIncompleteReasons,
+      ),
+      recognitionIssues: addRecognitionPipelineReferences(
+        combinedLedger,
+        mla,
+        mse,
+        selectedRuntimeNodes,
+        staticIncompleteReasons,
+      ),
     }));
-    if (unfoundFailureNodes.size > 0) {
+    if (failureIssues.notFoundNodes.size > 0) {
       combinedWarnings.push({
         code: "combined.pipeline_reference_missing",
-        message: `Runtime failure nodes were not found in the MSE pipeline: ${[...unfoundFailureNodes].sort().join(", ")}.`,
+        message: `Runtime failure nodes were not found in the MSE pipeline: ${[...failureIssues.notFoundNodes].sort().join(", ")}.`,
       });
     }
-    if (unfoundRecognitionNodes.size > 0) {
+    if (failureIssues.incompleteNodes.size > 0) {
+      combinedWarnings.push({
+        code: "combined.pipeline_reference_incomplete",
+        message: `Runtime failure-node static resolution was incomplete for: ${[...failureIssues.incompleteNodes].sort().join(", ")}.`,
+      });
+    }
+    if (recognitionIssues.notFoundNodes.size > 0) {
       combinedWarnings.push({
         code: "combined.recognition_pipeline_reference_missing",
-        message: `Runtime recognition nodes were not found in the MSE pipeline: ${[...unfoundRecognitionNodes].sort().join(", ")}.`,
+        message: `Runtime recognition nodes were not found in the MSE pipeline: ${[...recognitionIssues.notFoundNodes].sort().join(", ")}.`,
+      });
+    }
+    if (recognitionIssues.incompleteNodes.size > 0) {
+      combinedWarnings.push({
+        code: "combined.recognition_pipeline_reference_incomplete",
+        message: `Runtime recognition-node static resolution was incomplete for: ${[...recognitionIssues.incompleteNodes].sort().join(", ")}.`,
       });
     }
   }

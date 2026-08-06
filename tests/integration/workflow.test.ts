@@ -156,6 +156,8 @@ test("combined inspection links runtime failures to MSE pipeline nodes", async (
     pipelineControllers?: string[];
     pipelineResources?: string[];
     pipelineDefinitions?: Array<{ sourcePath: string; line: number; column: number }>;
+    staticResolutionStatus?: string;
+    incompleteReasons?: string[];
   } | undefined;
   const dataWithTasks = refsWithTasks[0]?.data as { node?: string; pipelineFound?: boolean } | undefined;
 
@@ -164,6 +166,8 @@ test("combined inspection links runtime failures to MSE pipeline nodes", async (
   expect(data?.pipelineFound).toBe(true);
   expect(data?.pipelineControllers).toContain("Adb");
   expect(data?.pipelineResources).toContain("Official");
+  expect(data?.staticResolutionStatus).toBe("found");
+  expect(data?.incompleteReasons).toEqual([]);
   expect(data?.pipelineDefinitions?.length).toBeGreaterThan(0);
   expect(data?.pipelineDefinitions?.[0]?.sourcePath).toMatch(/combat\.json$/);
   expect(dataWithTasks?.node).toBe("Start");
@@ -176,11 +180,18 @@ test("combined inspection reports runtime failure nodes missing from the MSE pip
 
   const result = await inspect(root);
   const refs = result.evidence.filter((item) => item.kind === "combined.pipeline_reference");
-  const data = refs[0]?.data as { node?: string; pipelineFound?: boolean } | undefined;
+  const data = refs[0]?.data as {
+    node?: string;
+    pipelineFound?: boolean;
+    staticResolutionStatus?: string;
+    incompleteReasons?: string[];
+  } | undefined;
 
   expect(refs.length).toBeGreaterThan(0);
   expect(data?.node).toBe("Ghost");
   expect(data?.pipelineFound).toBe(false);
+  expect(data?.staticResolutionStatus).toBe("not_found");
+  expect(data?.incompleteReasons).toEqual([]);
   expect(result.warnings.some((item) => item.code === "combined.pipeline_reference_missing")).toBe(true);
   expect(result.warnings.some((item) => item.message.includes("Ghost"))).toBe(true);
 });
@@ -435,10 +446,13 @@ test("combined inspection links runtime recognition evidence to static MSE confi
     pipelineFound?: boolean;
     pipelineControllers?: string[];
     pipelineResources?: string[];
+    staticResolutionStatus?: string;
+    incompleteReasons?: string[];
     staticConfigurations?: Array<{
       recognition?: unknown;
       customRecognition?: unknown;
       definitionEvidenceIds?: string[];
+      definitionLinksComplete?: boolean;
       definitions?: Array<{ sourcePath?: string; line?: number; column?: number }>;
     }>;
   } | undefined;
@@ -452,11 +466,14 @@ test("combined inspection links runtime recognition evidence to static MSE confi
     pipelineFound: true,
     pipelineControllers: ["Adb"],
     pipelineResources: ["Official"],
+    staticResolutionStatus: "found",
+    incompleteReasons: [],
   });
   expect(data?.recognitionEvidenceId).toMatch(/^evidence-/);
   expect(data?.staticConfigurations?.[0]).toMatchObject({
     recognition: "OCR",
     customRecognition: null,
+    definitionLinksComplete: true,
   });
   expect(data?.staticConfigurations?.[0]).not.toHaveProperty("effectiveConfig");
   expect(data?.staticConfigurations?.[0]?.definitions?.[0]).toMatchObject({

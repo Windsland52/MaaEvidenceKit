@@ -24,6 +24,10 @@ Sentry investigation, source research, and diagnostic judgment in the host harne
   `effectiveConfig` is needed. Do not infer a cause from the runtime score. Nodes absent from the
   supplied static snapshot emit a
   `combined.recognition_pipeline_reference_missing` warning.
+  Check `staticResolutionStatus` and `incompleteReasons`: `not_found` means absence was observed in
+  a complete static scope, while `incomplete` or `found_partial` means project/configuration
+  truncation or missing definition links prevent an exhaustive claim. Corresponding
+  `combined.*_reference_incomplete` warnings must not be treated as proof of absence.
   Automatic runtime-node correlation selects at most 128 unique names, prioritizing failure nodes,
   then failed and frequent recognition observations. Check
   `combined.runtime_node_resolution_truncated`, `statistics.mseRuntimeNodes*`, and

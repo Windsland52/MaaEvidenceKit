@@ -278,6 +278,10 @@ evidence，把运行时失败节点与静态 pipeline 任务关联起来，便�
 `threshold`、`template` 等实际存在的配置字段。该关系只表示运行时名称与提供的静态快照匹配，
 不表示配置导致了本次识别结果；若节点不在该快照中，会以 `pipelineFound: false` 及
 `combined.recognition_pipeline_reference_missing` 提示明确输出。
+两类 combined relation 都通过 `staticResolutionStatus` 区分 `found`、`found_partial`、
+`not_found` 和 `incomplete`，并在 `incompleteReasons` 中列出配置组合截断、项目发现截断或
+definition evidence 链接缺失。只有完整静态范围内确认缺失才使用 `not_found`；不完整范围
+使用独立的 `combined.*_reference_incomplete` warning，不能据此断言节点不存在。
 自动运行时到 MSE 的关联最多选择 128 个不同节点：failure 节点优先，其余按失败识别次数、
 总识别次数和节点名稳定排序。达到上限时会输出 `combined.runtime_node_resolution_truncated`，
 完整规模及选中/省略数量保存在 `statistics.mseRuntimeNodes*` 和
