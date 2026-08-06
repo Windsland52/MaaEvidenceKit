@@ -23,6 +23,10 @@ Sentry investigation, source research, and diagnostic judgment in the host harne
   The graph contains only execution edges; template/color/locale references stay in evidence.
 - When a failure node is known, pass it as `--task`; MSE also finds tasks that reference it,
   so the graph can show who led the flow into the failing node.
+- Reverse-reference expansion can be large for shared scene nodes. If the question only needs the
+  requested node definition and its forward path, add `--no-referencers`. When the runtime
+  controller and resource are known, pass `--controller` and `--resource` to avoid unrelated
+  configuration combinations.
 - MSE graph nodes include `desc`, `recognition`, `action`, `customRecognition`, and
   `customAction` summaries so the harness can judge node purpose without expanding full config.
 - When both supported logs and project source are present, run `maa-evidence inspect <folder>`.
@@ -102,6 +106,14 @@ template scores, and ColorMatch counts are unified candidate fields; empty `deta
 is skipped. Aggregated recognition records also attach a `source` locator to representative and best
 samples; use that locator when a follow-up asks about one occurrence rather than the aggregate's main
 source.
+`mla.action_detail` aggregates `Node.Action.Succeeded` and `Node.Action.Failed` by node, action
+type, status, and MaaFramework task ID. Its first/last representatives retain bounded action details
+and source locators.
+Treat action success as a framework-layer fact only; compare it with subsequent recognition and
+task evidence before claiming the target UI changed.
+Action-detail evidence is capped at 500 evenly spaced chronological groups per MLA target. Check
+`mla_action_details_truncated` and the complete `statistics.actionOccurrences` / `actionDetailsTotal`
+counts before treating the returned records as exhaustive.
 Use filtered counts and best candidates to distinguish a failed recognition from a low-confidence
 successful match, and to compare OCR text observed at issue time with the expected pipeline text.
 
@@ -156,10 +168,11 @@ maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format
 maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format text
 ```
 
-`search` reads the saved inspection only; it does not re-run MLA or MSE. Kind, node, and task
-filters are exact and case-sensitive. Repeated values within one exact filter are OR alternatives;
-repeated `--text` values are case-insensitive AND terms across the summary, source, and structured
-data. Time filters exclude evidence without a source timestamp. Results are bounded indexes without
+`search` reads the saved inspection only; it does not re-run MLA or MSE. Artifact ID, kind, node,
+and task filters are exact and case-sensitive. Repeated values within one exact filter are OR
+alternatives; repeated `--text` values are case-insensitive AND terms across primitive values in the
+summary, source, and structured data. JSON field names are not searched. Time filters exclude
+evidence without a source timestamp. Results are bounded indexes without
 the potentially large `data` field; use the returned ID with `view` to retrieve the full record.
 
 The single-evidence JSON output is the original structured record, including its deterministic

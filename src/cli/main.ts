@@ -33,11 +33,11 @@ const HELP = `MaaEvidenceKit — deterministic MaaFramework evidence extraction
 
 Usage:
   maa-evidence mla inspect <path> [--from ISO] [--to ISO] [--keyword TEXT] [--all-signals] [--format json|text|mermaid]
-  maa-evidence mse inspect <path> [--task NAME] [--depth N] [--syntax-mode maafw|maa] [--format json|text|mermaid]
-  maa-evidence inspect <path> [--from ISO] [--to ISO] [--task NAME] [--no-mla] [--no-mse]
+  maa-evidence mse inspect <path> [--task NAME] [--depth N] [--controller NAME] [--resource NAME] [--no-referencers] [--syntax-mode maafw|maa] [--format json|text|mermaid]
+  maa-evidence inspect <path> [--from ISO] [--to ISO] [--task NAME] [--controller NAME] [--resource NAME] [--no-referencers] [--no-mla] [--no-mse]
   maa-evidence window --input result.json (--evidence-id ID | --artifact-id ID) [--line N]
   maa-evidence view --input result.json [--evidence-id ID] --format json|text|mermaid
-  maa-evidence search --input result.json [--kind KIND] [--node NODE] [--task TASK] [--text TEXT] [--from ISO] [--to ISO] [--limit N] [--format json|text]
+  maa-evidence search --input result.json [--artifact-id ID] [--kind KIND] [--node NODE] [--task TASK] [--text TEXT] [--from ISO] [--to ISO] [--limit N] [--format json|text]
   maa-evidence telemetry status|enable|disable
   maa-evidence feedback --message TEXT [--category blocker|bug|suggestion|other] [--component mla|mse|discovery|views|other] [--attachment FILE]
 
@@ -101,6 +101,7 @@ async function runMse(parsed: ParsedArguments): Promise<InspectionResult> {
   const result = await inspectMse(requirePositional(parsed, 2, "project path"), {
     syntaxMode: syntaxMode(parsed),
     tasks: options(parsed, "--task"),
+    includeReferencers: !flag(parsed, "--no-referencers"),
     ...(option(parsed, "--controller") === undefined
       ? {}
       : { controller: option(parsed, "--controller") as string }),
@@ -130,6 +131,13 @@ async function runCombined(parsed: ParsedArguments): Promise<InspectionResult> {
       : {
         syntaxMode: syntaxMode(parsed),
         tasks: options(parsed, "--task"),
+        includeReferencers: !flag(parsed, "--no-referencers"),
+        ...(option(parsed, "--controller") === undefined
+          ? {}
+          : { controller: option(parsed, "--controller") as string }),
+        ...(option(parsed, "--resource") === undefined
+          ? {}
+          : { resource: option(parsed, "--resource") as string }),
         ...(integerOption(parsed, "--depth") === undefined
           ? {}
           : { depth: integerOption(parsed, "--depth") as number }),
@@ -181,6 +189,7 @@ async function runSearch(parsed: ParsedArguments): Promise<void> {
   const result = await readInspection(option(parsed, "--input") ?? "");
   const range = timeRange(parsed);
   const search = searchEvidence(result, {
+    artifactIds: options(parsed, "--artifact-id"),
     kinds: options(parsed, "--kind"),
     nodes: options(parsed, "--node"),
     tasks: options(parsed, "--task"),

@@ -55,6 +55,14 @@ maa-evidence mla inspect C:\path\to\materials `
 # 只检查指定项目任务
 maa-evidence mse inspect C:\path\to\project --task StartUp --format text
 
+# 查询公共节点定义时关闭可能很大的反向引用展开
+maa-evidence mse inspect C:\path\to\project `
+  --controller Win32-Front `
+  --resource 官服 `
+  --task __ScenePrivateWorldEnterMenuList `
+  --depth 1 `
+  --no-referencers
+
 # 读取某条证据附近的原始行
 maa-evidence window --input inspection.json --evidence-id evidence-abc123
 
@@ -80,6 +88,9 @@ MSE 未提供 `--task` 时只执行 Interface、资源组合和静态诊断预�
 默认展开两层，可用 `--depth N` 控制深度。图中只保留执行路径边，模板、颜色、OCR 等
 资源引用仍保留在 `mse.reference` evidence 中。以失败节点作为 `--task` 时，MSE 还会
 反向扫描执行路径，找出哪些任务引用了该节点，便于定位“谁把流程带到失败点”。
+对于被大量任务复用的公共节点，反向扫描可能产生很大的图；只需要节点定义及其后续路径时
+使用 `--no-referencers`。已从日志确定 controller/resource 时也应显式传入，避免为不相关的
+资源组合重复解析。SDK 对应设置 `includeReferencers: false`。
 图中节点会附带 `desc` / `recognition` / `action` / `customRecognition` /
 `customAction` 摘要字段，便于在不打开完整配置的情况下判断节点职责。
 
@@ -117,6 +128,13 @@ MLA 会按 `node + algorithm + status` 把识别事件聚合为 `mla.recognition
 候选字段统一抽取；`detail` 为空的 DirectHit 等不产生记录。
 聚合记录的 `representatives` / `best` 样本还会附带各自的 `source` locator，便于 harness
 追问某一次观测，而不是只能打开聚合记录的主 source。
+`Node.Action.Succeeded` / `Node.Action.Failed` 会按节点、action 类型和状态聚合为
+`mla.action_detail`，并按 MaaFramework task ID 区分 action 子任务；有界保留 first/last
+representative 的 box、detail 和独立 source locator。它只说明 MaaFramework 动作层报告的结果；
+Click succeeded 不证明目标界面
+已发生业务变化，harness 仍应与后续识别、任务结果或截图对照。
+action-detail 组超过 500 时会按时间轴均匀取样，并输出 `mla_action_details_truncated`；
+完整事件数仍保留在 `statistics.actionOccurrences` / `actionDetailsTotal`。
 对标记为成功但运行期间出现 `next_list_timeout`、`action_failure` 或日志结束仍未停止的
 重复节点序列，MEK 会输出 `mla.task_anomaly` evidence，避免把框架任务成功直接当作业务成功。
 若循环内某个候选节点所有评估都失败（`unsuccessfulAttemptCount === evaluationCount` 且
@@ -166,8 +184,9 @@ const window = await queryEvidenceWindow(runtime, {
 未知 evidence ID 会明确报错，不会静默返回空结果。
 
 `search` 只读取已有 inspection JSON，不重新解析原日志。`--kind`、`--node`、`--task`
-执行区分大小写的精确匹配；可重复传入同一选项表示任一值均可。重复的 `--text` 条件执行
-大小写不敏感的 AND 匹配，搜索 evidence 的摘要、source 和结构化 data。
+和 `--artifact-id` 执行区分大小写的精确匹配；可重复传入同一选项表示任一值均可。
+重复的 `--text` 条件执行大小写不敏感的 AND 匹配，搜索 evidence 的摘要、source 和
+结构化 data 的原始值，不匹配 JSON 字段名。
 `--from` / `--to` 只匹配带 source timestamp 的 evidence。结果默认最多返回 50 条索引、
 上限 500 条，并明确给出 `totalMatches` 和 `truncated`；完整 data 仍通过 `view --evidence-id` 获取。
 

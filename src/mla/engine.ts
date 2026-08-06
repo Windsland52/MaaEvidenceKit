@@ -27,6 +27,8 @@ import {
 import { discoverArtifacts } from "./discovery.js";
 import { translateRuntimeInspection, type MlaRuntimeInspectionResult } from "./translate.js";
 
+const MAX_ACTION_DETAILS = 500;
+
 type RuntimeTask = MlaRuntimeInspectionResult["sessions"][number]["tasks"][number];
 type RuntimePosition = {
   timestamp: string | null;
@@ -116,6 +118,27 @@ export type MlaRecognitionDetail = {
     bestTruncated: boolean;
   }>;
   descendantRecognitionTruncated?: boolean;
+};
+
+export type MlaActionDetailSample = {
+  box: [number, number, number, number] | null;
+  detail: unknown;
+  taskId: number | null;
+  timestamp: string;
+  mergedLine: number | null;
+  source?: EvidenceSource;
+};
+
+export type MlaActionDetail = {
+  action: string;
+  node: string;
+  status: "succeeded" | "failed";
+  occurrenceCount: number;
+  taskId: number | null;
+  representatives: {
+    first: MlaActionDetailSample;
+    last: MlaActionDetailSample;
+  };
 };
 
 export type MlaTaskAnomaly = {
@@ -777,6 +800,47 @@ function addRecognitionDetailEvidence(
   );
 }
 
+function addActionDetailEvidence(
+  ledger: EvidenceLedger,
+  detail: MlaActionDetail,
+  artifacts: readonly Artifact[],
+  inputPath: string,
+  sourceSegments: readonly SourceSegment[],
+): void {
+  const sourceForSample = (sample: MlaActionDetailSample): EvidenceSource | undefined => {
+    if (sample.mergedLine === null) return undefined;
+    const position = positionForMergedLine(sourceSegments, sample.timestamp, sample.mergedLine);
+    if (position.path === null || position.local_line === null) return undefined;
+    return evidenceSource(artifacts, inputPath, position, { node: detail.node });
+  };
+  const withSource = (sample: MlaActionDetailSample): MlaActionDetailSample => {
+    const source = sourceForSample(sample);
+    return source === undefined ? sample : { ...sample, source };
+  };
+  const first = withSource(detail.representatives.first);
+  const last = withSource(detail.representatives.last);
+  const detailWithSources: MlaActionDetail = {
+    ...detail,
+    representatives: { first, last },
+  };
+  ledger.add(
+    "mla.action_detail",
+    `Action ${detail.node} ${detail.status} (${detail.action}) x${detail.occurrenceCount}`
+      + `${detail.taskId === null ? "" : ` task=${detail.taskId}`}.`,
+    evidenceSource(
+      artifacts,
+      inputPath,
+      positionForMergedLine(
+        sourceSegments,
+        detail.representatives.first.timestamp,
+        detail.representatives.first.mergedLine,
+      ),
+      { node: detail.node },
+    ),
+    detailWithSources,
+  );
+}
+
 function positionForMergedLine(
   sourceSegments: readonly SourceSegment[],
   timestamp: string,
@@ -817,6 +881,9 @@ type LoadedMlaTarget = {
   target: MlaTarget;
   runtime: MlaRuntimeInspectionResult;
   recognitionDetails: MlaRecognitionDetail[];
+  actionDetails: MlaActionDetail[];
+  actionDetailsTotal: number;
+  actionOccurrences: number;
   sourceSegments: SourceSegment[];
   artifacts: Artifact[];
 };
@@ -1176,6 +1243,77 @@ function candidateBox(value: unknown): [number, number, number, number] | null {
     return null;
   }
   return value as [number, number, number, number];
+}
+
+function extractActionDetails(
+  analyzed: Awaited<ReturnType<typeof analyzeLogContent>>,
+  timeRange: TimeRange | undefined,
+): MlaActionDetail[] {
+  const groups = new Map<string, {
+    action: string;
+    node: string;
+    status: "succeeded" | "failed";
+    taskId: number | null;
+    samples: MlaActionDetailSample[];
+  }>();
+  for (const event of analyzed.events) {
+    if (event.message !== "Node.Action.Succeeded" && event.message !== "Node.Action.Failed") continue;
+    if (!timestampWithin(event.timestamp, timeRange)) continue;
+    if (!isRecord(event.details)) continue;
+    const actionDetails = event.details["action_details"];
+    if (!isRecord(actionDetails)) continue;
+    const action = actionDetails["action"];
+    if (typeof action !== "string" || action.length === 0) continue;
+    const detailName = actionDetails["name"];
+    const payloadName = event.details["name"];
+    const node = typeof detailName === "string" && detailName.length > 0
+      ? detailName
+      : typeof payloadName === "string" && payloadName.length > 0 ? payloadName : null;
+    if (node === null) continue;
+    const status = event.message === "Node.Action.Succeeded" ? "succeeded" : "failed";
+    const taskId = typeof event.details["task_id"] === "number" ? event.details["task_id"] : null;
+    const key = JSON.stringify([node, action, status, taskId]);
+    const group = groups.get(key) ?? {
+      action,
+      node,
+      status,
+      taskId,
+      samples: [],
+    };
+    group.samples.push({
+      box: candidateBox(actionDetails["box"]),
+      detail: actionDetails["detail"] ?? null,
+      taskId,
+      timestamp: event.timestamp,
+      mergedLine: event._lineNumber ?? null,
+    });
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort((left, right) =>
+    (left.samples[0]?.timestamp ?? "").localeCompare(right.samples[0]?.timestamp ?? "")
+    || (left.samples[0]?.mergedLine ?? 0) - (right.samples[0]?.mergedLine ?? 0)
+    || [left.node, left.action, left.status, left.taskId ?? ""].join("|").localeCompare(
+      [right.node, right.action, right.status, right.taskId ?? ""].join("|"),
+    )
+  ).map((group) => ({
+    action: group.action,
+    node: group.node,
+    status: group.status,
+    occurrenceCount: group.samples.length,
+    taskId: group.taskId,
+    representatives: {
+      first: group.samples[0] as MlaActionDetailSample,
+      last: group.samples[group.samples.length - 1] as MlaActionDetailSample,
+    },
+  }));
+}
+
+function boundedActionDetails(details: readonly MlaActionDetail[]): MlaActionDetail[] {
+  if (details.length <= MAX_ACTION_DETAILS) return [...details];
+  return Array.from({ length: MAX_ACTION_DETAILS }, (_, index) => {
+    const sourceIndex = Math.floor(index * (details.length - 1) / (MAX_ACTION_DETAILS - 1));
+    return details[sourceIndex] as MlaActionDetail;
+  });
 }
 
 function candidateFromUnknown(value: unknown): RecognitionDetailCandidate | null {
@@ -1581,10 +1719,14 @@ async function loadMlaTarget(
   ) {
     return null;
   }
+  const allActionDetails = extractActionDetails(analyzed, timeRange);
   return {
     target,
     runtime: namespaceRuntime(runtime, target.namespace),
     recognitionDetails: extractRecognitionDetails(analyzed, timeRange),
+    actionDetails: boundedActionDetails(allActionDetails),
+    actionDetailsTotal: allActionDetails.length,
+    actionOccurrences: allActionDetails.reduce((total, detail) => total + detail.occurrenceCount, 0),
     sourceSegments,
     artifacts: targetArtifacts(target, artifacts),
   };
@@ -1688,6 +1830,15 @@ export async function inspectMla(
         loaded.sourceSegments,
       );
     }
+    for (const detail of loaded.actionDetails) {
+      addActionDetailEvidence(
+        ledger,
+        detail,
+        loaded.artifacts,
+        loaded.target.path,
+        loaded.sourceSegments,
+      );
+    }
   }
   for (const anomaly of taskAnomalies) {
     const task = tasksByExecution.get(anomaly.executionId);
@@ -1755,6 +1906,14 @@ export async function inspectMla(
         code: "mla_possible_mirrored_tasks",
         message: `Observed ${possibleMirroredTaskGroups} groups of field-identical tasks across the selected logs; counts remain observations because separate instances cannot be safely deduplicated without correlation evidence.`,
       }]),
+    ...loadedTargets.flatMap((target) =>
+      target.actionDetails.length === target.actionDetailsTotal
+        ? []
+        : [{
+          code: "mla_action_details_truncated",
+          message: `Selected ${target.actionDetails.length} of ${target.actionDetailsTotal} action-detail groups from ${target.target.label} using evenly spaced chronological samples.`,
+        }]
+    ),
   ];
   return {
     schemaVersion: EVIDENCE_SCHEMA_VERSION,
@@ -1782,6 +1941,9 @@ export async function inspectMla(
       signalsTotal: completeSignalCounts.total,
       recognitionOccurrences: completeSignalCounts.recognitionOccurrences,
       recognitionOccurrencesFocused: focusedSignalCounts.recognitionOccurrences,
+      actionOccurrences: loadedTargets.reduce((total, target) => total + target.actionOccurrences, 0),
+      actionDetails: loadedTargets.reduce((total, target) => total + target.actionDetails.length, 0),
+      actionDetailsTotal: loadedTargets.reduce((total, target) => total + target.actionDetailsTotal, 0),
       repeatedNodeSegments: completeSignalCounts.repeatedNodeSegments,
       repeatedNodeSegmentsFocused: focusedSignalCounts.repeatedNodeSegments,
       repeatedNodeTotalRepeatCount: completeSignalCounts.repeatedNodeTotalRepeatCount,

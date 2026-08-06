@@ -169,6 +169,88 @@ test("extracts aggregated OCR text and TemplateMatch score recognition details",
   expect(templateScore?.maximum).toBeCloseTo(0.212808);
 });
 
+test("extracts bounded action outcomes with source-backed representatives", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-action-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  const action = (timestamp: string, message: string, success: boolean, point: number[]): string => event(
+    timestamp,
+    message,
+    {
+      task_id: 9,
+      name: "",
+      action_details: {
+        action: "Click",
+        action_id: 3,
+        box: [10, 20, 30, 40],
+        detail: { contact: 0, point, pressure: 1 },
+        name: "ClickMenu",
+        success,
+      },
+    },
+  );
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    action("2026-07-19 10:01:00.000", "Node.Action.Succeeded", true, [20, 30]),
+    action("2026-07-19 10:02:00.000", "Node.Action.Succeeded", true, [21, 31]),
+    action("2026-07-19 10:03:00.000", "Node.Action.Failed", false, [22, 32]),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const details = result.evidence.filter((item) => item.kind === "mla.action_detail");
+  const succeeded = details.find((item) =>
+    (item.data as { status?: string } | undefined)?.status === "succeeded"
+  );
+
+  expect(details).toHaveLength(2);
+  expect(succeeded?.source).toMatchObject({ path: "maafw.log", line: 3, node: "ClickMenu" });
+  expect(succeeded?.data).toMatchObject({
+    action: "Click",
+    node: "ClickMenu",
+    status: "succeeded",
+    occurrenceCount: 2,
+    taskId: 9,
+    representatives: {
+      first: { detail: { point: [20, 30] }, source: { path: "maafw.log", line: 3 } },
+      last: { detail: { point: [21, 31] }, source: { path: "maafw.log", line: 4 } },
+    },
+  });
+  expect(result.statistics.actionOccurrences).toBe(3);
+});
+
+test("reports action-detail truncation while preserving complete occurrence counts", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-action-bounded-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  const actions = Array.from({ length: 501 }, (_, index) => event(
+    "2026-07-19 10:01:00.000",
+    "Node.Action.Succeeded",
+    {
+      task_id: index + 1,
+      action_details: {
+        action: "Click",
+        box: [0, 0, 10, 10],
+        detail: { point: [index, 0] },
+        name: "RepeatedClick",
+        success: true,
+      },
+    },
+  ));
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    ...actions,
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  expect(result.statistics.actionOccurrences).toBe(501);
+  expect(result.statistics.actionDetails).toBe(500);
+  expect(result.statistics.actionDetailsTotal).toBe(501);
+  expect(result.evidence.filter((item) => item.kind === "mla.action_detail")).toHaveLength(500);
+  expect(result.warnings.some((item) => item.code === "mla_action_details_truncated")).toBe(true);
+});
+
 test("maps recognition details to rotated source files and applies time ranges", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-recognition-sources-"));
   temporaryRoots.push(root);

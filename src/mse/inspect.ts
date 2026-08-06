@@ -28,6 +28,7 @@ export type MseInspectOptions = {
   controller?: string;
   resource?: string;
   depth?: number;
+  includeReferencers?: boolean;
 };
 
 export type MseProjectInspection = {
@@ -42,6 +43,7 @@ export type MseInspectionDetails = {
   selection: {
     syntaxMode: MseSyntaxMode;
     requestedTasks: string[];
+    includeReferencers: boolean;
     depth?: number;
   };
 };
@@ -211,6 +213,7 @@ export async function inspectMse(
           options.controller,
           options.resource,
           options.depth,
+          options.includeReferencers ?? true,
         ),
     ]);
     artifacts.push(...scopeArtifacts(artifactDiscovery.artifacts, candidate.projectRoot, inputRoot));
@@ -271,6 +274,7 @@ export async function inspectMse(
       selection: {
         syntaxMode,
         requestedTasks,
+        includeReferencers: options.includeReferencers ?? true,
         ...(options.depth === undefined ? {} : { depth: options.depth }),
       },
     },

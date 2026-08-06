@@ -101,13 +101,21 @@ test("finds reverse execution references for a failure node", async () => {
   }, null, 2), "utf8");
 
   const result = await inspectMse(root, { tasks: ["Mid"], depth: 1 });
+  const withoutReferencers = await inspectMse(root, {
+    tasks: ["Mid"],
+    depth: 1,
+    includeReferencers: false,
+  });
   const graph = result.details.projects[0]?.graph;
+  const focusedGraph = withoutReferencers.details.projects[0]?.graph;
 
   expect(graph?.nodes.map((node) => node.name).sort()).toEqual(["Done", "Mid", "Start"]);
   expect(graph?.edges.some((edge) => edge.kind === "task.next" && edge.from.includes("Start") && edge.to.includes("Mid")))
     .toBe(true);
   expect(graph?.edges.some((edge) => edge.kind === "task.next" && edge.from.includes("Mid") && edge.to.includes("Done")))
     .toBe(true);
+  expect(focusedGraph?.nodes.map((node) => node.name).sort()).toEqual(["Done", "Mid"]);
+  expect(withoutReferencers.details.selection.includeReferencers).toBe(false);
 });
 
 test("exposes node summaries including custom recognition and custom action", async () => {

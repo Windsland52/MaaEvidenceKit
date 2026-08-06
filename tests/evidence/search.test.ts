@@ -94,3 +94,32 @@ test("reports truncation and rejects invalid search bounds", () => {
   expect(() => searchEvidence(result, { limit: 501 })).toThrow("limit");
   expect(() => searchEvidence(result, { text: ["  "] })).toThrow("must not be empty");
 });
+
+test("searches primitive values without matching object keys and can select an artifact", () => {
+  const result = inspection([
+    {
+      id: "evidence-success",
+      kind: "mla.task",
+      summary: "Task succeeded",
+      source: { artifactId: "artifact-main", path: "maafw.log" },
+      data: { status: "succeeded", failed_nodes: 0 },
+    },
+    {
+      id: "evidence-failed-main",
+      kind: "mla.task",
+      summary: "Task failed",
+      source: { artifactId: "artifact-main", path: "maafw.log" },
+      data: { status: "failed" },
+    },
+    {
+      id: "evidence-failed-mirror",
+      kind: "mla.task",
+      summary: "Task failed",
+      source: { artifactId: "artifact-mirror", path: "debug/maafw.log" },
+      data: { status: "failed" },
+    },
+  ]);
+
+  const search = searchEvidence(result, { artifactIds: ["artifact-main"], text: ["failed"] });
+  expect(search.evidence.map((item) => item.id)).toEqual(["evidence-failed-main"]);
+});

@@ -796,6 +796,7 @@ export async function runMseTaskResolution(
   requestedController?: string,
   requestedResource?: string,
   requestedDepth?: number,
+  includeReferencers = true,
 ): Promise<MseTaskResolutionResult> {
   const tasks = [...new Set(requestedTasks.map((item) => item.trim()))]
     .filter((item) => item.length > 0);
@@ -910,7 +911,7 @@ export async function runMseTaskResolution(
             }
           }
         }
-        if (!expansionTruncated) {
+        if (includeReferencers && !expansionTruncated) {
           for (const candidate of bundle.topLayer.getTaskList()) {
             if (resolvedNames.has(candidate)) continue;
             const resolved = await resolveTask(bundle, projectRoot, candidate, controller, resource, locate);

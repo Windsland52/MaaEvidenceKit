@@ -176,8 +176,41 @@ test("CLI writes JSON inspection and can query a cited source window", async () 
   const evidencePath = path.join(root, "evidence.json");
   const windowTextPath = path.join(root, "window.txt");
   const searchPath = path.join(root, "search.json");
+  const focusedCombinedPath = path.join(root, "focused-combined.json");
 
   expect(await main(["inspect", root, "--format", "json", "--output", inspectionPath])).toBe(0);
+  expect(await main([
+    "inspect",
+    root,
+    "--task",
+    "Start",
+    "--controller",
+    "Adb",
+    "--resource",
+    "Official",
+    "--no-referencers",
+    "--format",
+    "json",
+    "--output",
+    focusedCombinedPath,
+  ])).toBe(0);
+  const focusedCombined = JSON.parse(await readFile(focusedCombinedPath, "utf8")) as {
+    details: {
+      mse?: {
+        details?: {
+          selection?: { includeReferencers?: boolean };
+          projects?: Array<{
+            resolution?: { resolutions?: Array<{ controller?: string; resource?: string }> };
+          }>;
+        };
+      };
+    };
+  };
+  expect(focusedCombined.details.mse?.details?.selection?.includeReferencers).toBe(false);
+  expect(focusedCombined.details.mse?.details?.projects?.[0]?.resolution?.resolutions?.[0]).toMatchObject({
+    controller: "Adb",
+    resource: "Official",
+  });
   const inspection = JSON.parse(await readFile(inspectionPath, "utf8")) as {
     schemaVersion: string;
     evidence: Array<{ id: string; source: { line?: number } }>;

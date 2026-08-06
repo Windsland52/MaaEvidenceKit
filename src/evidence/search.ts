@@ -7,6 +7,7 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 500;
 
 export type EvidenceSearchQuery = {
+  artifactIds?: readonly string[];
   kinds?: readonly string[];
   nodes?: readonly string[];
   tasks?: readonly string[];
@@ -69,19 +70,31 @@ function withinTimeRange(timestamp: string | undefined, range: { from?: number; 
   return true;
 }
 
+function collectSearchValues(value: unknown, output: string[]): void {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    output.push(String(value));
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectSearchValues(item, output);
+    return;
+  }
+  if (typeof value !== "object" || value === null) return;
+  for (const item of Object.values(value)) collectSearchValues(item, output);
+}
+
 function searchableText(evidence: Evidence): string {
-  return JSON.stringify({
-    kind: evidence.kind,
-    summary: evidence.summary,
-    source: evidence.source,
-    data: evidence.data,
-  }).toLowerCase();
+  const values = [evidence.kind, evidence.summary];
+  collectSearchValues(evidence.source, values);
+  collectSearchValues(evidence.data, values);
+  return values.join("\n").toLowerCase();
 }
 
 export function searchEvidence(
   inspection: InspectionResult,
   query: EvidenceSearchQuery = {},
 ): EvidenceSearchResult {
+  const artifactIds = normalizedValues(query.artifactIds, "artifactIds");
   const kinds = normalizedValues(query.kinds, "kinds");
   const nodes = normalizedValues(query.nodes, "nodes");
   const tasks = normalizedValues(query.tasks, "tasks");
@@ -90,6 +103,7 @@ export function searchEvidence(
   const range = parsedTimeRange(query.timeRange);
   const limit = boundedLimit(query.limit);
   const matches = inspection.evidence.filter((evidence) => {
+    if (artifactIds.length > 0 && !artifactIds.includes(evidence.source.artifactId)) return false;
     if (kinds.length > 0 && !kinds.includes(evidence.kind)) return false;
     if (nodes.length > 0 && (evidence.source.node === undefined || !nodes.includes(evidence.source.node))) return false;
     if (tasks.length > 0 && (evidence.source.task === undefined || !tasks.includes(evidence.source.task))) return false;
@@ -107,6 +121,7 @@ export function searchEvidence(
     source: evidence.source,
   }));
   const normalizedQuery: EvidenceSearchQuery = {
+    ...(artifactIds.length === 0 ? {} : { artifactIds }),
     ...(kinds.length === 0 ? {} : { kinds }),
     ...(nodes.length === 0 ? {} : { nodes }),
     ...(tasks.length === 0 ? {} : { tasks }),
