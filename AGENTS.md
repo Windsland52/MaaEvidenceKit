@@ -75,9 +75,10 @@ Put new implementation into the narrowest existing domain. Do not introduce `uti
 
 ## Privacy and Feedback
 
-- Core inspection is offline. Sentry is used only for optional MEK product telemetry and feedback.
-- No explicit telemetry consent means no send. CI/non-TTY use must not prompt, send, or persist a
-  decision.
+- Core inspection is offline. Sentry is used only for MEK product telemetry and feedback.
+- Operational telemetry (aggregate counts only) is enabled by default and can be disabled with
+  `telemetry disable` or `MAA_EVIDENCE_TELEMETRY=0`. CI/non-TTY use sends aggregate telemetry by
+  default but must never prompt.
 - Operational telemetry is whitelist-only. Never add paths, arguments, environment variables,
   usernames, logs, source, screenshots, or exception messages.
 - Original-material feedback requires a preview and explicit confirmation for every submission.

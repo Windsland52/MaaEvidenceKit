@@ -8,13 +8,15 @@ the optional operational telemetry and feedback features described below.
 
 ## Consent
 
-On the first eligible interactive CLI use, MaaEvidenceKit may ask whether anonymous operational
-telemetry can be enabled. Nothing is sent without an affirmative choice.
+Operational telemetry (aggregate counts only, no original material) is enabled by default. It can
+be disabled at any time.
 
-- CI and non-interactive use do not prompt, send telemetry, or persist a decision.
 - `maa-evidence telemetry status` shows the current choice.
 - `maa-evidence telemetry enable` and `maa-evidence telemetry disable` change it.
-- Disabling telemetry stops future operational telemetry. It does not delete events already sent.
+- Setting `MAA_EVIDENCE_TELEMETRY=0` also disables operational telemetry for the process.
+- CI and non-interactive use send aggregate operational telemetry by default and never prompt.
+- Original-material feedback (logs, screenshots, source) is never sent automatically; it always
+  requires an interactive preview and an explicit `UPLOAD` confirmation.
 
 No stable installation, device, user, or advertising identifier is created.
 
@@ -26,7 +28,9 @@ When enabled, an operational event may contain only:
 - command category, component, and success/error status;
 - rounded command duration;
 - operating-system platform and CPU architecture;
-- Node.js major version.
+- Node.js major version;
+- aggregate counts only: evidence totals, adapters used, total signals, and counts of
+  recognition-detail, cycle-exit-blocker, and task-anomaly records.
 
 Operational telemetry does not intentionally contain command arguments, file paths, environment
 variables, usernames, logs, source code, screenshots, exception messages, or stack traces.

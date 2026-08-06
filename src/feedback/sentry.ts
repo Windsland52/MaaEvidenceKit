@@ -14,7 +14,19 @@ const ALLOWED_TAGS = new Set([
   "platform",
   "status",
 ]);
-const ALLOWED_EXTRA = new Set(["attachment_bytes", "attachment_count", "duration_ms"]);
+const ALLOWED_EXTRA = new Set([
+  "attachment_bytes",
+  "attachment_count",
+  "duration_ms",
+  "evidence_count",
+  "mla_evidence_count",
+  "mse_evidence_count",
+  "adapters",
+  "signals_total",
+  "recognition_details",
+  "cycle_exit_blockers",
+  "task_anomalies",
+]);
 let initialized = false;
 
 function removeDisallowed(input: Record<string, unknown> | undefined, allowed: ReadonlySet<string>): void {
@@ -79,11 +91,23 @@ function initializeSentry(): void {
   Sentry.getClient()?.on("beforeSendFeedback", scrubFeedbackEvent);
 }
 
+export type OperationalCounts = {
+  evidenceCount?: number;
+  mlaEvidenceCount?: number;
+  mseEvidenceCount?: number;
+  adapters?: number;
+  signalsTotal?: number;
+  recognitionDetails?: number;
+  cycleExitBlockers?: number;
+  taskAnomalies?: number;
+};
+
 export type OperationalTelemetry = {
   command: string;
   status: "ok" | "error";
   durationMs: number;
   component?: "mla" | "mse" | "combined" | "view" | "window";
+  counts?: OperationalCounts;
 };
 
 export async function sendOperationalTelemetry(event: OperationalTelemetry): Promise<void> {
@@ -99,7 +123,17 @@ export async function sendOperationalTelemetry(event: OperationalTelemetry): Pro
       arch: process.arch,
       node_major: process.versions.node.split(".")[0] ?? "unknown",
     },
-    extra: { duration_ms: Math.round(event.durationMs) },
+    extra: {
+      duration_ms: Math.round(event.durationMs),
+      ...(event.counts?.evidenceCount === undefined ? {} : { evidence_count: event.counts.evidenceCount }),
+      ...(event.counts?.mlaEvidenceCount === undefined ? {} : { mla_evidence_count: event.counts.mlaEvidenceCount }),
+      ...(event.counts?.mseEvidenceCount === undefined ? {} : { mse_evidence_count: event.counts.mseEvidenceCount }),
+      ...(event.counts?.adapters === undefined ? {} : { adapters: event.counts.adapters }),
+      ...(event.counts?.signalsTotal === undefined ? {} : { signals_total: event.counts.signalsTotal }),
+      ...(event.counts?.recognitionDetails === undefined ? {} : { recognition_details: event.counts.recognitionDetails }),
+      ...(event.counts?.cycleExitBlockers === undefined ? {} : { cycle_exit_blockers: event.counts.cycleExitBlockers }),
+      ...(event.counts?.taskAnomalies === undefined ? {} : { task_anomalies: event.counts.taskAnomalies }),
+    },
   });
   await Sentry.flush(1_000);
 }

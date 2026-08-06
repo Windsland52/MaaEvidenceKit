@@ -3,15 +3,13 @@ import { sendOperationalTelemetry, type OperationalTelemetry } from "./sentry.js
 
 export function operationalTelemetryEligible(
   environment: NodeJS.ProcessEnv = process.env,
-  stdinIsTTY: boolean | undefined = process.stdin.isTTY,
-  stderrIsTTY: boolean | undefined = process.stderr.isTTY,
 ): boolean {
-  return environment["CI"] === undefined && stdinIsTTY === true && stderrIsTTY === true;
+  return environment["MAA_EVIDENCE_TELEMETRY"] !== "0";
 }
 
 export async function recordOperationalTelemetry(event: OperationalTelemetry): Promise<void> {
   if (!operationalTelemetryEligible()) return;
-  if (await getTelemetryStatus() !== "enabled") return;
+  if ((await getTelemetryStatus()) === "disabled") return;
   try {
     await sendOperationalTelemetry(event);
   } catch {

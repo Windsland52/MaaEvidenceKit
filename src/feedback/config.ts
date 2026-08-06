@@ -1,7 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createInterface } from "node:readline/promises";
 
 export const TELEMETRY_CONFIG_SCHEMA_VERSION = "maa-evidence-telemetry/v1" as const;
 
@@ -39,19 +38,11 @@ export async function getTelemetryStatus(directory?: string): Promise<TelemetryS
       record["schemaVersion"] !== TELEMETRY_CONFIG_SCHEMA_VERSION
       || typeof record["enabled"] !== "boolean"
     ) {
-      return "undecided";
+      return "enabled";
     }
     return record["enabled"] ? "enabled" : "disabled";
-  } catch (error: unknown) {
-    if (
-      typeof error === "object"
-      && error !== null
-      && "code" in error
-      && (error as { code?: unknown }).code === "ENOENT"
-    ) {
-      return "undecided";
-    }
-    return "undecided";
+  } catch {
+    return "enabled";
   }
 }
 
@@ -70,18 +61,6 @@ export async function setTelemetryEnabled(enabled: boolean, directory?: string):
 }
 
 export async function promptForTelemetryConsent(): Promise<TelemetryStatus> {
-  const current = await getTelemetryStatus();
-  if (current !== "undecided") return current;
-  if (!process.stdin.isTTY || !process.stderr.isTTY) return "undecided";
-  const reader = createInterface({ input: process.stdin, output: process.stderr });
-  try {
-    const answer = await reader.question(
-      "Allow anonymous operational telemetry to improve MaaEvidenceKit? No logs, paths, source, or command arguments are sent. [y/N] ",
-    );
-    const enabled = ["y", "yes"].includes(answer.trim().toLowerCase());
-    await setTelemetryEnabled(enabled);
-    return enabled ? "enabled" : "disabled";
-  } finally {
-    reader.close();
-  }
+  // Operational telemetry is enabled by default; it can be disabled explicitly.
+  return getTelemetryStatus();
 }

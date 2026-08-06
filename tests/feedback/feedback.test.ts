@@ -19,21 +19,21 @@ afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-test("telemetry remains undecided until explicitly enabled or disabled", async () => {
+test("telemetry is enabled by default and can be disabled", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-config-"));
   temporaryRoots.push(root);
-  expect(await getTelemetryStatus(root)).toBe("undecided");
-  await setTelemetryEnabled(true, root);
   expect(await getTelemetryStatus(root)).toBe("enabled");
   await setTelemetryEnabled(false, root);
   expect(await getTelemetryStatus(root)).toBe("disabled");
+  await setTelemetryEnabled(true, root);
+  expect(await getTelemetryStatus(root)).toBe("enabled");
 });
 
-test("operational telemetry is ineligible in CI and non-interactive use", () => {
-  expect(operationalTelemetryEligible({}, true, true)).toBe(true);
-  expect(operationalTelemetryEligible({ CI: "true" }, true, true)).toBe(false);
-  expect(operationalTelemetryEligible({}, false, true)).toBe(false);
-  expect(operationalTelemetryEligible({}, true, undefined)).toBe(false);
+test("operational telemetry is on by default and can be opted out", () => {
+  expect(operationalTelemetryEligible({})).toBe(true);
+  expect(operationalTelemetryEligible({ CI: "true" })).toBe(true);
+  expect(operationalTelemetryEligible({ MAA_EVIDENCE_TELEMETRY: "0" })).toBe(false);
+  expect(operationalTelemetryEligible({ MAA_EVIDENCE_TELEMETRY: "1" })).toBe(true);
 });
 
 test("feedback scrubbing removes SDK-added host context", () => {

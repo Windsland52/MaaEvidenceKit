@@ -16,7 +16,7 @@ MEK 负责：
 - 通过 MSE 公共包提取 Interface、资源、静态诊断、任务定义和节点引用；
 - 生成稳定 evidence ID，以及文件、行号、时间、任务和节点定位；
 - 输出 JSON、纯文本和可选 Mermaid；
-- 在明确同意后发送匿名运行遥测或提取缺口反馈。
+- 默认发送匿名聚合遥测（可关闭），并按需发送需明确确认的提取缺口反馈。
 
 MEK 不负责理解 GitHub Issue、GUI/自定义日志、Sentry 数据或业务结果，也不会输出根因结论。
 这些工作属于调用它的 harness。
@@ -163,7 +163,8 @@ Issue/本地日志与 Sentry 没有共享 `event_id` 或隐私安全的 `run_id`
 
 ## 遥测与反馈
 
-核心检查离线运行。首次符合条件的交互式使用会询问是否启用匿名运行遥测：
+核心检查离线运行。匿名运行遥测（仅聚合计数，不含路径、参数、用户名、日志、源码或截图）
+默认启用，可用 `telemetry disable` 或环境变量 `MAA_EVIDENCE_TELEMETRY=0` 关闭：
 
 ```powershell
 maa-evidence telemetry status
@@ -171,9 +172,9 @@ maa-evidence telemetry enable
 maa-evidence telemetry disable
 ```
 
-CI 和非交互环境不会询问、发送或保存选择。原始日志等附件只能通过交互式 `feedback`
-命令发送，并且每次都必须预览后输入 `UPLOAD`。20MB 只是配额警告，不是 MEK 拒绝上限。
-完整说明见 [`PRIVACY.md`](PRIVACY.md)。
+CI 和非交互环境默认发送聚合遥测，但从不弹出交互提示。原始日志、截图或源代码等附件
+**不会自动发送**，只能通过交互式 `feedback` 命令发送，并且每次都必须预览后输入 `UPLOAD`。
+20MB 只是配额警告，不是 MEK 拒绝上限。完整说明见 [`PRIVACY.md`](PRIVACY.md)。
 
 ## 架构
 

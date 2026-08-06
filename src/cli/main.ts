@@ -9,7 +9,7 @@ import {
   inspectMse,
   getTelemetryStatus,
   previewFeedback,
-  promptForTelemetryConsent,
+  type OperationalCounts,
   queryEvidenceWindow,
   recordOperationalTelemetry,
   setTelemetryEnabled,
@@ -73,7 +73,7 @@ async function emitInspection(result: InspectionResult, parsed: ParsedArguments)
   await emit(view(result, { format: outputFormat(parsed) }), option(parsed, "--output"));
 }
 
-async function runMla(parsed: ParsedArguments): Promise<void> {
+async function runMla(parsed: ParsedArguments): Promise<InspectionResult> {
   if (requirePositional(parsed, 1, "MLA command") !== "inspect") {
     throw new Error("The MLA namespace currently supports only 'inspect'.");
   }
@@ -84,9 +84,10 @@ async function runMla(parsed: ParsedArguments): Promise<void> {
     includeAllSignals: flag(parsed, "--all-signals"),
   });
   await emitInspection(result, parsed);
+  return result;
 }
 
-async function runMse(parsed: ParsedArguments): Promise<void> {
+async function runMse(parsed: ParsedArguments): Promise<InspectionResult> {
   if (requirePositional(parsed, 1, "MSE command") !== "inspect") {
     throw new Error("The MSE namespace currently supports only 'inspect'.");
   }
@@ -104,9 +105,10 @@ async function runMse(parsed: ParsedArguments): Promise<void> {
       : { depth: integerOption(parsed, "--depth") as number }),
   });
   await emitInspection(result, parsed);
+  return result;
 }
 
-async function runCombined(parsed: ParsedArguments): Promise<void> {
+async function runCombined(parsed: ParsedArguments): Promise<InspectionResult> {
   const range = timeRange(parsed);
   const result = await inspect(requirePositional(parsed, 1, "input path"), {
     mla: flag(parsed, "--no-mla")
@@ -127,6 +129,7 @@ async function runCombined(parsed: ParsedArguments): Promise<void> {
       },
   });
   await emitInspection(result, parsed);
+  return result;
 }
 
 async function runWindow(parsed: ParsedArguments): Promise<void> {
@@ -208,20 +211,40 @@ async function runFeedback(parsed: ParsedArguments): Promise<void> {
   await emit(JSON.stringify({ sent: true, eventId }, null, 2), option(parsed, "--output"));
 }
 
+function countsFromInspection(result: InspectionResult): OperationalCounts {
+  const counts: { [key: string]: number } = { evidenceCount: result.evidence.length };
+  const details = result.details as { mla?: { evidence?: unknown[] } | null; mse?: { evidence?: unknown[] } | null } | null;
+  if (details?.mla?.evidence !== undefined) counts["mlaEvidenceCount"] = details.mla.evidence.length;
+  if (details?.mse?.evidence !== undefined) counts["mseEvidenceCount"] = details.mse.evidence.length;
+  if (result.kind === "combined") {
+    counts["adapters"] = (result as { statistics: Record<string, number> }).statistics["adapters"] ?? 0;
+  }
+  if (result.kind === "mla") {
+    counts["signalsTotal"] = (result as { statistics: Record<string, number> }).statistics["signalsTotal"] ?? 0;
+    const evidence = (result as { evidence: Array<{ kind: string }> }).evidence;
+    counts["recognitionDetails"] = evidence.filter((item) => item.kind === "mla.recognition_detail").length;
+    counts["cycleExitBlockers"] = evidence.filter((item) => item.kind === "mla.cycle_exit_blocker").length;
+    counts["taskAnomalies"] = evidence.filter((item) => item.kind === "mla.task_anomaly").length;
+  }
+  return Object.fromEntries(
+    Object.entries(counts).filter(([, value]) => value !== undefined),
+  ) as OperationalCounts;
+}
+
 async function withOperationalTelemetry(
   command: string,
   component: "mla" | "mse" | "combined" | "view" | "window",
-  operation: () => Promise<void>,
+  operation: () => Promise<InspectionResult | void>,
 ): Promise<void> {
-  await promptForTelemetryConsent();
   const startedAt = performance.now();
   try {
-    await operation();
+    const result = await operation();
     await recordOperationalTelemetry({
       command,
       component,
       status: "ok",
       durationMs: performance.now() - startedAt,
+      ...(result === undefined ? {} : { counts: countsFromInspection(result) }),
     });
   } catch (error: unknown) {
     await recordOperationalTelemetry({
