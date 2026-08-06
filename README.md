@@ -251,7 +251,8 @@ const answers = await queryEvidenceBatch(runtime, [
 preflight/resolution、inspection load、render 和 output write 等阶段的 `count`、总耗时与最大耗时。
 profile 与 inspection 输出必须使用不同文件；失败命令也会写 `status: error`，但不会写异常消息、
 路径或命令参数。并发阶段会重叠，所以各阶段总耗时之和可能大于命令墙钟耗时。该文件不是
-evidence，也不会通过运行遥测自动发送。
+evidence，也不会通过运行遥测自动发送。启用运行遥测时，profile 还会以 `telemetry.config` 和
+`telemetry.send` 单独显示本地配置读取与发送/flush 耗时，便于区分分析慢和命令退出慢。
 
 当 MLA 与 MSE 同时可用时，`inspect` 会额外输出 `combined.pipeline_reference`
 evidence，把运行时失败节点与静态 pipeline 任务关联起来，便于判断失败节点是否

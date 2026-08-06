@@ -157,7 +157,9 @@ arguments, evidence, or exception messages and is never sent through operational
 it as local diagnostic output, not evidence. `mla.load_parse` isolates upstream log loading and
 analysis; `mse.preflight` and `mse.resolution` may overlap because they run concurrently;
 `inspection.load`, `render`, and `output.write` expose follow-up overhead. Concurrent stage totals
-can exceed command wall-clock duration, so do not sum them as a serial critical path.
+can exceed command wall-clock duration, so do not sum them as a serial critical path. When
+operational telemetry is enabled, `telemetry.config` and `telemetry.send` separate local consent
+lookup and send/flush time from extraction time.
 
 Use the profile to choose a response rather than to form a diagnosis: narrow MLA only when the
 question permits it, focus or defer MSE, batch follow-ups, or investigate local I/O. Do not cite

@@ -1,5 +1,6 @@
 import { getTelemetryStatus } from "./config.js";
 import { sendOperationalTelemetry, type OperationalTelemetry } from "./sentry.js";
+import { profileStage } from "../profiling.js";
 
 export function operationalTelemetryEligible(
   environment: NodeJS.ProcessEnv = process.env,
@@ -9,9 +10,9 @@ export function operationalTelemetryEligible(
 
 export async function recordOperationalTelemetry(event: OperationalTelemetry): Promise<void> {
   if (!operationalTelemetryEligible()) return;
-  if ((await getTelemetryStatus()) === "disabled") return;
+  if ((await profileStage("telemetry.config", () => getTelemetryStatus())) === "disabled") return;
   try {
-    await sendOperationalTelemetry(event);
+    await profileStage("telemetry.send", () => sendOperationalTelemetry(event));
   } catch {
     // Telemetry must never change command success or failure.
   }

@@ -350,8 +350,8 @@ async function runOperationalCommand(
   component: "mla" | "mse" | "combined" | "view" | "window" | "search" | "batch",
   operation: () => Promise<InspectionResult | void>,
 ): Promise<void> {
-  await withOperationalTelemetry(command, component, () =>
-    withLocalProfile(command, parsed, operation));
+  await withLocalProfile(command, parsed, () =>
+    withOperationalTelemetry(command, component, operation));
 }
 
 export async function main(args: string[] = process.argv.slice(2)): Promise<number> {
