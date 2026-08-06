@@ -80,7 +80,7 @@ test("feedback scrubbing removes SDK-added host context", () => {
     },
     server_name: "private-machine-name",
     tags: { component: "mla", runtime: "node local-version" },
-    extra: { attachment_count: 1, private_path: "C:/secret" },
+    extra: { attachment_count: 1, recognition_pipeline_references: 2, private_path: "C:/secret" },
     user: { username: "private-user" },
   } as unknown as ScrubbableFeedbackEvent;
 
@@ -90,7 +90,7 @@ test("feedback scrubbing removes SDK-added host context", () => {
   expect(event.user).toBeUndefined();
   expect(event.contexts).toEqual({ feedback: { message: "expected user content" } });
   expect(event.tags).toEqual({ component: "mla" });
-  expect(event.extra).toEqual({ attachment_count: 1 });
+  expect(event.extra).toEqual({ attachment_count: 1, recognition_pipeline_references: 2 });
 });
 
 test("feedback previews original material without uploading it", async () => {

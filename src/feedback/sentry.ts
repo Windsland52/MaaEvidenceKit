@@ -27,6 +27,9 @@ const ALLOWED_EXTRA = new Set([
   "recognition_details",
   "cycle_exit_blockers",
   "task_anomalies",
+  "possible_mirrored_task_groups",
+  "recognition_pipeline_references",
+  "runtime_node_resolution_omitted",
 ]);
 let initialized = false;
 
@@ -101,6 +104,9 @@ export type OperationalCounts = {
   recognitionDetails?: number;
   cycleExitBlockers?: number;
   taskAnomalies?: number;
+  possibleMirroredTaskGroups?: number;
+  recognitionPipelineReferences?: number;
+  runtimeNodeResolutionOmitted?: number;
 };
 
 export type OperationalTelemetry = {
@@ -135,6 +141,9 @@ export async function sendOperationalTelemetry(event: OperationalTelemetry): Pro
       ...(event.counts?.recognitionDetails === undefined ? {} : { recognition_details: event.counts.recognitionDetails }),
       ...(event.counts?.cycleExitBlockers === undefined ? {} : { cycle_exit_blockers: event.counts.cycleExitBlockers }),
       ...(event.counts?.taskAnomalies === undefined ? {} : { task_anomalies: event.counts.taskAnomalies }),
+      ...(event.counts?.possibleMirroredTaskGroups === undefined ? {} : { possible_mirrored_task_groups: event.counts.possibleMirroredTaskGroups }),
+      ...(event.counts?.recognitionPipelineReferences === undefined ? {} : { recognition_pipeline_references: event.counts.recognitionPipelineReferences }),
+      ...(event.counts?.runtimeNodeResolutionOmitted === undefined ? {} : { runtime_node_resolution_omitted: event.counts.runtimeNodeResolutionOmitted }),
     },
   });
   const remainingMs = Math.max(0, OPERATIONAL_TELEMETRY_FLUSH_TIMEOUT_MS - (performance.now() - startedAt));

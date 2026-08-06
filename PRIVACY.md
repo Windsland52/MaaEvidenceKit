@@ -29,8 +29,10 @@ When enabled, an operational event may contain only:
 - rounded command duration;
 - operating-system platform and CPU architecture;
 - Node.js major version;
-- aggregate counts only: evidence totals, adapters used, total signals, and counts of
-  recognition-detail, cycle-exit-blocker, and task-anomaly records.
+- aggregate counts only: evidence totals, adapters used, total signals, counts of
+  recognition-detail, cycle-exit-blocker, task-anomaly, possible-mirrored-task, and
+  recognition-to-MSE-reference records, plus the number of runtime nodes omitted by an automatic
+  correlation limit.
 
 Operational telemetry does not intentionally contain command arguments, file paths, environment
 variables, usernames, logs, source code, screenshots, exception messages, or stack traces.

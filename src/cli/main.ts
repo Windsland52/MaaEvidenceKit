@@ -312,14 +312,20 @@ function countsFromInspection(result: InspectionResult): OperationalCounts {
   if (details?.mla?.evidence !== undefined) counts["mlaEvidenceCount"] = details.mla.evidence.length;
   if (details?.mse?.evidence !== undefined) counts["mseEvidenceCount"] = details.mse.evidence.length;
   if (result.kind === "combined") {
-    counts["adapters"] = (result as { statistics: Record<string, number> }).statistics["adapters"] ?? 0;
+    const statistics = (result as { statistics: Record<string, number> }).statistics;
+    counts["adapters"] = statistics["adapters"] ?? 0;
+    counts["runtimeNodeResolutionOmitted"] = statistics["mseRuntimeNodesOmitted"] ?? 0;
   }
-  if (result.kind === "mla") {
-    counts["signalsTotal"] = (result as { statistics: Record<string, number> }).statistics["signalsTotal"] ?? 0;
+  if (result.kind === "mla" || result.kind === "combined") {
+    if (result.kind === "mla") {
+      counts["signalsTotal"] = (result as { statistics: Record<string, number> }).statistics["signalsTotal"] ?? 0;
+    }
     const evidence = (result as { evidence: Array<{ kind: string }> }).evidence;
     counts["recognitionDetails"] = evidence.filter((item) => item.kind === "mla.recognition_detail").length;
     counts["cycleExitBlockers"] = evidence.filter((item) => item.kind === "mla.cycle_exit_blocker").length;
     counts["taskAnomalies"] = evidence.filter((item) => item.kind === "mla.task_anomaly").length;
+    counts["possibleMirroredTaskGroups"] = evidence.filter((item) => item.kind === "mla.possible_mirrored_task_group").length;
+    counts["recognitionPipelineReferences"] = evidence.filter((item) => item.kind === "combined.recognition_pipeline_reference").length;
   }
   return Object.fromEntries(
     Object.entries(counts).filter(([, value]) => value !== undefined),
