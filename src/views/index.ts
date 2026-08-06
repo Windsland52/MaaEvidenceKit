@@ -22,6 +22,8 @@ export function view(result: InspectionResult, options: ViewOptions = {}): strin
   }
 }
 
+export { evidenceById, renderEvidence, type EvidenceViewFormat } from "./evidence.js";
 export { renderJson } from "./json.js";
 export { renderMermaid } from "./mermaid.js";
 export { renderText } from "./text.js";
+export { renderEvidenceWindow, type EvidenceWindowFormat } from "./window.js";

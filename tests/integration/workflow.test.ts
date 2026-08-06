@@ -173,6 +173,8 @@ test("CLI writes JSON inspection and can query a cited source window", async () 
   await setTelemetryEnabled(false, configDirectory);
   const inspectionPath = path.join(root, "inspection.json");
   const windowPath = path.join(root, "window.json");
+  const evidencePath = path.join(root, "evidence.json");
+  const windowTextPath = path.join(root, "window.txt");
 
   expect(await main(["inspect", root, "--format", "json", "--output", inspectionPath])).toBe(0);
   const inspection = JSON.parse(await readFile(inspectionPath, "utf8")) as {
@@ -197,6 +199,47 @@ test("CLI writes JSON inspection and can query a cited source window", async () 
   ])).toBe(0);
   const window = JSON.parse(await readFile(windowPath, "utf8")) as { text: string };
   expect(window.text).toContain("MAA Process Start");
+  expect(await main([
+    "view",
+    "--input",
+    inspectionPath,
+    "--evidence-id",
+    cited?.id ?? "",
+    "--format",
+    "json",
+    "--output",
+    evidencePath,
+  ])).toBe(0);
+  const singleEvidence = JSON.parse(await readFile(evidencePath, "utf8")) as { id: string; kind: string };
+  expect(singleEvidence.id).toBe(cited?.id);
+  expect(singleEvidence.kind).toBeDefined();
+  expect(await main([
+    "window",
+    "--input",
+    inspectionPath,
+    "--evidence-id",
+    cited?.id ?? "",
+    "--format",
+    "text",
+    "--before",
+    "1",
+    "--after",
+    "1",
+    "--output",
+    windowTextPath,
+  ])).toBe(0);
+  const windowText = await readFile(windowTextPath, "utf8");
+  expect(windowText).toContain("Evidence window");
+  expect(windowText).toContain("MAA Process Start");
+  expect(await main([
+    "view",
+    "--input",
+    inspectionPath,
+    "--evidence-id",
+    "evidence-missing",
+    "--format",
+    "json",
+  ])).toBe(1);
 });
 
 test("MLA rejects archives because extraction belongs to the harness", async () => {

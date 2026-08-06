@@ -141,9 +141,21 @@ Request raw context only for a cited location:
 
 ```powershell
 maa-evidence window --input inspection.json --evidence-id evidence-abc123
+maa-evidence window --input inspection.json --evidence-id evidence-abc123 --format text
 ```
 
-Use `maa-evidence view --input inspection.json --format text` when the host cannot render Mermaid.
+For a follow-up question about one fact, first select its stable ID from the JSON ledger, then use:
+
+```powershell
+maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format json
+maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format text
+```
+
+The single-evidence JSON output is the original structured record, including its deterministic
+`data` and source locator. Use `window` separately when the raw source lines are needed. Unknown
+IDs fail explicitly. `view --evidence-id` supports JSON and text; Mermaid is only for the complete
+inspection view. Use `maa-evidence view --input inspection.json --format text` when the host cannot
+render Mermaid.
 
 ## Form an evidence-backed interpretation
 

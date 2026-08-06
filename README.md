@@ -58,6 +58,10 @@ maa-evidence mse inspect C:\path\to\project --task StartUp --format text
 # 读取某条证据附近的原始行
 maa-evidence window --input inspection.json --evidence-id evidence-abc123
 
+# 查看某条证据的完整结构化数据
+maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format json
+maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format text
+
 # 将已有结果渲染为通用文本或 Mermaid
 maa-evidence view --input inspection.json --format text
 maa-evidence view --input inspection.json --format mermaid
@@ -121,6 +125,7 @@ import {
   inspect,
   inspectMla,
   inspectMse,
+  evidenceById,
   queryEvidenceWindow,
   view,
 } from "maa-evidence-kit";
@@ -135,10 +140,16 @@ const runtime = await inspectMla("C:/debug", {
 const project = await inspectMse("C:/project", { tasks: ["StartUp"] });
 const combined = await inspect("C:/materials");
 const text = view(combined, { format: "text" });
+const selectedEvidence = evidenceById(combined.evidence, "evidence-abc123");
 const window = await queryEvidenceWindow(runtime, {
   evidenceId: runtime.evidence[0]?.id,
 });
 ```
+
+后续追问建议先从 JSON 结果中选择并引用 evidence ID，再使用 CLI 的
+`view --evidence-id` 查看该条事实的完整 `data`，使用 `window --evidence-id` 查看其来源日志上下文。
+`view --evidence-id` 支持 JSON 和 text；`window` 默认保持 JSON，也支持 `--format text`。
+未知 evidence ID 会明确报错，不会静默返回空结果。
 
 当 MLA 与 MSE 同时可用时，`inspect` 会额外输出 `combined.pipeline_reference`
 evidence，把运行时失败节点与静态 pipeline 任务关联起来，便于判断失败节点是否

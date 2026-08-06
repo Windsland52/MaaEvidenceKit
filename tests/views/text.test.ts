@@ -1,6 +1,14 @@
 import { expect, test } from "vitest";
 
-import { EVIDENCE_SCHEMA_VERSION, renderText, type Evidence, type InspectionResult } from "../../src/index.js";
+import {
+  EVIDENCE_SCHEMA_VERSION,
+  renderEvidence,
+  renderEvidenceWindow,
+  renderText,
+  type Evidence,
+  type EvidenceWindow,
+  type InspectionResult,
+} from "../../src/index.js";
 
 function evidence(index: number, kind: string, priority?: "high" | "normal" | "low"): Evidence {
   return {
@@ -33,4 +41,31 @@ test("keeps high-priority runtime signals in the bounded text evidence view", ()
 
   expect(text).toContain("evidence-200 [mla.signal]");
   expect(text).not.toContain("evidence-199 [mla.task]");
+});
+
+test("renders one evidence record with its complete deterministic data", () => {
+  const item = evidence(1, "mla.recognition_detail");
+  item.data = { text: "NEW", score: 0.91 };
+
+  const text = renderEvidence(item, "text");
+  expect(text).toContain("ID: evidence-1");
+  expect(text).toContain("Source: maafw.log:2");
+  expect(text).toContain('"text": "NEW"');
+  expect(JSON.parse(renderEvidence(item, "json"))).toEqual(item);
+});
+
+test("renders an evidence window as text without changing its JSON shape", () => {
+  const window: EvidenceWindow = {
+    schemaVersion: "maa-evidence-window/v1",
+    artifactId: "artifact-1",
+    path: "maafw.log",
+    evidenceId: "evidence-1",
+    startLine: 1,
+    endLine: 2,
+    text: "1: first\n2: second",
+    truncated: false,
+  };
+
+  expect(renderEvidenceWindow(window, "text")).toContain("Lines: 1-2");
+  expect(JSON.parse(renderEvidenceWindow(window, "json"))).toEqual(window);
 });

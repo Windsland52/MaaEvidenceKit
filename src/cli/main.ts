@@ -13,6 +13,9 @@ import {
   type OperationalCounts,
   queryEvidenceWindow,
   recordOperationalTelemetry,
+  renderEvidenceWindow,
+  evidenceById,
+  renderEvidence,
   setTelemetryEnabled,
   submitFeedback,
   view,
@@ -31,7 +34,7 @@ Usage:
   maa-evidence mse inspect <path> [--task NAME] [--depth N] [--syntax-mode maafw|maa] [--format json|text|mermaid]
   maa-evidence inspect <path> [--from ISO] [--to ISO] [--task NAME] [--no-mla] [--no-mse]
   maa-evidence window --input result.json (--evidence-id ID | --artifact-id ID) [--line N]
-  maa-evidence view --input result.json --format json|text|mermaid
+  maa-evidence view --input result.json [--evidence-id ID] --format json|text|mermaid
   maa-evidence telemetry status|enable|disable
   maa-evidence feedback --message TEXT [--category blocker|bug|suggestion|other] [--component mla|mse|discovery|views|other] [--attachment FILE]
 
@@ -152,12 +155,23 @@ async function runWindow(parsed: ParsedArguments): Promise<void> {
       ? {}
       : { maxCharacters: integerOption(parsed, "--max-characters") as number }),
   });
-  await emit(JSON.stringify(window, null, 2), option(parsed, "--output"));
+  const format = option(parsed, "--format") ?? "json";
+  if (format !== "json" && format !== "text") {
+    throw new Error("window --format must be json or text.");
+  }
+  await emit(renderEvidenceWindow(window, format), option(parsed, "--output"));
 }
 
 async function runView(parsed: ParsedArguments): Promise<void> {
   const result = await readInspection(option(parsed, "--input") ?? "");
-  await emit(view(result, { format: outputFormat(parsed) }), option(parsed, "--output"));
+  const evidenceId = option(parsed, "--evidence-id");
+  const format = outputFormat(parsed);
+  if (evidenceId === undefined) {
+    await emit(view(result, { format }), option(parsed, "--output"));
+    return;
+  }
+  if (format === "mermaid") throw new Error("view --evidence-id supports only json or text.");
+  await emit(renderEvidence(evidenceById(result.evidence, evidenceId), format), option(parsed, "--output"));
 }
 
 async function runTelemetry(parsed: ParsedArguments): Promise<void> {
