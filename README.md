@@ -277,6 +277,10 @@ evidence，把运行时失败节点与静态 pipeline 任务关联起来，便�
 `threshold`、`template` 等实际存在的配置字段。它只表示运行时名称与提供的静态快照匹配，
 不表示配置导致了本次识别结果；若节点不在该快照中，会以 `pipelineFound: false` 及
 `combined.recognition_pipeline_reference_missing` 提示明确输出。
+自动运行时到 MSE 的关联最多选择 128 个不同节点：failure 节点优先，其余按失败识别次数、
+总识别次数和节点名稳定排序。达到上限时会输出 `combined.runtime_node_resolution_truncated`，
+完整规模及选中/省略数量保存在 `statistics.mseRuntimeNodes*` 和
+`details.correlation.runtimeNodes`；未选择的节点不会被误报为 `pipelineFound: false`。
 
 核心输出使用 `maa-evidence/v1`，包含：
 

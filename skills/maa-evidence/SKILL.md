@@ -23,6 +23,10 @@ Sentry investigation, source research, and diagnostic judgment in the host harne
   MSE `effectiveConfig`, so inspect that configuration directly rather than inferring a cause from
   the runtime score. Nodes absent from the supplied static snapshot emit a
   `combined.recognition_pipeline_reference_missing` warning.
+  Automatic runtime-node correlation selects at most 128 unique names, prioritizing failure nodes,
+  then failed and frequent recognition observations. Check
+  `combined.runtime_node_resolution_truncated`, `statistics.mseRuntimeNodes*`, and
+  `details.correlation.runtimeNodes` before assuming every runtime node was statically resolved.
   Matches carry `pipelineControllers`, `pipelineResources`, and `pipelineDefinitions`
   source locations; nodes absent from the project emit a
   `combined.pipeline_reference_missing` warning.

@@ -18,6 +18,8 @@ import {
 } from "./mse/index.js";
 import { profileStage, profileStageSync } from "./profiling.js";
 
+const MAX_COMBINED_RUNTIME_MSE_NODES = 128;
+
 export type InspectOptions = {
   mla?: MlaInspectOptions | false;
   mse?: MseInspectOptions | false;
@@ -26,6 +28,15 @@ export type InspectOptions = {
 export type CombinedInspectionDetails = {
   mla: MlaInspectionResult | null;
   mse: MseInspectionResult | null;
+  correlation: {
+    runtimeNodes: {
+      total: number;
+      selected: number;
+      omitted: number;
+      failureNodes: number;
+      recognitionOnlyNodes: number;
+    };
+  };
 };
 
 export type CombinedInspectionResult = InspectionResult<CombinedInspectionDetails> & {
@@ -64,6 +75,15 @@ type MlaRecognitionDetails = {
   status?: "succeeded" | "failed";
 };
 
+type RuntimeMseNodeSelection = {
+  tasks: string[];
+  total: number;
+  selected: number;
+  omitted: number;
+  failureNodes: number;
+  recognitionOnlyNodes: number;
+};
+
 type RecognitionPipelineConfiguration = {
   controller: string | null;
   resource: string | null;
@@ -83,6 +103,46 @@ type RecognitionPipelineReferenceEvidenceData = {
   staticConfigurations: RecognitionPipelineConfiguration[];
 };
 
+function selectRuntimeNodesForMse(mla: MlaInspectionResult | null): RuntimeMseNodeSelection {
+  if (mla === null) {
+    return { tasks: [], total: 0, selected: 0, omitted: 0, failureNodes: 0, recognitionOnlyNodes: 0 };
+  }
+  const failures = new Set<string>();
+  const recognitions = new Map<string, { failedOccurrences: number; occurrenceCount: number }>();
+  for (const item of mla.evidence) {
+    if (item.kind === "mla.failure") {
+      const node = (item.data as MlaFailureDetails | undefined)?.node_name;
+      if (node !== undefined) failures.add(node);
+      continue;
+    }
+    if (item.kind !== "mla.recognition_detail") continue;
+    const data = item.data as MlaRecognitionDetails | undefined;
+    if (data?.node === undefined) continue;
+    const current = recognitions.get(data.node) ?? { failedOccurrences: 0, occurrenceCount: 0 };
+    current.occurrenceCount += data.occurrenceCount ?? 0;
+    if (data.status === "failed") current.failedOccurrences += data.occurrenceCount ?? 0;
+    recognitions.set(data.node, current);
+  }
+  const recognitionNodes = [...recognitions.entries()]
+    .filter(([node]) => !failures.has(node))
+    .sort(([leftNode, left], [rightNode, right]) =>
+      right.failedOccurrences - left.failedOccurrences
+      || right.occurrenceCount - left.occurrenceCount
+      || leftNode.localeCompare(rightNode),
+    )
+    .map(([node]) => node);
+  const candidates = [...failures].sort((left, right) => left.localeCompare(right)).concat(recognitionNodes);
+  const tasks = candidates.slice(0, MAX_COMBINED_RUNTIME_MSE_NODES);
+  return {
+    tasks,
+    total: candidates.length,
+    selected: tasks.length,
+    omitted: candidates.length - tasks.length,
+    failureNodes: failures.size,
+    recognitionOnlyNodes: recognitionNodes.length,
+  };
+}
+
 function pipelineDefinitions(task: MseResolvedTask): PipelineDefinitionEvidence[] {
   return task.definitions.map((definition) => ({
     sourcePath: definition.source_path,
@@ -97,6 +157,7 @@ function addPipelineReferences(
   ledger: EvidenceLedger,
   mla: MlaInspectionResult,
   mse: MseInspectionResult,
+  selectedRuntimeNodes: ReadonlySet<string>,
 ): Set<string> {
   const graphNodes = new Map<string, Array<{
     found: boolean;
@@ -128,6 +189,7 @@ function addPipelineReferences(
     const data = failure.data as MlaFailureDetails | undefined;
     const node = data?.node_name;
     if (node === undefined || data === undefined) continue;
+    if (!selectedRuntimeNodes.has(node)) continue;
     const pipelineNodes = graphNodes.get(node) ?? [];
     const foundNodes = pipelineNodes.filter((item) => item.found);
     const pipelineFound = foundNodes.length > 0;
@@ -178,6 +240,7 @@ function addRecognitionPipelineReferences(
   ledger: EvidenceLedger,
   mla: MlaInspectionResult,
   mse: MseInspectionResult,
+  selectedRuntimeNodes: ReadonlySet<string>,
 ): Set<string> {
   const configurationsByNode = new Map<string, MseResolvedTask[]>();
   for (const project of mse.details.projects) {
@@ -197,6 +260,7 @@ function addRecognitionPipelineReferences(
       || data.status === undefined
       || data.occurrenceCount === undefined
     ) continue;
+    if (!selectedRuntimeNodes.has(data.node)) continue;
     const configurations = (configurationsByNode.get(data.node) ?? []).filter((item) => item.found);
     const pipelineFound = configurations.length > 0;
     if (!pipelineFound) unfoundNodes.add(data.node);
@@ -280,22 +344,9 @@ export async function inspect(
     && artifactDiscovery.artifacts.some((artifact) => artifact.kind === "maa_log");
   const shouldInspectMse = options.mse !== false && mseDiscovery.projects.length > 0;
   const mla = shouldInspectMla ? await inspectMla(resolvedPath, options.mla || {}) : null;
-  const runtimeNodes = shouldInspectMse && mla !== null
-    ? [...new Set(mla.evidence
-      .flatMap((item) => {
-        if (item.kind === "mla.failure") {
-          const node = (item.data as MlaFailureDetails | undefined)?.node_name;
-          return node === undefined ? [] : [node];
-        }
-        if (item.kind === "mla.recognition_detail") {
-          const node = (item.data as MlaRecognitionDetails | undefined)?.node;
-          return node === undefined ? [] : [node];
-        }
-        return [];
-      }))]
-    : [];
+  const runtimeNodeSelection = shouldInspectMse ? selectRuntimeNodesForMse(mla) : selectRuntimeNodesForMse(null);
   const mseOption = options.mse === false ? undefined : options.mse;
-  const mseTasks = runtimeNodes.length > 0 ? runtimeNodes : mseOption?.tasks;
+  const mseTasks = runtimeNodeSelection.selected > 0 ? runtimeNodeSelection.tasks : mseOption?.tasks;
   const mse = shouldInspectMse ? await inspectMse(resolvedPath, {
     ...(mseOption),
     ...(mseTasks === undefined ? {} : { tasks: mseTasks }),
@@ -309,10 +360,17 @@ export async function inspect(
     mergeEvidence(componentResults.map((item) => item.evidence)));
   const combinedLedger = new EvidenceLedger();
   const combinedWarnings: InspectionWarning[] = [];
+  if (runtimeNodeSelection.omitted > 0) {
+    combinedWarnings.push({
+      code: "combined.runtime_node_resolution_truncated",
+      message: `Selected ${runtimeNodeSelection.selected} of ${runtimeNodeSelection.total} unique runtime nodes for MSE correlation; failure nodes were prioritized, followed by failed recognition occurrences and total recognition occurrences.`,
+    });
+  }
   if (mla !== null && mse !== null) {
+    const selectedRuntimeNodes = new Set(runtimeNodeSelection.tasks);
     const { unfoundFailureNodes, unfoundRecognitionNodes } = profileStageSync("combined.correlation", () => ({
-      unfoundFailureNodes: addPipelineReferences(combinedLedger, mla, mse),
-      unfoundRecognitionNodes: addRecognitionPipelineReferences(combinedLedger, mla, mse),
+      unfoundFailureNodes: addPipelineReferences(combinedLedger, mla, mse, selectedRuntimeNodes),
+      unfoundRecognitionNodes: addRecognitionPipelineReferences(combinedLedger, mla, mse, selectedRuntimeNodes),
     }));
     if (unfoundFailureNodes.size > 0) {
       combinedWarnings.push({
@@ -365,7 +423,22 @@ export async function inspect(
       evidence: evidence.length,
       mlaEvidence: mla?.evidence.length ?? 0,
       mseEvidence: mse?.evidence.length ?? 0,
+      mseRuntimeNodes: runtimeNodeSelection.total,
+      mseRuntimeNodesSelected: runtimeNodeSelection.selected,
+      mseRuntimeNodesOmitted: runtimeNodeSelection.omitted,
     },
-    details: { mla, mse },
+    details: {
+      mla,
+      mse,
+      correlation: {
+        runtimeNodes: {
+          total: runtimeNodeSelection.total,
+          selected: runtimeNodeSelection.selected,
+          omitted: runtimeNodeSelection.omitted,
+          failureNodes: runtimeNodeSelection.failureNodes,
+          recognitionOnlyNodes: runtimeNodeSelection.recognitionOnlyNodes,
+        },
+      },
+    },
   };
 }

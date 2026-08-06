@@ -464,6 +464,51 @@ test("combined inspection links runtime recognition evidence to static MSE confi
     .toBe(false);
 });
 
+test("combined inspection bounds automatic runtime-node MSE correlation", async () => {
+  const root = await createCombinedFixture();
+  const recognitionEvents = Array.from({ length: 129 }, (_, index) => {
+    const node = `Recognition${String(index).padStart(3, "0")}`;
+    return event(`2026-07-19 10:01:${String(index % 60).padStart(2, "0")}.${String(index).padStart(3, "0")}`, "Node.Recognition.Failed", {
+      name: node,
+      reco_details: {
+        algorithm: "OCR",
+        name: node,
+        detail: { all: [{ score: 0.5, text: node }], filtered: [], best: null },
+      },
+    });
+  });
+  await writeFile(path.join(root, "maafw.log"), [
+    ...failingNodeLog("ZZZFailure"),
+    ...recognitionEvents,
+  ].join("\n"), "utf8");
+
+  const result = await inspect(root, { mse: { depth: 0, includeReferencers: false } });
+  const references = result.evidence
+    .filter((item) => item.kind === "combined.recognition_pipeline_reference")
+    .map((item) => (item.data as { node?: string } | undefined)?.node);
+
+  expect(result.details.correlation.runtimeNodes).toEqual({
+    total: 130,
+    selected: 128,
+    omitted: 2,
+    failureNodes: 1,
+    recognitionOnlyNodes: 129,
+  });
+  expect(result.statistics).toMatchObject({
+    mseRuntimeNodes: 130,
+    mseRuntimeNodesSelected: 128,
+    mseRuntimeNodesOmitted: 2,
+  });
+  expect(result.details.mse?.details.selection.requestedTasks).toHaveLength(128);
+  expect(result.details.mse?.details.selection.requestedTasks).toContain("ZZZFailure");
+  expect(references).toHaveLength(127);
+  expect(references).toContain("Recognition126");
+  expect(references).not.toContain("Recognition127");
+  expect(references).not.toContain("Recognition128");
+  expect(result.warnings.some((item) => item.code === "combined.runtime_node_resolution_truncated"))
+    .toBe(true);
+});
+
 test("MLA rejects archives because extraction belongs to the harness", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-archive-"));
   temporaryRoots.push(root);
