@@ -12,6 +12,7 @@ import {
   cycleCandidateOutcomes,
   cycleExitBlockers,
   cycleExitCandidates,
+  findPossibleMirroredTaskGroups,
   focusRuntimeSignals,
   namespaceRuntime,
   summarizeTaskAnomalies,
@@ -107,7 +108,14 @@ test("extracts aggregated OCR text and TemplateMatch score recognition details",
         name: "OriginiumOCR",
         reco_id: 400000002,
         detail: {
-          all: [{ box: [982, 8, 68, 40], score: 0.99992, text: "292049" }],
+          all: [
+            { box: [982, 8, 68, 40], score: 0.99992, text: "292049" },
+            { box: [980, 8, 68, 40], score: 0.80, text: "29204g" },
+            { box: [978, 8, 68, 40], score: 0.70, text: "292O49" },
+            { box: [976, 8, 68, 40], score: 0.60, text: "292049." },
+          ],
+          filtered: [{ box: [982, 8, 68, 40], score: 0.99992, text: "292049" }],
+          best: { box: [982, 8, 68, 40], score: 0.99992, text: "292049" },
         },
       },
     }),
@@ -158,6 +166,31 @@ test("extracts aggregated OCR text and TemplateMatch score recognition details",
   });
   expect((ocr?.data as { representatives?: { first?: { text?: string } } } | undefined)?.representatives?.first?.text)
     .toBe("292049");
+  const ocrData = ocr?.data as {
+    score?: { count?: number };
+    textCountSummary?: { observations?: number; unique?: number; returned?: number; truncated?: boolean };
+    candidateStages?: {
+      all?: { candidateCount?: number; score?: { count?: number }; samples?: Array<{ source?: { line?: number } }>; samplesTruncated?: boolean; textCountSummary?: { observations?: number; unique?: number; returned?: number; truncated?: boolean } };
+      filtered?: { candidateCount?: number; score?: { count?: number }; textCountSummary?: { observations?: number } };
+      best?: { candidateCount?: number; textCounts?: Array<{ text?: string; count?: number }>; textCountSummary?: { observations?: number } };
+    };
+  } | undefined;
+  expect(ocrData?.score?.count).toBe(1);
+  expect(ocrData?.textCountSummary).toEqual({ observations: 1, unique: 1, returned: 1, truncated: false });
+  expect(ocrData?.candidateStages?.all).toMatchObject({
+    candidateCount: 4,
+    score: { count: 4 },
+    samplesTruncated: true,
+  });
+  expect(ocrData?.candidateStages?.all?.samples).toHaveLength(3);
+  expect(ocrData?.candidateStages?.all?.samples?.[0]?.source?.line).toBe(3);
+  expect(ocrData?.candidateStages?.all?.textCountSummary).toEqual({ observations: 4, unique: 4, returned: 4, truncated: false });
+  expect(ocrData?.candidateStages?.filtered).toMatchObject({ candidateCount: 1, score: { count: 1 }, textCountSummary: { observations: 1 } });
+  expect(ocrData?.candidateStages?.best).toMatchObject({
+    candidateCount: 1,
+    textCounts: [{ text: "292049", count: 1 }],
+    textCountSummary: { observations: 1 },
+  });
   expect(template?.data).toMatchObject({
     algorithm: "TemplateMatch",
     status: "failed",
@@ -167,6 +200,50 @@ test("extracts aggregated OCR text and TemplateMatch score recognition details",
   expect(templateScore?.count).toBe(2);
   expect(templateScore?.minimum).toBeCloseTo(0.212474);
   expect(templateScore?.maximum).toBeCloseTo(0.212808);
+});
+
+test("bounds high-cardinality OCR text counts without hiding completeness", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-text-counts-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  const records = Array.from({ length: 80 }, (_, index) => event(
+    `2026-07-19 10:01:00.${String(index).padStart(3, "0")}`,
+    "Node.Recognition.Succeeded",
+    {
+      name: "HighCardinalityOCR",
+      reco_details: {
+        algorithm: "OCR",
+        name: "HighCardinalityOCR",
+        detail: {
+          all: [{ text: index < 10 ? "frequent" : `text-${String(index).padStart(2, "0")}`, score: 0.9 }],
+          filtered: [{ text: index < 10 ? "frequent" : `text-${String(index).padStart(2, "0")}`, score: 0.9 }],
+          best: { text: index < 10 ? "frequent" : `text-${String(index).padStart(2, "0")}`, score: 0.9 },
+        },
+      },
+    },
+  ));
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    ...records,
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const item = result.evidence.find((evidence) => evidence.kind === "mla.recognition_detail");
+  const data = item?.data as {
+    textCounts?: Array<{ text?: string; count?: number }>;
+    textCountSummary?: { observations?: number; unique?: number; returned?: number; truncated?: boolean };
+    best?: unknown[];
+    bestTruncated?: boolean;
+    candidateStages?: { all?: { textCounts?: Array<{ text?: string; count?: number }>; textCountSummary?: { observations?: number; unique?: number; returned?: number; truncated?: boolean } } };
+  } | undefined;
+  expect(data?.textCounts).toHaveLength(64);
+  expect(data?.textCounts?.[0]).toEqual({ text: "frequent", count: 10 });
+  expect(data?.textCountSummary).toEqual({ observations: 80, unique: 71, returned: 64, truncated: true });
+  expect(data?.best).toHaveLength(3);
+  expect(data?.bestTruncated).toBe(true);
+  expect(data?.candidateStages?.all?.textCounts).toHaveLength(64);
+  expect(data?.candidateStages?.all?.textCountSummary).toEqual({ observations: 80, unique: 71, returned: 64, truncated: true });
 });
 
 test("extracts bounded action outcomes with source-backed representatives", async () => {
@@ -438,14 +515,28 @@ test("extracts recognition detail generically across algorithms", async () => {
   const byNode = new Map(
     recognitionEvidence.map((item) => [(item.data as { node?: string } | undefined)?.node, item]),
   );
-  const templateData = byNode.get("TemplateOk")?.data as { detailShape?: string; candidateCounts?: { filtered?: { average?: number }; all?: { average?: number } }; best?: Array<{ score?: number }> } | undefined;
+  const templateData = byNode.get("TemplateOk")?.data as {
+    detailShape?: string;
+    candidateCounts?: { filtered?: { average?: number }; all?: { average?: number } };
+    candidateStages?: { all?: { score?: { count?: number } }; filtered?: { score?: { count?: number } }; best?: { score?: { count?: number } } };
+    best?: Array<{ score?: number }>;
+    score?: { count?: number };
+  } | undefined;
   const colorData = byNode.get("ColorOk")?.data as { detailShape?: string; best?: Array<{ count?: number }>; score?: { count?: number } } | undefined;
-  const orData = byNode.get("OrNode")?.data as { detailShape?: string; childRecognition?: Array<{ name?: string | null; algorithm?: string | null; occurrenceCount?: number }> } | undefined;
+  const orData = byNode.get("OrNode")?.data as {
+    detailShape?: string;
+    childRecognition?: Array<{ name?: string | null; algorithm?: string | null; occurrenceCount?: number }>;
+    childRecognitionTotal?: number;
+    childRecognitionTruncated?: boolean;
+  } | undefined;
   const nestedData = byNode.get("NestedOr")?.data as {
-    descendantRecognition?: Array<{ path?: string[]; algorithm?: string | null; best?: Array<{ text?: string }> }>;
+    descendantRecognition?: Array<{ path?: string[]; algorithm?: string | null; best?: Array<{ text?: string; source?: { path?: string; line?: number } }> }>;
     descendantRecognitionTruncated?: boolean;
   } | undefined;
   const wideData = byNode.get("WideOr")?.data as {
+    childRecognition?: Array<{ name?: string | null }>;
+    childRecognitionTotal?: number;
+    childRecognitionTruncated?: boolean;
     descendantRecognition?: unknown[];
     descendantRecognitionTruncated?: boolean;
   } | undefined;
@@ -454,6 +545,10 @@ test("extracts recognition detail generically across algorithms", async () => {
   expect(templateData?.detailShape).toBe("candidate_list");
   expect(templateData?.candidateCounts?.filtered?.average).toBe(1);
   expect(templateData?.best?.[0]?.score).toBeCloseTo(0.998994);
+  expect(templateData?.score?.count).toBe(1);
+  expect(templateData?.candidateStages?.all?.score?.count).toBe(1);
+  expect(templateData?.candidateStages?.filtered?.score?.count).toBe(1);
+  expect(templateData?.candidateStages?.best?.score?.count).toBe(1);
   expect(colorData?.detailShape).toBe("candidate_list");
   expect(colorData?.best?.[0]?.count).toBe(964);
   expect(colorData?.score).toBeNull();
@@ -463,11 +558,16 @@ test("extracts recognition detail generically across algorithms", async () => {
     algorithm: "ColorMatch",
     occurrenceCount: 1,
   });
+  expect(orData?.childRecognitionTotal).toBe(1);
+  expect(orData?.childRecognitionTruncated).toBe(false);
   expect(nestedData?.descendantRecognition).toEqual([
     expect.objectContaining({
       path: ["WeeklyByNew", "RecognitionNew"],
       algorithm: "OCR",
-      best: [expect.objectContaining({ text: "NEW" })],
+      best: [expect.objectContaining({
+        text: "NEW",
+        source: expect.objectContaining({ path: "maafw.log", line: 7 }),
+      })],
     }),
     expect.objectContaining({
       path: ["WeeklyByNew", "WeeklyText"],
@@ -478,6 +578,9 @@ test("extracts recognition detail generically across algorithms", async () => {
   expect(nestedData?.descendantRecognitionTruncated).toBe(false);
   expect(wideData?.descendantRecognition).toHaveLength(16);
   expect(wideData?.descendantRecognitionTruncated).toBe(true);
+  expect(wideData?.childRecognition).toHaveLength(8);
+  expect(wideData?.childRecognitionTotal).toBe(17);
+  expect(wideData?.childRecognitionTruncated).toBe(true);
 });
 
 test("inspectMla exposes complete signal totals alongside focused selection", async () => {
@@ -838,6 +941,23 @@ test("namespaces every task-to-signal reference together with its signal", () =>
     ],
   };
   expect(countPossibleMirroredTaskGroups(mirrored)).toBe(1);
+  const mirroredGroups = findPossibleMirroredTaskGroups(mirrored);
+  expect(mirroredGroups).toHaveLength(1);
+  expect(mirroredGroups[0]).toMatchObject({
+    fingerprint: {
+      taskId: 1,
+      name: "GenericTask",
+      hash: "hash",
+      uuid: "uuid",
+      status: "failed",
+    },
+    memberCount: 2,
+    namespaces: ["bundle", "other"],
+  });
+  expect(mirroredGroups[0]?.members.map((member) => member.executionId)).toEqual([
+    "bundle:execution:1",
+    "other:execution:1",
+  ]);
   const repeatedWithinOneTarget: MlaRuntimeInspectionResult = {
     ...mirrored,
     sessions: mirrored.sessions.map((item, index) => index === 0
@@ -851,6 +971,63 @@ test("namespaces every task-to-signal reference together with its signal", () =>
       }),
   };
   expect(countPossibleMirroredTaskGroups(repeatedWithinOneTarget)).toBe(0);
+});
+
+test("emits structured evidence for possible mirrored tasks across log targets", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-mirrored-"));
+  temporaryRoots.push(root);
+  const mirror = path.join(root, "mirror");
+  await mkdir(mirror);
+  await writeFile(path.join(root, "package.json"), "{}", "utf8");
+  const log = (): string => [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Tasker.Task.Starting", {
+      task_id: 7, entry: "MirrorTask", hash: "mirror-hash", uuid: "mirror-uuid",
+    }),
+    event("2026-07-19 10:01:01.000", "Tasker.Task.Succeeded", {
+      task_id: 7, entry: "MirrorTask", hash: "mirror-hash", uuid: "mirror-uuid",
+    }),
+  ].join("\n");
+  await writeFile(path.join(root, "maafw.log"), log(), "utf8");
+  await writeFile(path.join(mirror, "maafw.log"), log(), "utf8");
+
+  const result = await inspectMla(root);
+  const evidence = result.evidence.filter((item) => item.kind === "mla.possible_mirrored_task_group");
+  const data = evidence[0]?.data as {
+    fingerprint?: { name?: string; taskId?: number; hash?: string; uuid?: string };
+    namespaces?: string[];
+    memberCount?: number;
+    members?: Array<{
+      executionId?: string;
+      namespace?: string;
+      source?: { start?: { path?: string; line?: number }; end?: { path?: string; line?: number } };
+    }>;
+  } | undefined;
+
+  expect(evidence).toHaveLength(1);
+  expect(result.statistics.possibleMirroredTaskGroups).toBe(1);
+  expect(result.warnings.some((item) => item.code === "mla_possible_mirrored_tasks")).toBe(true);
+  expect(data?.fingerprint).toEqual({
+    name: "MirrorTask",
+    taskId: 7,
+    hash: "mirror-hash",
+    uuid: "mirror-uuid",
+    status: "succeeded",
+    startedAt: "2026-07-19 10:01:00.000",
+    endedAt: "2026-07-19 10:01:01.000",
+  });
+  expect(data?.namespaces).toHaveLength(2);
+  expect(data?.memberCount).toBe(2);
+  expect(data?.members).toHaveLength(2);
+  expect(new Set(data?.members?.map((member) => member.executionId)).size).toBe(2);
+  expect(data?.members?.every((member) => member.namespace !== undefined)).toBe(true);
+  expect(data?.members?.every((member) => member.source?.start?.line === 3)).toBe(true);
+  expect(data?.members?.every((member) => member.source?.end?.line === 4)).toBe(true);
+  expect(data?.members?.map((member) => member.source?.start?.path)).toEqual([
+    "maafw.log",
+    "mirror/maafw.log",
+  ]);
 });
 
 test("summarizes anomalies for succeeded tasks with timeouts, action failures, or endless repetition", () => {

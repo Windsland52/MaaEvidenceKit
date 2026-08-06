@@ -4,6 +4,7 @@ import { MAA_EVIDENCE_VERSION } from "../version.js";
 
 const DEFAULT_SENTRY_DSN =
   "https://ed349e23de6a10cf40c71af3ec19c730@o4511840769277952.ingest.us.sentry.io/4511840804929536";
+export const OPERATIONAL_TELEMETRY_FLUSH_TIMEOUT_MS = 200;
 const ALLOWED_TAGS = new Set([
   "arch",
   "category",
@@ -111,6 +112,7 @@ export type OperationalTelemetry = {
 };
 
 export async function sendOperationalTelemetry(event: OperationalTelemetry): Promise<void> {
+  const startedAt = performance.now();
   initializeSentry();
   Sentry.captureMessage("maa-evidence.command", {
     level: event.status === "ok" ? "info" : "error",
@@ -135,7 +137,8 @@ export async function sendOperationalTelemetry(event: OperationalTelemetry): Pro
       ...(event.counts?.taskAnomalies === undefined ? {} : { task_anomalies: event.counts.taskAnomalies }),
     },
   });
-  await Sentry.flush(1_000);
+  const remainingMs = Math.max(0, OPERATIONAL_TELEMETRY_FLUSH_TIMEOUT_MS - (performance.now() - startedAt));
+  await Sentry.flush(Math.ceil(remainingMs));
 }
 
 export type SentryFeedback = {

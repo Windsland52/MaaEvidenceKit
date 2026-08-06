@@ -9,7 +9,13 @@ import {
   type InspectionWarning,
 } from "./evidence/index.js";
 import { discoverArtifacts, inspectMla, type MlaInspectOptions, type MlaInspectionResult } from "./mla/index.js";
-import { discoverMseProjects, inspectMse, type MseInspectOptions, type MseInspectionResult } from "./mse/index.js";
+import {
+  discoverMseProjects,
+  inspectMse,
+  type MseInspectOptions,
+  type MseInspectionResult,
+  type MseResolvedTask,
+} from "./mse/index.js";
 import { profileStage, profileStageSync } from "./profiling.js";
 
 export type InspectOptions = {
@@ -50,6 +56,42 @@ type MlaFailureDetails = {
   task_name?: string;
   failure_id?: string;
 };
+
+type MlaRecognitionDetails = {
+  algorithm?: string;
+  node?: string;
+  occurrenceCount?: number;
+  status?: "succeeded" | "failed";
+};
+
+type RecognitionPipelineConfiguration = {
+  controller: string | null;
+  resource: string | null;
+  effectiveConfig: Record<string, unknown>;
+  definitions: PipelineDefinitionEvidence[];
+};
+
+type RecognitionPipelineReferenceEvidenceData = {
+  recognitionEvidenceId: string;
+  node: string;
+  algorithm: string;
+  status: "succeeded" | "failed";
+  occurrenceCount: number;
+  pipelineFound: boolean;
+  pipelineControllers: string[];
+  pipelineResources: string[];
+  staticConfigurations: RecognitionPipelineConfiguration[];
+};
+
+function pipelineDefinitions(task: MseResolvedTask): PipelineDefinitionEvidence[] {
+  return task.definitions.map((definition) => ({
+    sourcePath: definition.source_path,
+    line: definition.line,
+    column: definition.column,
+    controller: task.controller,
+    resource: task.resource,
+  }));
+}
 
 function addPipelineReferences(
   ledger: EvidenceLedger,
@@ -132,6 +174,74 @@ function addPipelineReferences(
   return unfoundNodes;
 }
 
+function addRecognitionPipelineReferences(
+  ledger: EvidenceLedger,
+  mla: MlaInspectionResult,
+  mse: MseInspectionResult,
+): Set<string> {
+  const configurationsByNode = new Map<string, MseResolvedTask[]>();
+  for (const project of mse.details.projects) {
+    for (const task of project.resolution?.resolutions ?? []) {
+      const configurations = configurationsByNode.get(task.name) ?? [];
+      configurations.push(task);
+      configurationsByNode.set(task.name, configurations);
+    }
+  }
+  const unfoundNodes = new Set<string>();
+  for (const recognition of mla.evidence) {
+    if (recognition.kind !== "mla.recognition_detail") continue;
+    const data = recognition.data as MlaRecognitionDetails | undefined;
+    if (
+      data?.node === undefined
+      || data.algorithm === undefined
+      || data.status === undefined
+      || data.occurrenceCount === undefined
+    ) continue;
+    const configurations = (configurationsByNode.get(data.node) ?? []).filter((item) => item.found);
+    const pipelineFound = configurations.length > 0;
+    if (!pipelineFound) unfoundNodes.add(data.node);
+    const staticConfigurations = configurations.map((item) => ({
+      controller: item.controller,
+      resource: item.resource,
+      effectiveConfig: item.effective_config,
+      definitions: pipelineDefinitions(item),
+    })).sort((left, right) =>
+      [left.controller ?? "", left.resource ?? "", JSON.stringify(left.definitions)]
+        .join("|")
+        .localeCompare([right.controller ?? "", right.resource ?? "", JSON.stringify(right.definitions)].join("|")),
+    );
+    const payload: RecognitionPipelineReferenceEvidenceData = {
+      recognitionEvidenceId: recognition.id,
+      node: data.node,
+      algorithm: data.algorithm,
+      status: data.status,
+      occurrenceCount: data.occurrenceCount,
+      pipelineFound,
+      pipelineControllers: [...new Set(configurations.map((item) => item.controller)
+        .filter((item): item is string => item !== null))].sort(),
+      pipelineResources: [...new Set(configurations.map((item) => item.resource)
+        .filter((item): item is string => item !== null))].sort(),
+      staticConfigurations,
+    };
+    ledger.add(
+      "combined.recognition_pipeline_reference",
+      pipelineFound
+        ? `Recognition node ${data.node} (${data.algorithm}, ${data.status}) exists in the MSE pipeline.`
+        : `Recognition node ${data.node} (${data.algorithm}, ${data.status}) was not found in the MSE pipeline.`,
+      {
+        artifactId: recognition.source.artifactId,
+        path: recognition.source.path,
+        ...(recognition.source.line === undefined ? {} : { line: recognition.source.line }),
+        ...(recognition.source.timestamp === undefined ? {} : { timestamp: recognition.source.timestamp }),
+        ...(recognition.source.task === undefined ? {} : { task: recognition.source.task }),
+        node: data.node,
+      },
+      payload,
+    );
+  }
+  return unfoundNodes;
+}
+
 function mergeArtifacts(groups: readonly Artifact[][]): Artifact[] {
   const artifacts = new Map<string, Artifact>();
   for (const artifact of groups.flat()) {
@@ -170,14 +280,22 @@ export async function inspect(
     && artifactDiscovery.artifacts.some((artifact) => artifact.kind === "maa_log");
   const shouldInspectMse = options.mse !== false && mseDiscovery.projects.length > 0;
   const mla = shouldInspectMla ? await inspectMla(resolvedPath, options.mla || {}) : null;
-  const failureNodes = shouldInspectMse && mla !== null
+  const runtimeNodes = shouldInspectMse && mla !== null
     ? [...new Set(mla.evidence
-      .filter((item) => item.kind === "mla.failure")
-      .map((item) => (item.data as MlaFailureDetails | undefined)?.node_name)
-      .filter((item): item is string => item !== undefined))]
+      .flatMap((item) => {
+        if (item.kind === "mla.failure") {
+          const node = (item.data as MlaFailureDetails | undefined)?.node_name;
+          return node === undefined ? [] : [node];
+        }
+        if (item.kind === "mla.recognition_detail") {
+          const node = (item.data as MlaRecognitionDetails | undefined)?.node;
+          return node === undefined ? [] : [node];
+        }
+        return [];
+      }))]
     : [];
   const mseOption = options.mse === false ? undefined : options.mse;
-  const mseTasks = failureNodes.length > 0 ? failureNodes : mseOption?.tasks;
+  const mseTasks = runtimeNodes.length > 0 ? runtimeNodes : mseOption?.tasks;
   const mse = shouldInspectMse ? await inspectMse(resolvedPath, {
     ...(mseOption),
     ...(mseTasks === undefined ? {} : { tasks: mseTasks }),
@@ -192,12 +310,20 @@ export async function inspect(
   const combinedLedger = new EvidenceLedger();
   const combinedWarnings: InspectionWarning[] = [];
   if (mla !== null && mse !== null) {
-    const unfoundNodes = profileStageSync("combined.correlation", () =>
-      addPipelineReferences(combinedLedger, mla, mse));
-    if (unfoundNodes.size > 0) {
+    const { unfoundFailureNodes, unfoundRecognitionNodes } = profileStageSync("combined.correlation", () => ({
+      unfoundFailureNodes: addPipelineReferences(combinedLedger, mla, mse),
+      unfoundRecognitionNodes: addRecognitionPipelineReferences(combinedLedger, mla, mse),
+    }));
+    if (unfoundFailureNodes.size > 0) {
       combinedWarnings.push({
         code: "combined.pipeline_reference_missing",
-        message: `Runtime failure nodes were not found in the MSE pipeline: ${[...unfoundNodes].sort().join(", ")}.`,
+        message: `Runtime failure nodes were not found in the MSE pipeline: ${[...unfoundFailureNodes].sort().join(", ")}.`,
+      });
+    }
+    if (unfoundRecognitionNodes.size > 0) {
+      combinedWarnings.push({
+        code: "combined.recognition_pipeline_reference_missing",
+        message: `Runtime recognition nodes were not found in the MSE pipeline: ${[...unfoundRecognitionNodes].sort().join(", ")}.`,
       });
     }
   }

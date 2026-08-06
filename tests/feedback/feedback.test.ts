@@ -2,7 +2,19 @@ import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
+
+const sentry = vi.hoisted(() => ({
+  captureFeedback: vi.fn(() => "feedback-event-id"),
+  captureMessage: vi.fn(),
+  flush: vi.fn<(timeout: number) => Promise<boolean>>(async (_timeout) => true),
+  getClient: vi.fn(() => ({ on: vi.fn() })),
+  init: vi.fn(),
+  withScope: vi.fn((callback: (scope: { addEventProcessor: (processor: unknown) => void }) => string) =>
+    callback({ addEventProcessor: vi.fn() })),
+}));
+
+vi.mock("@sentry/node", () => sentry);
 
 import {
   getTelemetryStatus,
@@ -11,6 +23,10 @@ import {
   setTelemetryEnabled,
 } from "../../src/index.js";
 import { scrubFeedbackEvent } from "../../src/feedback/sentry.js";
+import {
+  OPERATIONAL_TELEMETRY_FLUSH_TIMEOUT_MS,
+  sendOperationalTelemetry,
+} from "../../src/feedback/sentry.js";
 import type { ScrubbableFeedbackEvent } from "../../src/feedback/sentry.js";
 
 const temporaryRoots: string[] = [];
@@ -34,6 +50,24 @@ test("operational telemetry is on by default and can be opted out", () => {
   expect(operationalTelemetryEligible({ CI: "true" })).toBe(true);
   expect(operationalTelemetryEligible({ MAA_EVIDENCE_TELEMETRY: "0" })).toBe(false);
   expect(operationalTelemetryEligible({ MAA_EVIDENCE_TELEMETRY: "1" })).toBe(true);
+});
+
+test("operational telemetry uses a bounded flush budget", async () => {
+  await sendOperationalTelemetry({
+    command: "mla.inspect",
+    component: "mla",
+    status: "ok",
+    durationMs: 12,
+  });
+
+  expect(OPERATIONAL_TELEMETRY_FLUSH_TIMEOUT_MS).toBe(200);
+  const flushTimeout = sentry.flush.mock.calls.at(-1)?.[0] as number | undefined;
+  expect(flushTimeout).toBeDefined();
+  expect(flushTimeout).toBeGreaterThanOrEqual(0);
+  expect(flushTimeout).toBeLessThanOrEqual(OPERATIONAL_TELEMETRY_FLUSH_TIMEOUT_MS);
+  expect(sentry.captureMessage).toHaveBeenCalledWith("maa-evidence.command", expect.objectContaining({
+    level: "info",
+  }));
 });
 
 test("feedback scrubbing removes SDK-added host context", () => {

@@ -149,9 +149,16 @@ MLA 默认输出其优先级为 `high` 的信号和每个任务的高亮信号�
 被失败事实引用的图片会额外输出为 `mla.failure_image` evidence，直接携带图片路径和关联节点，
 便于 harness 按需打开截图或调用视觉工具。
 MLA 会按 `node + algorithm + status` 把识别事件聚合为 `mla.recognition_detail` evidence，
-按 detail 的真实 shape 通用提取，而不是按算法硬编码：`all`/`filtered`/`best` 候选数组的
-数量与分数分布、`detail` 为数组时的子识别（如 Or）都会保留。嵌套的 And/Or 还会通过
-`descendantRecognition` 有界保留叶子识别路径、候选计数和 best 样本；超过深度或数量上限时
+按 detail 的真实 shape 通用提取，而不是按算法硬编码。顶层 `score` / `textCounts` 每次识别
+只统计一个代表候选（优先 `best`，再取 `filtered` / `all` 首项），不会因同一候选同时出现在
+三个上游数组中而重复计数。`candidateStages.all` / `filtered` / `best` 分别保留各阶段的候选总数、
+文本计数、分数分布和最多 3 个带 source locator 的样本；`samplesTruncated` 明确表示仍有更多
+候选。顶层及各阶段的 `textCounts` 最多返回频次最高的 64 项，完整规模保留在
+`textCountSummary`（`observations` / `unique` / `returned` / `truncated`）；顶层 `best` 最多
+返回 3 个样本，并由 `bestTruncated` 标明是否截断。`detail` 为数组时的子识别（如 Or）也会保留。嵌套的 And/Or 还会通过
+直接子识别通过 `childRecognition` 有界保留最多 8 个不同子项，完整不同子项数量在
+`childRecognitionTotal` 中，超过上限时 `childRecognitionTruncated` 明确标记。嵌套的
+`descendantRecognition` 有界保留叶子识别路径、候选计数和带 source locator 的 best 样本；超过深度或数量上限时
 `descendantRecognitionTruncated` 会明确标记。OCR 文本、模板分数、ColorMatch 的 count 等
 候选字段统一抽取；`detail` 为空的 DirectHit 等不产生记录。
 聚合记录的 `representatives` / `best` 样本还会附带各自的 `source` locator，便于 harness
@@ -168,8 +175,11 @@ action-detail 组超过 500 时会按时间轴均匀取样，并输出 `mla_acti
 若循环内某个候选节点所有评估都失败（`unsuccessfulAttemptCount === evaluationCount` 且
 `runningAttemptCount === 0`），`mla.task_anomaly` 会额外标记 `all_evaluations_failed`，
 只陈述“全部尝试都失败”这一观测事实，不推断是 max_hit 还是手动 disable 导致。
-若多个日志中出现字段完全一致的任务，MEK 会发出 `mla_possible_mirrored_tasks`，但不会在缺少
-实例关联证据时自动合并；`statistics.tasks` 始终表示观测到的任务记录数，而非已证明唯一的执行数。
+若多个日志中出现字段完全一致的任务，MEK 会发出 `mla_possible_mirrored_tasks` warning 和
+`mla.possible_mirrored_task_group` evidence。后者列出任务指纹、execution ID、namespace 以及
+每个成员的任务起止来源位置，但不会在缺少实例关联证据时自动合并；`statistics.tasks` 始终表示
+观测到的任务记录数，而非已证明唯一的执行数。namespace 是 MEK 为日志目标生成的 execution ID
+前缀，只能作为同包来源线索，不能替代 harness 的 issue/run 关联。
 
 ## SDK
 
@@ -256,10 +266,17 @@ evidence，也不会通过运行遥测自动发送。启用运行遥测时，pro
 
 当 MLA 与 MSE 同时可用时，`inspect` 会额外输出 `combined.pipeline_reference`
 evidence，把运行时失败节点与静态 pipeline 任务关联起来，便于判断失败节点是否
-存在于当前项目配置中。匹配到的节点会携带 `pipelineControllers`、
+存在于提供的项目配置中。匹配到的节点会携带 `pipelineControllers`、
 `pipelineResources` 和 `pipelineDefinitions`（源码路径/行/列定位）；匹配不到的节点
 会输出 `pipelineFound: false`，并在 `warnings` 中给出
 `combined.pipeline_reference_missing` 提示。
+
+每条 `mla.recognition_detail` 还会产生 `combined.recognition_pipeline_reference`：它关联
+运行时算法、状态、聚合次数与同名 pipeline 节点的 controller/resource、定义位置和 MSE
+`effectiveConfig`。因此 harness 可在同一 evidence 中对照 OCR 文本或模板分数与静态
+`threshold`、`template` 等实际存在的配置字段。它只表示运行时名称与提供的静态快照匹配，
+不表示配置导致了本次识别结果；若节点不在该快照中，会以 `pipelineFound: false` 及
+`combined.recognition_pipeline_reference_missing` 提示明确输出。
 
 核心输出使用 `maa-evidence/v1`，包含：
 
@@ -301,7 +318,8 @@ maa-evidence telemetry enable
 maa-evidence telemetry disable
 ```
 
-CI 和非交互环境默认发送聚合遥测，但从不弹出交互提示。原始日志、截图或源代码等附件
+CI 和非交互环境默认发送聚合遥测，但从不弹出交互提示。运行遥测为 best-effort，每次命令使用
+200ms 投递预算，超时不会改变命令结果；原始日志、截图或源代码等附件
 **不会自动发送**，只能通过交互式 `feedback` 命令发送，并且每次都必须预览后输入 `UPLOAD`。
 反馈按严重程度分为 `blocker`（无法使用/崩溃）、`bug`、`suggestion`、`other` 四类，默认
 `other`。20MB 只是配额警告，不是 MEK 拒绝上限。完整说明见 [`PRIVACY.md`](PRIVACY.md)。

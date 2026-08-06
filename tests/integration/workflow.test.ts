@@ -66,6 +66,25 @@ function failingNodeLog(nodeName: string): string[] {
   ];
 }
 
+function recognitionNodeLog(nodeName: string): string[] {
+  return [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Node.Recognition.Failed", {
+      name: nodeName,
+      reco_details: {
+        algorithm: "OCR",
+        name: nodeName,
+        detail: {
+          all: [{ score: 0.72, text: "start" }],
+          filtered: [],
+          best: null,
+        },
+      },
+    }),
+  ];
+}
+
 async function createCombinedFixture(): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-workflow-"));
   temporaryRoots.push(root);
@@ -395,6 +414,54 @@ test("CLI writes JSON inspection and can query a cited source window", async () 
     "--format",
     "json",
   ])).toBe(1);
+});
+
+test("combined inspection links runtime recognition evidence to static MSE configuration", async () => {
+  const root = await createCombinedFixture();
+  await writeFile(path.join(root, "maafw.log"), recognitionNodeLog("Start").join("\n"), "utf8");
+  await writeFile(path.join(root, "assets", "resource", "base", "pipeline", "combat.json"), JSON.stringify({
+    Start: { recognition: "OCR", threshold: 0.95, template: "start.png", next: ["Done"] },
+    Done: { recognition: "DirectHit" },
+  }), "utf8");
+
+  const result = await inspect(root);
+  const refs = result.evidence.filter((item) => item.kind === "combined.recognition_pipeline_reference");
+  const data = refs[0]?.data as {
+    recognitionEvidenceId?: string;
+    node?: string;
+    algorithm?: string;
+    status?: string;
+    occurrenceCount?: number;
+    pipelineFound?: boolean;
+    pipelineControllers?: string[];
+    pipelineResources?: string[];
+    staticConfigurations?: Array<{
+      effectiveConfig?: Record<string, unknown>;
+      definitions?: Array<{ sourcePath?: string; line?: number; column?: number }>;
+    }>;
+  } | undefined;
+
+  expect(refs).toHaveLength(1);
+  expect(data).toMatchObject({
+    node: "Start",
+    algorithm: "OCR",
+    status: "failed",
+    occurrenceCount: 1,
+    pipelineFound: true,
+    pipelineControllers: ["Adb"],
+    pipelineResources: ["Official"],
+  });
+  expect(data?.recognitionEvidenceId).toMatch(/^evidence-/);
+  expect(data?.staticConfigurations?.[0]?.effectiveConfig).toMatchObject({
+    recognition: "OCR",
+    threshold: 0.95,
+    template: "start.png",
+  });
+  expect(data?.staticConfigurations?.[0]?.definitions?.[0]).toMatchObject({
+    sourcePath: expect.stringMatching(/combat\.json$/),
+  });
+  expect(result.warnings.some((item) => item.code === "combined.recognition_pipeline_reference_missing"))
+    .toBe(false);
 });
 
 test("MLA rejects archives because extraction belongs to the harness", async () => {

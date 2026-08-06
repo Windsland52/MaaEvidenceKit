@@ -17,7 +17,12 @@ Sentry investigation, source research, and diagnostic judgment in the host harne
   that also needs those preflight facts, run `maa-evidence mse inspect <project> --task <name>`.
 - Use `maa-evidence inspect <folder>` only after the question requires both runtime and static
   evidence and both inputs are already available under the same material root. It emits
-  `combined.pipeline_reference` to connect runtime failure nodes with static pipeline tasks.
+  `combined.pipeline_reference` to connect runtime failure nodes with static pipeline tasks, and
+  `combined.recognition_pipeline_reference` to connect runtime recognition evidence with static
+  MSE configuration. Recognition references carry controller/resource, definition locations, and
+  MSE `effectiveConfig`, so inspect that configuration directly rather than inferring a cause from
+  the runtime score. Nodes absent from the supplied static snapshot emit a
+  `combined.recognition_pipeline_reference_missing` warning.
   Matches carry `pipelineControllers`, `pipelineResources`, and `pipelineDefinitions`
   source locations; nodes absent from the project emit a
   `combined.pipeline_reference_missing` warning.
@@ -160,6 +165,8 @@ analysis; `mse.preflight` and `mse.resolution` may overlap because they run conc
 can exceed command wall-clock duration, so do not sum them as a serial critical path. When
 operational telemetry is enabled, `telemetry.config` and `telemetry.send` separate local consent
 lookup and send/flush time from extraction time.
+Operational telemetry delivery is best-effort and uses a 200ms command-exit budget, so do not treat
+the absence of one event as evidence that a harness did not run MEK.
 
 Use the profile to choose a response rather than to form a diagnosis: narrow MLA only when the
 question permits it, focus or defer MSE, batch follow-ups, or investigate local I/O. Do not cite
@@ -207,10 +214,19 @@ Inspect these fields before forming a diagnosis:
 - `details`: MLA execution facts or MSE static relations.
 
 `mla.recognition_detail` aggregates recognition events by node/algorithm/status and extracts
-the detail generically by shape: `all`/`filtered`/`best` candidate counts and score distributions,
-plus child-recognition summaries when `detail` is an array (e.g. Or). Nested And/Or leaves are
-available in bounded `descendantRecognition` entries with their recognition path, counts, and best
-samples; check `descendantRecognitionTruncated` before assuming the list is exhaustive. OCR text,
+the detail generically by shape. Top-level `score` and `textCounts` select one representative per
+recognition occurrence (`best`, then the first `filtered`/`all` candidate), so an upstream candidate
+repeated across all three arrays is not counted three times. Use `candidateStages.all`, `.filtered`,
+and `.best` for separate candidate totals, text counts, score distributions, and up to three
+source-backed samples per stage; check `samplesTruncated` before treating samples as exhaustive.
+Top-level and per-stage `textCounts` return at most the 64 most frequent values. Use
+`textCountSummary.observations`, `.unique`, `.returned`, and `.truncated` for completeness. Top-level
+`best` retains at most three samples and reports `bestTruncated`.
+When `detail` is an array (e.g. Or), `childRecognition` retains at most eight distinct direct child
+summaries. Use `childRecognitionTotal` and `childRecognitionTruncated` before assuming that list is
+complete. Nested And/Or leaves are
+available in bounded `descendantRecognition` entries with their recognition path, counts, and
+source-backed best samples; check `descendantRecognitionTruncated` before assuming the list is exhaustive. OCR text,
 template scores, and ColorMatch counts are unified candidate fields; empty `detail` (e.g. DirectHit)
 is skipped. Aggregated recognition records also attach a `source` locator to representative and best
 samples; use that locator when a follow-up asks about one occurrence rather than the aggregate's main
@@ -255,8 +271,11 @@ referenced images needed for the question; MEK does not embed or interpret their
 Each failure-referenced image is also emitted as `mla.failure_image` evidence with its path and
 associated node, so a visual harness can open the exact screenshot without re-parsing the log.
 
-Treat task counts as observed records. If `mla_possible_mirrored_tasks` is present, do not claim
-the records are unique executions and do not merge them without instance or run correlation evidence.
+Treat task counts as observed records. If `mla_possible_mirrored_tasks` or
+`mla.possible_mirrored_task_group` is present, inspect its task fingerprint, execution IDs,
+namespaces, and source locations, but do not claim the records are unique executions or merge them
+without instance or run correlation evidence. The namespace is only the MEK execution-ID prefix;
+issue/run correlation remains the harness's responsibility.
 
 Request raw context only for a cited location:
 

@@ -76,20 +76,42 @@ type RecognitionDetailSample = RecognitionDetailCandidate & {
   source?: EvidenceSource;
 };
 
+export type MlaRecognitionDetailCandidate = RecognitionDetailCandidate;
+export type MlaRecognitionDetailSample = RecognitionDetailSample;
+
+export type MlaRecognitionTextCountSummary = {
+  observations: number;
+  unique: number;
+  returned: number;
+  truncated: boolean;
+};
+
+type RecognitionScoreDistribution = {
+  count: number;
+  minimum: number;
+  p50: number;
+  p95: number;
+  maximum: number;
+  average: number;
+};
+
+export type MlaRecognitionCandidateStage = {
+  candidateCount: number;
+  textCounts: Array<{ text: string; count: number }>;
+  textCountSummary: MlaRecognitionTextCountSummary;
+  score: RecognitionScoreDistribution | null;
+  samples: MlaRecognitionDetailSample[];
+  samplesTruncated: boolean;
+};
+
 export type MlaRecognitionDetail = {
   algorithm: string;
   node: string;
   status: "succeeded" | "failed";
   occurrenceCount: number;
   textCounts: Array<{ text: string; count: number }>;
-  score: {
-    count: number;
-    minimum: number;
-    p50: number;
-    p95: number;
-    maximum: number;
-    average: number;
-  } | null;
+  textCountSummary: MlaRecognitionTextCountSummary;
+  score: RecognitionScoreDistribution | null;
   representatives: {
     first: RecognitionDetailSample;
     worst: RecognitionDetailSample | null;
@@ -100,7 +122,13 @@ export type MlaRecognitionDetail = {
     filtered: { count: number; minimum: number; maximum: number; average: number } | null;
     bestPresent: number;
   } | null;
+  candidateStages: {
+    all: MlaRecognitionCandidateStage;
+    filtered: MlaRecognitionCandidateStage;
+    best: MlaRecognitionCandidateStage;
+  } | null;
   best: RecognitionDetailSample[];
+  bestTruncated: boolean;
   childRecognition: Array<{
     name: string | null;
     algorithm: string | null;
@@ -108,6 +136,8 @@ export type MlaRecognitionDetail = {
     allCount: number | null;
     filteredCount: number | null;
   }>;
+  childRecognitionTotal: number;
+  childRecognitionTruncated: boolean;
   descendantRecognition?: Array<{
     path: string[];
     name: string | null;
@@ -115,7 +145,7 @@ export type MlaRecognitionDetail = {
     occurrenceCount: number;
     allCount: number;
     filteredCount: number;
-    best: RecognitionDetailCandidate[];
+    best: MlaRecognitionDetailSample[];
     bestTruncated: boolean;
   }>;
   descendantRecognitionTruncated?: boolean;
@@ -668,6 +698,67 @@ function addTaskEvidence(
   );
 }
 
+function addPossibleMirroredTaskEvidence(
+  ledger: EvidenceLedger,
+  groups: readonly MlaPossibleMirroredTaskGroup[],
+  loadedTargets: readonly LoadedMlaTarget[],
+  artifacts: readonly Artifact[],
+  inputPath: string,
+): void {
+  const targetForMember = (member: MlaPossibleMirroredTaskMember): LoadedMlaTarget | undefined =>
+    loadedTargets.find((target) => target.target.namespace === member.namespace);
+  const sourceArtifactForMember = (
+    member: MlaPossibleMirroredTaskMember,
+    positionPath: string | null,
+  ): Artifact | undefined => {
+    const target = targetForMember(member);
+    return target === undefined
+      ? undefined
+      : artifactForPosition(target.artifacts, target.target.path, positionPath);
+  };
+  for (const group of groups) {
+    const first = group.members[0];
+    if (first === undefined) continue;
+    const firstArtifact = sourceArtifactForMember(first, first.source.start.path);
+    const members = group.members.map((member) => {
+      const startArtifact = sourceArtifactForMember(member, member.source.start.path);
+      const endArtifact = sourceArtifactForMember(member, member.source.end.path);
+      return {
+        ...member,
+        source: {
+          start: {
+            ...member.source.start,
+            path: startArtifact?.relativePath ?? member.source.start.path,
+          },
+          end: {
+            ...member.source.end,
+            path: endArtifact?.relativePath ?? member.source.end.path,
+          },
+        },
+      };
+    });
+    const data = { ...group, members };
+    ledger.add(
+      "mla.possible_mirrored_task_group",
+      `Observed possible mirrored task ${group.fingerprint.name} across namespaces ${group.namespaces.join(", ")}; instances remain unmerged observations.`,
+      firstArtifact === undefined
+        ? evidenceSource(artifacts, inputPath, {
+          path: first.source.start.path,
+          local_line: first.source.start.line,
+          timestamp: first.source.start.timestamp,
+        }, { task: group.fingerprint.name })
+        : {
+          artifactId: firstArtifact.id,
+          path: firstArtifact.relativePath,
+          ...(first.source.start.line === null ? {} : { line: first.source.start.line }),
+          ...(first.source.start.timestamp === null ? {} : { timestamp: first.source.start.timestamp }),
+          task: group.fingerprint.name,
+        },
+      data,
+    );
+  }
+}
+
 export function summarizeTaskAnomalies(runtime: MlaRuntimeInspectionResult): MlaTaskAnomaly[] {
   const signalsByTask = new Map<string, MlaRuntimeInspectionResult["signals"]>();
   for (const signal of runtime.signals) {
@@ -766,7 +857,7 @@ function addRecognitionDetailEvidence(
     ? ` best=${candidateSummaryText(detail.best[0])}`
     : "";
   const childSummary = detail.childRecognition.length > 0
-    ? ` children=${detail.childRecognition.length}`
+    ? ` children=${detail.childRecognitionTotal}${detail.childRecognitionTruncated ? " (truncated)" : ""}`
     : "";
   const summary = `Recognition ${detail.node} ${detail.status} (${detail.algorithm}) x${detail.occurrenceCount}${textSummary}${scoreSummary}${filteredSummary}${bestSummary}${childSummary}`;
   const representative = detail.representatives.worst ?? detail.representatives.first;
@@ -787,6 +878,30 @@ function addRecognitionDetailEvidence(
       worst: detail.representatives.worst === null ? null : withSampleSource(detail.representatives.worst),
     },
     best: detail.best.map(withSampleSource),
+    ...(detail.descendantRecognition === undefined
+      ? {}
+      : {
+        descendantRecognition: detail.descendantRecognition.map((descendant) => ({
+          ...descendant,
+          best: descendant.best.map(withSampleSource),
+        })),
+      }),
+    candidateStages: detail.candidateStages === null
+      ? null
+      : {
+        all: {
+          ...detail.candidateStages.all,
+          samples: detail.candidateStages.all.samples.map(withSampleSource),
+        },
+        filtered: {
+          ...detail.candidateStages.filtered,
+          samples: detail.candidateStages.filtered.samples.map(withSampleSource),
+        },
+        best: {
+          ...detail.candidateStages.best,
+          samples: detail.candidateStages.best.samples.map(withSampleSource),
+        },
+      },
   };
   ledger.add(
     "mla.recognition_detail",
@@ -1170,6 +1285,45 @@ export type MlaSignalCounts = {
   repeatedNodeTotalRepeatCount: number;
 };
 
+export type MlaPossibleMirroredTaskMember = {
+  executionId: string;
+  namespace: string;
+  taskId: number;
+  name: string;
+  hash: string;
+  uuid: string;
+  status: RuntimeTask["status"];
+  startedAt: string;
+  endedAt: string | null;
+  source: {
+    start: {
+      path: string | null;
+      line: number | null;
+      timestamp: string | null;
+    };
+    end: {
+      path: string | null;
+      line: number | null;
+      timestamp: string | null;
+    };
+  };
+};
+
+export type MlaPossibleMirroredTaskGroup = {
+  fingerprint: {
+    taskId: number;
+    name: string;
+    hash: string;
+    uuid: string;
+    status: RuntimeTask["status"];
+    startedAt: string;
+    endedAt: string | null;
+  };
+  namespaces: string[];
+  memberCount: number;
+  members: MlaPossibleMirroredTaskMember[];
+};
+
 export function countRuntimeSignals(runtime: MlaRuntimeInspectionResult): MlaSignalCounts {
   let recognitionOccurrences = 0;
   let repeatedNodeSegments = 0;
@@ -1190,28 +1344,85 @@ export function countRuntimeSignals(runtime: MlaRuntimeInspectionResult): MlaSig
   };
 }
 
-export function countPossibleMirroredTaskGroups(runtime: MlaRuntimeInspectionResult): number {
-  const groups = new Map<string, Set<string>>();
+function taskNamespace(executionId: string): string {
+  const separator = executionId.indexOf(":");
+  return separator === -1 ? executionId : executionId.slice(0, separator);
+}
+
+function possibleMirroredTaskFingerprint(task: RuntimeTask): string {
+  return JSON.stringify([
+    task.task_id,
+    task.name,
+    task.hash,
+    task.uuid,
+    task.status,
+    task.started_at,
+    task.ended_at,
+  ]);
+}
+
+export function findPossibleMirroredTaskGroups(
+  runtime: MlaRuntimeInspectionResult,
+): MlaPossibleMirroredTaskGroup[] {
+  const groups = new Map<string, RuntimeTask[]>();
   const tasks = [...runtime.sessions.flatMap((session) => session.tasks), ...runtime.unscoped_tasks];
   for (const task of tasks) {
-    const fingerprint = JSON.stringify([
-      task.task_id,
-      task.name,
-      task.hash,
-      task.uuid,
-      task.status,
-      task.started_at,
-      task.ended_at,
-    ]);
-    const separator = task.execution_id.indexOf(":");
-    const targetNamespace = separator === -1
-      ? task.execution_id
-      : task.execution_id.slice(0, separator);
-    const namespaces = groups.get(fingerprint) ?? new Set<string>();
-    namespaces.add(targetNamespace);
-    groups.set(fingerprint, namespaces);
+    const fingerprint = possibleMirroredTaskFingerprint(task);
+    const members = groups.get(fingerprint) ?? [];
+    members.push(task);
+    groups.set(fingerprint, members);
   }
-  return [...groups.values()].filter((namespaces) => namespaces.size > 1).length;
+  return [...groups.values()]
+    .map((members) => {
+      const first = members[0];
+      if (first === undefined) return null;
+      const namespaces = [...new Set(members.map((task) => taskNamespace(task.execution_id)))].sort((left, right) =>
+        left.localeCompare(right),
+      );
+      if (namespaces.length <= 1) return null;
+      return {
+        fingerprint: {
+          taskId: first.task_id,
+          name: first.name,
+          hash: first.hash,
+          uuid: first.uuid,
+          status: first.status,
+          startedAt: first.started_at,
+          endedAt: first.ended_at,
+        },
+        namespaces,
+        memberCount: members.length,
+        members: members.map((task) => ({
+          executionId: task.execution_id,
+          namespace: taskNamespace(task.execution_id),
+          taskId: task.task_id,
+          name: task.name,
+          hash: task.hash,
+          uuid: task.uuid,
+          status: task.status,
+          startedAt: task.started_at,
+          endedAt: task.ended_at,
+          source: {
+            start: {
+              path: task.evidence.start.path,
+              line: task.evidence.start.local_line,
+              timestamp: task.evidence.start.timestamp,
+            },
+            end: {
+              path: task.evidence.end.path,
+              line: task.evidence.end.local_line,
+              timestamp: task.evidence.end.timestamp,
+            },
+          },
+        })),
+      } satisfies MlaPossibleMirroredTaskGroup;
+    })
+    .filter((group): group is MlaPossibleMirroredTaskGroup => group !== null)
+    .sort((left, right) => JSON.stringify(left.fingerprint).localeCompare(JSON.stringify(right.fingerprint)));
+}
+
+export function countPossibleMirroredTaskGroups(runtime: MlaRuntimeInspectionResult): number {
+  return findPossibleMirroredTaskGroups(runtime).length;
 }
 
 function mergeRuntimes(items: readonly LoadedMlaTarget[]): MlaRuntimeInspectionResult {
@@ -1344,7 +1555,7 @@ function parseRecognitionDetail(detail: unknown): RecognitionDetailShape {
   if (Array.isArray(detail)) {
     return {
       kind: "child_array",
-      children: detail.slice(0, 8).filter(isRecord).map((child) => {
+      children: detail.filter(isRecord).map((child) => {
         const childShape = parseRecognitionDetail(child["detail"]);
         return {
           name: typeof child["name"] === "string" ? child["name"] : null,
@@ -1376,6 +1587,9 @@ function parseRecognitionDetail(detail: unknown): RecognitionDetailShape {
 const MAX_DESCENDANT_RECOGNITIONS = 16;
 const MAX_DESCENDANT_RECOGNITION_DEPTH = 6;
 const MAX_DESCENDANT_BEST_SAMPLES = 3;
+const MAX_CHILD_RECOGNITIONS = 8;
+const MAX_RECOGNITION_STAGE_SAMPLES = 3;
+const MAX_RECOGNITION_TEXT_COUNTS = 64;
 
 function collectDescendantRecognitions(detail: unknown): {
   items: RecognitionDescendantSummary[];
@@ -1418,7 +1632,7 @@ function collectDescendantRecognitions(detail: unknown): {
   return { items, truncated };
 }
 
-function uniqueCandidates(candidates: readonly RecognitionDetailCandidate[]): RecognitionDetailCandidate[] {
+function uniqueCandidates<T extends object>(candidates: readonly T[]): T[] {
   const seen = new Set<string>();
   return candidates.filter((candidate) => {
     const key = JSON.stringify(candidate);
@@ -1443,6 +1657,78 @@ function percentile(sorted: number[], ratio: number): number {
   return sorted[index] ?? 0;
 }
 
+function scoreDistribution(scores: readonly number[]): RecognitionScoreDistribution | null {
+  if (scores.length === 0) return null;
+  const sorted = [...scores].sort((left, right) => left - right);
+  return {
+    count: sorted.length,
+    minimum: sorted[0] ?? 0,
+    p50: percentile(sorted, 0.5),
+    p95: percentile(sorted, 0.95),
+    maximum: sorted[sorted.length - 1] ?? 0,
+    average: sorted.reduce((total, item) => total + item, 0) / sorted.length,
+  };
+}
+
+type RecognitionCandidateStageAccumulator = {
+  candidateCount: number;
+  texts: Map<string, number>;
+  scores: number[];
+  samples: RecognitionDetailSample[];
+};
+
+function emptyCandidateStage(): RecognitionCandidateStageAccumulator {
+  return { candidateCount: 0, texts: new Map<string, number>(), scores: [], samples: [] };
+}
+
+function addCandidateStageSamples(
+  stage: RecognitionCandidateStageAccumulator,
+  candidates: readonly RecognitionDetailCandidate[],
+  timestamp: string,
+  mergedLine: number | null,
+): void {
+  stage.candidateCount += candidates.length;
+  for (const candidate of candidates) {
+    if (candidate.text !== undefined) {
+      stage.texts.set(candidate.text, (stage.texts.get(candidate.text) ?? 0) + 1);
+    }
+    if (candidate.score !== undefined) stage.scores.push(candidate.score);
+    if (stage.samples.length < MAX_RECOGNITION_STAGE_SAMPLES + 1) {
+      stage.samples.push({ ...candidate, timestamp, mergedLine });
+    }
+  }
+}
+
+function summarizeTextCounts(texts: ReadonlyMap<string, number>): {
+  textCounts: Array<{ text: string; count: number }>;
+  textCountSummary: MlaRecognitionTextCountSummary;
+} {
+  const entries = [...texts.entries()].sort(
+    ([leftText, leftCount], [rightText, rightCount]) => rightCount - leftCount || leftText.localeCompare(rightText),
+  );
+  const selected = entries.slice(0, MAX_RECOGNITION_TEXT_COUNTS);
+  return {
+    textCounts: selected.map(([text, count]) => ({ text, count })),
+    textCountSummary: {
+      observations: entries.reduce((total, [, count]) => total + count, 0),
+      unique: entries.length,
+      returned: selected.length,
+      truncated: entries.length > selected.length,
+    },
+  };
+}
+
+function candidateStageSummary(stage: RecognitionCandidateStageAccumulator): MlaRecognitionCandidateStage {
+  const texts = summarizeTextCounts(stage.texts);
+  return {
+    candidateCount: stage.candidateCount,
+    ...texts,
+    score: scoreDistribution(stage.scores),
+    samples: stage.samples.slice(0, MAX_RECOGNITION_STAGE_SAMPLES),
+    samplesTruncated: stage.candidateCount > MAX_RECOGNITION_STAGE_SAMPLES,
+  };
+}
+
 function extractRecognitionDetails(
   analyzed: Awaited<ReturnType<typeof analyzeLogContent>>,
   timeRange: TimeRange | undefined,
@@ -1460,6 +1746,11 @@ function extractRecognitionDetails(
     bestPresentCount: number;
     bestSamples: RecognitionDetailSample[];
     samples: RecognitionDetailSample[];
+    candidateStages: {
+      all: RecognitionCandidateStageAccumulator;
+      filtered: RecognitionCandidateStageAccumulator;
+      best: RecognitionCandidateStageAccumulator;
+    };
     childRecognition: Map<string, {
       name: string | null;
       algorithm: string | null;
@@ -1474,7 +1765,7 @@ function extractRecognitionDetails(
       count: number;
       allLengths: number[];
       filteredLengths: number[];
-      bestSamples: RecognitionDetailCandidate[];
+       bestSamples: MlaRecognitionDetailSample[];
     }>;
     descendantRecognitionTruncated: boolean;
   }>();
@@ -1507,6 +1798,11 @@ function extractRecognitionDetails(
       bestPresentCount: 0,
       bestSamples: [],
       samples: [],
+      candidateStages: {
+        all: emptyCandidateStage(),
+        filtered: emptyCandidateStage(),
+        best: emptyCandidateStage(),
+      },
       childRecognition: new Map<string, {
         name: string | null;
         algorithm: string | null;
@@ -1521,7 +1817,7 @@ function extractRecognitionDetails(
         count: number;
         allLengths: number[];
         filteredLengths: number[];
-        bestSamples: RecognitionDetailCandidate[];
+         bestSamples: MlaRecognitionDetailSample[];
       }>(),
       descendantRecognitionTruncated: false,
     };
@@ -1531,26 +1827,30 @@ function extractRecognitionDetails(
       group.allLengths.push(shape.all.length);
       group.filteredLengths.push(shape.filtered.length);
       if (shape.best !== null) group.bestPresentCount += 1;
-      const candidates = [...shape.all, ...shape.filtered, ...(shape.best === null ? [] : [shape.best])];
-      for (const candidate of candidates) {
-        if (candidate.text !== undefined) {
-          group.texts.set(candidate.text, (group.texts.get(candidate.text) ?? 0) + 1);
-        }
-        if (candidate.score !== undefined) {
-          group.scores.push(candidate.score);
-        }
+      const mergedLine = event._lineNumber ?? null;
+      addCandidateStageSamples(group.candidateStages.all, shape.all, event.timestamp, mergedLine);
+      addCandidateStageSamples(group.candidateStages.filtered, shape.filtered, event.timestamp, mergedLine);
+      addCandidateStageSamples(
+        group.candidateStages.best,
+        shape.best === null ? [] : [shape.best],
+        event.timestamp,
+        mergedLine,
+      );
+      const selected = shape.best ?? shape.filtered[0] ?? shape.all[0] ?? null;
+      if (selected?.text !== undefined) {
+        group.texts.set(selected.text, (group.texts.get(selected.text) ?? 0) + 1);
       }
-      const bestSample = shape.best ?? shape.all[0] ?? null;
+      if (selected?.score !== undefined) group.scores.push(selected.score);
       group.samples.push({
-        ...bestSample,
+        ...selected,
         timestamp: event.timestamp,
-        mergedLine: event._lineNumber ?? null,
+        mergedLine,
       });
       if (shape.best !== null) {
         group.bestSamples.push({
           ...shape.best,
           timestamp: event.timestamp,
-          mergedLine: event._lineNumber ?? null,
+          mergedLine,
         });
       }
     } else {
@@ -1584,7 +1884,13 @@ function extractRecognitionDetails(
         entry.count += 1;
         entry.allLengths.push(descendant.allCount);
         entry.filteredLengths.push(descendant.filteredCount);
-        if (descendant.best !== null) entry.bestSamples.push(descendant.best);
+        if (descendant.best !== null) {
+          entry.bestSamples.push({
+            ...descendant.best,
+            timestamp: event.timestamp,
+            mergedLine: event._lineNumber ?? null,
+          });
+        }
         group.descendantRecognition.set(descendantKey, entry);
       }
       group.samples.push({ timestamp: event.timestamp, mergedLine: event._lineNumber ?? null });
@@ -1596,17 +1902,7 @@ function extractRecognitionDetails(
       [right.node, right.algorithm, right.status].join("|"),
     ),
   ).map((group) => {
-    const sortedScores = [...group.scores].sort((left, right) => left - right);
-    const score = sortedScores.length === 0
-      ? null
-      : {
-        count: sortedScores.length,
-        minimum: sortedScores[0] ?? 0,
-        p50: percentile(sortedScores, 0.5),
-        p95: percentile(sortedScores, 0.95),
-        maximum: sortedScores[sortedScores.length - 1] ?? 0,
-        average: sortedScores.reduce((total, item) => total + item, 0) / sortedScores.length,
-      };
+    const score = scoreDistribution(group.scores);
     const samples = group.samples;
     const first = samples[0] as RecognitionDetailSample;
     const worst = score === null
@@ -1632,14 +1928,13 @@ function extractRecognitionDetails(
         bestTruncated: uniqueBest.length > MAX_DESCENDANT_BEST_SAMPLES,
       };
     });
+    const texts = summarizeTextCounts(group.texts);
     return {
       algorithm: group.algorithm,
       node: group.node,
       status: group.status,
       occurrenceCount: group.count,
-      textCounts: [...group.texts.entries()]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([text, count]) => ({ text, count })),
+      ...texts,
       score,
       representatives: { first, worst },
       detailShape,
@@ -1650,14 +1945,24 @@ function extractRecognitionDetails(
           filtered: group.filteredLengths.length === 0 ? null : lengthStats(group.filteredLengths),
           bestPresent: group.bestPresentCount,
         },
+      candidateStages: group.allLengths.length === 0 && group.filteredLengths.length === 0
+        ? null
+        : {
+          all: candidateStageSummary(group.candidateStages.all),
+          filtered: candidateStageSummary(group.candidateStages.filtered),
+          best: candidateStageSummary(group.candidateStages.best),
+        },
       best: group.bestSamples.slice(0, 3),
-      childRecognition: [...group.childRecognition.values()].slice(0, 8).map((entry) => ({
+      bestTruncated: group.bestSamples.length > 3,
+      childRecognition: [...group.childRecognition.values()].slice(0, MAX_CHILD_RECOGNITIONS).map((entry) => ({
         name: entry.name,
         algorithm: entry.algorithm,
         occurrenceCount: entry.count,
         allCount: entry.allLengths.length === 0 ? null : lengthStats(entry.allLengths).average,
         filteredCount: entry.filteredLengths.length === 0 ? null : lengthStats(entry.filteredLengths).average,
       })),
+      childRecognitionTotal: group.childRecognition.size,
+      childRecognitionTruncated: group.childRecognition.size > MAX_CHILD_RECOGNITIONS,
       ...(descendantRecognition.length === 0 && !group.descendantRecognitionTruncated
         ? {}
         : {
@@ -1808,7 +2113,7 @@ export async function inspectMla(
   const runtime = signalFocus.runtime;
   const completeSignalCounts = countRuntimeSignals(completeRuntime);
   const focusedSignalCounts = countRuntimeSignals(runtime);
-  const possibleMirroredTaskGroups = countPossibleMirroredTaskGroups(runtime);
+  const possibleMirroredTaskGroups = findPossibleMirroredTaskGroups(runtime);
   const selectedSignalIds = new Set(runtime.signals.map((signal) => signal.signal_id));
   const loadingGranularity = loadedTargets.length > 1
     ? "multiple_bundles" as const
@@ -1842,6 +2147,13 @@ export async function inspectMla(
       );
     }
   }
+  addPossibleMirroredTaskEvidence(
+    ledger,
+    possibleMirroredTaskGroups,
+    loadedTargets,
+    discovery.artifacts,
+    resolvedPath,
+  );
   for (const anomaly of taskAnomalies) {
     const task = tasksByExecution.get(anomaly.executionId);
     if (task === undefined) continue;
@@ -1902,11 +2214,11 @@ export async function inspectMla(
         code: "mla_signals_focused",
         message: `Selected ${signalFocus.selection.selected} of ${signalFocus.selection.total} runtime signals using MLA priorities and per-task highlights; request all signals explicitly for exhaustive output. Complete totals are available in statistics: signalsTotal, recognitionOccurrences, repeatedNodeSegments, repeatedNodeTotalRepeatCount.`,
       }]),
-    ...(possibleMirroredTaskGroups === 0
+    ...(possibleMirroredTaskGroups.length === 0
       ? []
       : [{
         code: "mla_possible_mirrored_tasks",
-        message: `Observed ${possibleMirroredTaskGroups} groups of field-identical tasks across the selected logs; counts remain observations because separate instances cannot be safely deduplicated without correlation evidence.`,
+        message: `Observed ${possibleMirroredTaskGroups.length} groups of field-identical tasks across the selected logs; counts remain observations because separate instances cannot be safely deduplicated without correlation evidence.`,
       }]),
     ...loadedTargets.flatMap((target) =>
       target.actionDetails.length === target.actionDetailsTotal
@@ -1935,7 +2247,7 @@ export async function inspectMla(
       sessions: runtime.sessions.length,
       tasks: runtime.sessions.reduce((total, session) => total + session.tasks.length, 0)
         + runtime.unscoped_tasks.length,
-      possibleMirroredTaskGroups,
+      possibleMirroredTaskGroups: possibleMirroredTaskGroups.length,
       failures: runtime.failures.length,
       outcomes: runtime.outcomes.length,
       taskAnomalies: taskAnomalies.length,
