@@ -111,6 +111,18 @@ test("combined inspection chooses only the deterministic adapters present", asyn
   expect(result.statistics.adapters).toBe(2);
 });
 
+test("combined inspection reports missing log and project as missing evidence", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-combined-empty-"));
+  temporaryRoots.push(root);
+  await writeFile(path.join(root, "package.json"), "{}", "utf8");
+
+  const result = await inspect(root);
+
+  expect(result.missingEvidence.some((item) => item.code === "maa_framework_log_not_selected")).toBe(true);
+  expect(result.missingEvidence.some((item) => item.code === "mse_project_not_selected")).toBe(true);
+  expect(result.evidence).toHaveLength(0);
+});
+
 test("combined inspection links runtime failures to MSE pipeline nodes", async () => {
   const root = await createCombinedFixture();
   await writeFile(path.join(root, "maafw.log"), failingNodeLog("Start").join("\n"), "utf8");

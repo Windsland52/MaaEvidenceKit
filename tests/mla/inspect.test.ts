@@ -78,6 +78,19 @@ test("extracts source-backed runtime facts and filters them by time", async () =
   expect(renderText(focused)).not.toContain("Second: failed");
 });
 
+test("reports missing framework log as missing evidence", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-empty-"));
+  temporaryRoots.push(root);
+  await writeFile(path.join(root, "package.json"), "{}", "utf8");
+
+  const result = await inspectMla(root);
+
+  expect(result.missingEvidence.some((item) => item.code === "maa_framework_log_missing")).toBe(true);
+  expect(result.missingEvidence.some((item) => item.code === "mla_evidence_missing")).toBe(true);
+  expect(result.evidence).toHaveLength(0);
+});
+
+
 test("extracts aggregated OCR text and TemplateMatch score recognition details", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-recognition-"));
   temporaryRoots.push(root);
