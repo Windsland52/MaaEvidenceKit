@@ -40,6 +40,7 @@ const BOOLEAN_OPTIONS = new Set([
   "--no-mla",
   "--no-mse",
   "--no-referencers",
+  "--version",
 ]);
 
 export function parseArguments(args: string[]): ParsedArguments {

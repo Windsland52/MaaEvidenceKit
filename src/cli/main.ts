@@ -7,6 +7,7 @@ import {
   inspect,
   inspectMla,
   inspectMse,
+  MAA_EVIDENCE_VERSION,
   getTelemetryStatus,
   previewFeedback,
   queryEvidenceBatch,
@@ -47,6 +48,7 @@ Usage:
 Common options:
   --output FILE       Write output to a file
   --format FORMAT     json, text, or mermaid
+  --version           Show the MaaEvidenceKit version
   -h, --help          Show this help
 `;
 
@@ -322,6 +324,10 @@ async function withOperationalTelemetry(
 export async function main(args: string[] = process.argv.slice(2)): Promise<number> {
   try {
     const parsed = parseArguments(args);
+    if (flag(parsed, "--version")) {
+      process.stdout.write(`${MAA_EVIDENCE_VERSION}\n`);
+      return 0;
+    }
     if (args.length === 0 || flag(parsed, "--help") || flag(parsed, "-h")) {
       process.stdout.write(HELP);
       return 0;

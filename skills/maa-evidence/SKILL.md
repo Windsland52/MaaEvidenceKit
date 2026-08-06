@@ -95,6 +95,40 @@ Run issue/source research, generic-log inspection, image interpretation, and Sen
 parallel only when they are independently relevant. Do not block the primary MLA path on optional
 Sentry or VLM work.
 
+## Reuse host-side caches safely
+
+Caching belongs to the harness, not MEK. Keep it outside the repository and never commit cached
+issues, logs, screenshots, extracted source, or inspection JSON.
+
+Use three separate caches:
+
+- **Attachments:** index the original URL plus response metadata to an object stored by SHA-256
+  content hash. Reuse only a complete object; preserve multipart membership and detect when a newly
+  available part changes the material set. Do not use an issue number, filename, URL, size, or mtime
+  alone as proof of identical content.
+- **Source:** key by canonical repository identity and the resolved immutable commit SHA. A mutable
+  tag may locate the commit, but the cached checkout must record and verify the resolved SHA. Never
+  let a cache miss fall back to current HEAD.
+- **Inspection:** key by the complete material-content manifest, normalized inspection options, MEK
+  version, and—when MSE is used—the immutable source commit. Obtain the CLI version with
+  `maa-evidence --version`; SDK callers can use `MAA_EVIDENCE_VERSION`.
+
+The material manifest must change when an input file or archive part is added, removed, or changes
+content. Normalize options as sorted structured data and include adapter choice, time range,
+keywords, tasks, depth, syntax mode, controller/resource, all-signals, and referencer selection as
+applicable. Do not reuse an MLA-only result for a combined query or a broad MSE result as proof that
+a differently resolved controller/resource was inspected.
+
+An inspection stores authorized artifact paths used by `window`. Keep its extracted material root
+at those paths for the cache lifetime. If an artifact no longer exists at the recorded path, treat
+the cached result as view/search-only or rerun inspection before requesting a source window; never
+rewrite an artifact path to an uninventoried file. Cache only successfully completed output, retain
+its warnings and missing evidence, and invalidate it when any key component changes.
+
+These caches contain user material even though operational telemetry does not. Apply the harness's
+normal access controls and retention policy, and never attach cached content to MEK feedback without
+the same per-submission preview and explicit confirmation as the original files.
+
 ## Extract evidence
 
 Prefer JSON for reasoning:

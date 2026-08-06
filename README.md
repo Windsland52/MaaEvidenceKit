@@ -29,6 +29,7 @@ MEK 不负责理解 GitHub Issue、GUI/自定义日志、Sentry 数据或业务�
 pnpm install
 pnpm build
 node dist/cli/main.js --help
+node dist/cli/main.js --version
 ```
 
 发布后可通过 `maa-evidence` 二进制调用。
@@ -245,6 +246,12 @@ Issue 调查采用分阶段快路径：harness 并发获取独立附件并提取
 完整后立即先运行聚焦 MLA；只有剩余问题确实需要节点定义、配置阈值或静态执行关系时，才获取
 issue-time 源码并运行聚焦 MSE。已知 task/controller/resource 必须传给 MSE，共享节点只需定义
 和前向路径时使用 `--no-referencers`。多个后续证据查询使用 `batch`，不重复启动 CLI 和解析结果。
+
+Skill 同时定义由 harness 管理的三层本地缓存：附件按内容 SHA-256，源码按仓库与不可变 commit，
+inspection 按完整材料清单、规范化选项、MEK 版本及可选源码 commit。CLI 可用
+`maa-evidence --version` 提供缓存键版本。缓存不属于 MEK 核心，不得提交到仓库；若 cached
+inspection 记录的 artifact 原路径已不可用，只能继续做 `view`/`search`，读取 `window` 前必须
+恢复原路径或重新检查。
 
 ## 遥测与反馈
 
