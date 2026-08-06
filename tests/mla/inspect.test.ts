@@ -8,6 +8,7 @@ import { inspectMla, renderText } from "../../src/index.js";
 import {
   countPossibleMirroredTaskGroups,
   countRuntimeSignals,
+  cycleCandidateOutcomes,
   cycleExitCandidates,
   focusRuntimeSignals,
   namespaceRuntime,
@@ -772,6 +773,164 @@ test("identifies cycle candidates that never matched", () => {
       matchedAttemptCount: 0,
       unsuccessfulAttemptCount: 5,
       terminalMatchCount: 0,
+    },
+  ]);
+});
+
+
+test("decomposes cycle candidate success/failure outcomes", () => {
+  const baseSignal = {
+    session_id: "session:1",
+    execution_id: "execution:1",
+    task_id: 1,
+    task_name: "Task1",
+  };
+  const repeated = {
+    ...baseSignal,
+    signal_id: "repeat:1",
+    kind: "repeated_node" as const,
+    pattern: ["NodeA"],
+    segment_count: 1,
+    total_repeat_count: 5,
+    maximum_repeat_count: 5,
+    duration_ms: { count: 1, minimum: 1, p50: 1, p95: 1, maximum: 1, average: 1 },
+    terminations: { left_pattern: 0, task_ended: 0, still_repeating_at_log_end: 1 },
+    representatives: {
+      first: {
+        pattern: ["NodeA"], first_seen_at: "2026-07-19 10:00:00.000",
+        last_seen_at: "2026-07-19 10:00:00.000", repeat_count: 5, duration_ms: 1,
+        termination: "still_repeating_at_log_end" as const,
+        evidence: { timestamp: "2026-07-19 10:00:00.000", source: "file:maafw.log", path: "maafw.log", local_line: 1 },
+      },
+      longest: {
+        pattern: ["NodeA"], first_seen_at: "2026-07-19 10:00:00.000",
+        last_seen_at: "2026-07-19 10:00:00.000", repeat_count: 5, duration_ms: 1,
+        termination: "still_repeating_at_log_end" as const,
+        evidence: { timestamp: "2026-07-19 10:00:00.000", source: "file:maafw.log", path: "maafw.log", local_line: 1 },
+      },
+      last: {
+        pattern: ["NodeA"], first_seen_at: "2026-07-19 10:00:00.000",
+        last_seen_at: "2026-07-19 10:00:00.000", repeat_count: 5, duration_ms: 1,
+        termination: "still_repeating_at_log_end" as const,
+        evidence: { timestamp: "2026-07-19 10:00:00.000", source: "file:maafw.log", path: "maafw.log", local_line: 1 },
+      },
+    },
+    detector: {
+      name: "repeated-completed-node-sequence" as const,
+      version: 1 as const,
+      minimum_repeats: 3 as const,
+      maximum_pattern_length: 8 as const,
+    },
+    priority: "high",
+    priority_reasons: ["still_repeating_at_log_end"],
+  };
+  const recognitionA = {
+    ...baseSignal,
+    signal_id: "reco:1",
+    kind: "recognition_activity" as const,
+    pipeline_node_name: "NodeA",
+    next_list: [],
+    occurrence_count: 5,
+    occurrences_with_mixed_results: 0,
+    terminal_outcomes: { matched: 3, timeout: 0, running: 0, unmatched: 2 },
+    terminal_matches: [],
+    candidate_statistics: [
+      {
+        name: "TargetA",
+        evaluation_count: 5,
+        matched_attempt_count: 0,
+        unsuccessful_attempt_count: 5,
+        running_attempt_count: 0,
+        terminal_match_count: 0,
+      },
+      {
+        name: "TargetB",
+        evaluation_count: 5,
+        matched_attempt_count: 3,
+        unsuccessful_attempt_count: 2,
+        running_attempt_count: 0,
+        terminal_match_count: 0,
+      },
+    ],
+    unmapped_attempt_count: 0,
+    attempts: { count: 5, minimum: 1, p50: 1, p95: 1, maximum: 1, average: 1 },
+    unsuccessful_attempts: { count: 5, minimum: 1, p50: 1, p95: 1, maximum: 1, average: 1 },
+    duration_ms: { count: 5, minimum: 1, p50: 1, p95: 1, maximum: 1, average: 1 },
+    representatives: {
+      first: {
+        node_id: 11, started_at: "2026-07-19 10:00:00.000", ended_at: "2026-07-19 10:00:00.000",
+        attempt_count: 5, unsuccessful_attempts: 5, terminal_match: null,
+        evidence: {
+          start: { timestamp: "2026-07-19 10:00:00.000", source: "file:maafw.log", path: "maafw.log", local_line: 1 },
+          end: { timestamp: "2026-07-19 10:00:00.000", source: "file:maafw.log", path: "maafw.log", local_line: 1 },
+        },
+      },
+      worst: {
+        node_id: 11, started_at: "2026-07-19 10:00:00.000", ended_at: "2026-07-19 10:00:00.000",
+        attempt_count: 5, unsuccessful_attempts: 5, terminal_match: null,
+        evidence: {
+          start: { timestamp: "2026-07-19 10:00:00.000", source: "file:maafw.log", path: "maafw.log", local_line: 1 },
+          end: { timestamp: "2026-07-19 10:00:00.000", source: "file:maafw.log", path: "maafw.log", local_line: 1 },
+        },
+      },
+      last: {
+        node_id: 11, started_at: "2026-07-19 10:00:00.000", ended_at: "2026-07-19 10:00:00.000",
+        attempt_count: 5, unsuccessful_attempts: 5, terminal_match: null,
+        evidence: {
+          start: { timestamp: "2026-07-19 10:00:00.000", source: "file:maafw.log", path: "maafw.log", local_line: 1 },
+          end: { timestamp: "2026-07-19 10:00:00.000", source: "file:maafw.log", path: "maafw.log", local_line: 1 },
+        },
+      },
+    },
+    priority: "high",
+    priority_reasons: ["high_unsuccessful_attempts"],
+  };
+  const runtime = {
+    schema_version: "mla-runtime-inspection/v1",
+    sessions: [],
+    unscoped_tasks: [],
+    failures: [],
+    outcomes: [],
+    signals: [repeated, recognitionA],
+    warnings: [],
+  } as unknown as MlaRuntimeInspectionResult;
+  const repeatedSignal = repeated as MlaRuntimeInspectionResult["signals"][number];
+  const outcomes = cycleCandidateOutcomes(runtime, repeatedSignal);
+
+  expect(outcomes).toEqual([
+    {
+      cycleSignalId: "repeat:1",
+      pipelineNode: "NodeA",
+      candidate: "TargetA",
+      evaluationCount: 5,
+      matchedAttemptCount: 0,
+      unsuccessfulAttemptCount: 5,
+      runningAttemptCount: 0,
+      terminalMatchCount: 0,
+      persistentFailure: true,
+      evidence: {
+        timestamp: "2026-07-19 10:00:00.000",
+        source: "file:maafw.log",
+        path: "maafw.log",
+        local_line: 1,
+      },
+    },
+    {
+      cycleSignalId: "repeat:1",
+      pipelineNode: "NodeA",
+      candidate: "TargetB",
+      evaluationCount: 5,
+      matchedAttemptCount: 3,
+      unsuccessfulAttemptCount: 2,
+      runningAttemptCount: 0,
+      terminalMatchCount: 0,
+      persistentFailure: false,
+      evidence: {
+        timestamp: "2026-07-19 10:00:00.000",
+        source: "file:maafw.log",
+        path: "maafw.log",
+        local_line: 1,
+      },
     },
   ]);
 });

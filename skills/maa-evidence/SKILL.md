@@ -101,6 +101,9 @@ Recognition `mla.signal` entries include `candidateStatistics` and `terminalMatc
 see which candidate nodes were evaluated, matched, or repeatedly unsuccessful inside a cycle.
 Repeated-node signals also include `exitCandidates`: candidates inside the cycle that were
 evaluated but never matched, which pinpoints the recognition condition preventing loop exit.
+Each evaluated candidate in a repeated-node cycle is also emitted as
+`mla.cycle_candidate_outcome` with matched/unsuccessful counts and a
+`persistentFailure` flag for candidates that were evaluated but never matched.
 
 When a task reports `succeeded` but its execution also contains `next_list_timeout`,
 `action_failure`, or a repeated sequence still running at log end, MEK emits

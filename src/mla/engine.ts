@@ -105,12 +105,67 @@ export function cycleExitCandidates(
       terminalMatchCount: item.terminal_match_count,
     })));
   }
+
   return [...new Set(signal.pattern.flatMap((node) => byNode.get(node) ?? []))]
     .filter((candidate) =>
       candidate.evaluationCount > 0
       && candidate.matchedAttemptCount === 0
       && candidate.terminalMatchCount === 0,
     );
+}
+
+export type MlaCycleCandidateOutcome = {
+  cycleSignalId: string;
+  pipelineNode: string;
+  candidate: string;
+  evaluationCount: number;
+  matchedAttemptCount: number;
+  unsuccessfulAttemptCount: number;
+  runningAttemptCount: number;
+  terminalMatchCount: number;
+  persistentFailure: boolean;
+  evidence: {
+    timestamp: string | null;
+    source: string | null;
+    path: string | null;
+    local_line: number | null;
+  };
+};
+
+export function cycleCandidateOutcomes(
+  runtime: MlaRuntimeInspectionResult,
+  signal: MlaRuntimeInspectionResult["signals"][number],
+): MlaCycleCandidateOutcome[] {
+  if (signal.kind === "recognition_activity") return [];
+  const byNode = new Map<string, MlaCycleCandidateOutcome[]>();
+  for (const candidate of runtime.signals) {
+    if (candidate.kind !== "recognition_activity" || candidate.execution_id !== signal.execution_id) continue;
+    const occurrence = candidate.representatives.worst?.evidence.start ?? candidate.representatives.first.evidence.start;
+    byNode.set(candidate.pipeline_node_name, candidate.candidate_statistics.map((item) => ({
+      cycleSignalId: signal.signal_id,
+      pipelineNode: candidate.pipeline_node_name,
+      candidate: item.name,
+      evaluationCount: item.evaluation_count,
+      matchedAttemptCount: item.matched_attempt_count,
+      unsuccessfulAttemptCount: item.unsuccessful_attempt_count,
+      runningAttemptCount: item.running_attempt_count,
+      terminalMatchCount: item.terminal_match_count,
+      persistentFailure: item.evaluation_count > 0
+        && item.matched_attempt_count === 0
+        && item.terminal_match_count === 0,
+      evidence: {
+        timestamp: occurrence.timestamp,
+        source: occurrence.source,
+        path: occurrence.path,
+        local_line: occurrence.local_line,
+      },
+    })));
+  }
+  return [...new Map(signal.pattern.flatMap((node) => byNode.get(node) ?? []).map((item) => [
+    `${item.pipelineNode}|${item.candidate}`,
+    item,
+  ])).values()].filter((item) => item.evaluationCount > 0)
+    .sort((left, right) => left.candidate.localeCompare(right.candidate));
 }
 
 export type MlaInspectOptions = {
@@ -395,6 +450,21 @@ function addRuntimeEvidence(
           exitCandidates: cycleExitCandidates(runtime, signal),
         },
     );
+    if (signal.kind !== "recognition_activity") {
+      for (const outcome of cycleCandidateOutcomes(runtime, signal)) {
+        ledger.add(
+          "mla.cycle_candidate_outcome",
+          outcome.persistentFailure
+            ? `Candidate ${outcome.candidate} was evaluated ${outcome.evaluationCount} times without matching inside cycle ${signal.pattern.join(" → ")}.`
+            : `Candidate ${outcome.candidate} matched ${outcome.matchedAttemptCount} of ${outcome.evaluationCount} evaluations inside cycle ${signal.pattern.join(" → ")}.`,
+          evidenceSource(artifacts, inputPath, outcome.evidence, {
+            task: signal.task_name,
+            node: outcome.pipelineNode,
+          }),
+          outcome,
+        );
+      }
+    }
   }
 }
 
