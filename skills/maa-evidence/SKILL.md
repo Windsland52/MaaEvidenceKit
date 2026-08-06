@@ -79,6 +79,9 @@ MLA output is focused by default: it keeps high-priority signals and each task's
 highlights. Check `details.selection.signals` for selected and total counts. Add `--all-signals`
 only when exhaustive ordinary and low-priority signal enumeration is necessary; do not pay that
 output cost for routine triage.
+Complete totals are always in `statistics` (`signalsTotal`, `recognitionOccurrences`,
+`repeatedNodeSegments`, `repeatedNodeTotalRepeatCount`) plus their `*Focused` counterparts;
+do not derive totals from the focused signal list alone.
 
 ## Read results
 

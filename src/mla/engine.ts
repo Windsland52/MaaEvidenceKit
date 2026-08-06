@@ -800,6 +800,33 @@ export function focusRuntimeSignals(
   };
 }
 
+export type MlaSignalCounts = {
+  total: number;
+  recognitionOccurrences: number;
+  repeatedNodeSegments: number;
+  repeatedNodeTotalRepeatCount: number;
+};
+
+export function countRuntimeSignals(runtime: MlaRuntimeInspectionResult): MlaSignalCounts {
+  let recognitionOccurrences = 0;
+  let repeatedNodeSegments = 0;
+  let repeatedNodeTotalRepeatCount = 0;
+  for (const signal of runtime.signals) {
+    if (signal.kind === "recognition_activity") {
+      recognitionOccurrences += signal.occurrence_count;
+    } else {
+      repeatedNodeSegments += 1;
+      repeatedNodeTotalRepeatCount += signal.total_repeat_count;
+    }
+  }
+  return {
+    total: runtime.signals.length,
+    recognitionOccurrences,
+    repeatedNodeSegments,
+    repeatedNodeTotalRepeatCount,
+  };
+}
+
 export function countPossibleMirroredTaskGroups(runtime: MlaRuntimeInspectionResult): number {
   const groups = new Map<string, Set<string>>();
   const tasks = [...runtime.sessions.flatMap((session) => session.tasks), ...runtime.unscoped_tasks];
@@ -1098,6 +1125,8 @@ export async function inspectMla(
   }
   const signalFocus = focusRuntimeSignals(completeRuntime, options.includeAllSignals === true);
   const runtime = signalFocus.runtime;
+  const completeSignalCounts = countRuntimeSignals(completeRuntime);
+  const focusedSignalCounts = countRuntimeSignals(runtime);
   const possibleMirroredTaskGroups = countPossibleMirroredTaskGroups(runtime);
   const selectedSignalIds = new Set(runtime.signals.map((signal) => signal.signal_id));
   const loadingGranularity = loadedTargets.length > 1
@@ -1175,7 +1204,7 @@ export async function inspectMla(
       ? []
       : [{
         code: "mla_signals_focused",
-        message: `Selected ${signalFocus.selection.selected} of ${signalFocus.selection.total} runtime signals using MLA priorities and per-task highlights; request all signals explicitly for exhaustive output.`,
+        message: `Selected ${signalFocus.selection.selected} of ${signalFocus.selection.total} runtime signals using MLA priorities and per-task highlights; request all signals explicitly for exhaustive output. Complete totals are available in statistics: signalsTotal, recognitionOccurrences, repeatedNodeSegments, repeatedNodeTotalRepeatCount.`,
       }]),
     ...(possibleMirroredTaskGroups === 0
       ? []
@@ -1206,8 +1235,14 @@ export async function inspectMla(
       failures: runtime.failures.length,
       outcomes: runtime.outcomes.length,
       taskAnomalies: taskAnomalies.length,
-      signals: runtime.signals.length,
-      signalsTotal: signalFocus.selection.total,
+      signals: focusedSignalCounts.total,
+      signalsTotal: completeSignalCounts.total,
+      recognitionOccurrences: completeSignalCounts.recognitionOccurrences,
+      recognitionOccurrencesFocused: focusedSignalCounts.recognitionOccurrences,
+      repeatedNodeSegments: completeSignalCounts.repeatedNodeSegments,
+      repeatedNodeSegmentsFocused: focusedSignalCounts.repeatedNodeSegments,
+      repeatedNodeTotalRepeatCount: completeSignalCounts.repeatedNodeTotalRepeatCount,
+      repeatedNodeTotalRepeatCountFocused: focusedSignalCounts.repeatedNodeTotalRepeatCount,
       evidence: evidence.length,
     },
     details: {

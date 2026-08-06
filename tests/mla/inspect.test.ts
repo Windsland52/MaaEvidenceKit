@@ -7,6 +7,7 @@ import { afterEach, expect, test } from "vitest";
 import { inspectMla, renderText } from "../../src/index.js";
 import {
   countPossibleMirroredTaskGroups,
+  countRuntimeSignals,
   cycleExitCandidates,
   focusRuntimeSignals,
   namespaceRuntime,
@@ -150,6 +151,49 @@ test("extracts aggregated OCR text and TemplateMatch score recognition details",
   expect(templateScore?.count).toBe(2);
   expect(templateScore?.minimum).toBeCloseTo(0.212474);
   expect(templateScore?.maximum).toBeCloseTo(0.212808);
+});
+
+test("inspectMla exposes complete signal totals alongside focused selection", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-counts-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  const recognition = (time: string, taskId: number, name: string): string => event(time, "Node.Recognition.Succeeded", {
+    name,
+    task_id: taskId,
+    reco_details: {
+      algorithm: "OCR",
+      box: [0, 0, 10, 10],
+      name,
+      reco_id: taskId * 100,
+      detail: { all: [{ box: [0, 0, 10, 10], score: 0.9, text: "hello" }] },
+    },
+  });
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Tasker.Task.Starting", { task_id: 1, entry: "First", hash: "h1", uuid: "u1" }),
+    event("2026-07-19 10:01:01.000", "Node.PipelineNode.Starting", { task_id: 1, node_id: 11, name: "First" }),
+    recognition("2026-07-19 10:01:02.000", 1, "First"),
+    event("2026-07-19 10:01:03.000", "Node.PipelineNode.Succeeded", { task_id: 1, node_id: 11, name: "First" }),
+    event("2026-07-19 10:01:04.000", "Tasker.Task.Succeeded", { task_id: 1, entry: "First", hash: "h1", uuid: "u1" }),
+    event("2026-07-19 10:02:00.000", "Tasker.Task.Starting", { task_id: 2, entry: "Second", hash: "h2", uuid: "u2" }),
+    event("2026-07-19 10:02:01.000", "Node.PipelineNode.Starting", { task_id: 2, node_id: 21, name: "Second" }),
+    recognition("2026-07-19 10:02:02.000", 2, "Second"),
+    event("2026-07-19 10:02:03.000", "Node.PipelineNode.Succeeded", { task_id: 2, node_id: 21, name: "Second" }),
+    event("2026-07-19 10:02:04.000", "Tasker.Task.Succeeded", { task_id: 2, entry: "Second", hash: "h2", uuid: "u2" }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const signalsTotal = result.statistics.signalsTotal ?? 0;
+  const signals = result.statistics.signals ?? 0;
+  const recognitionOccurrences = result.statistics.recognitionOccurrences ?? 0;
+  const recognitionOccurrencesFocused = result.statistics.recognitionOccurrencesFocused ?? 0;
+  const repeatedNodeTotal = result.statistics.repeatedNodeTotalRepeatCount ?? 0;
+  const repeatedNodeTotalFocused = result.statistics.repeatedNodeTotalRepeatCountFocused ?? 0;
+  expect(signalsTotal).toBeGreaterThanOrEqual(signals);
+  expect(recognitionOccurrences).toBeGreaterThanOrEqual(recognitionOccurrencesFocused);
+  expect(repeatedNodeTotal).toBeGreaterThanOrEqual(repeatedNodeTotalFocused);
+  expect(result.statistics.recognitionOccurrences).toBeDefined();
 });
 
 test("selects and merges independent log bundles from a project directory", async () => {
@@ -439,6 +483,18 @@ test("namespaces every task-to-signal reference together with its signal", () =>
   ]);
   expect(focused.runtime.sessions[0]?.summary.signals).toBe(2);
   expect(exhaustive.selection).toEqual({ mode: "all", total: 3, selected: 3 });
+  expect(countRuntimeSignals(completeRuntime)).toEqual({
+    total: 3,
+    recognitionOccurrences: 0,
+    repeatedNodeSegments: 3,
+    repeatedNodeTotalRepeatCount: 9,
+  });
+  expect(countRuntimeSignals(focused.runtime)).toEqual({
+    total: 2,
+    recognitionOccurrences: 0,
+    repeatedNodeSegments: 2,
+    repeatedNodeTotalRepeatCount: 6,
+  });
 
   const mirrored: MlaRuntimeInspectionResult = {
     ...completeRuntime,

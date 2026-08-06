@@ -79,6 +79,9 @@ MSE 未提供 `--task` 时只执行 Interface、资源组合和静态诊断预�
 MLA 默认输出其优先级为 `high` 的信号和每个任务的高亮信号，并在 `details.selection.signals`
 记录完整数量与入选数量。需要穷举普通、低优先级信号时使用 `--all-signals`，SDK 则设置
 `includeAllSignals: true`；筛选只依据 MLA 的通用信号语义，不包含应用项目名称或节点特判。
+完整计数始终基于未裁剪的运行时，`statistics` 同时提供 `signalsTotal`、
+`recognitionOccurrences`、`repeatedNodeSegments` 和
+`repeatedNodeTotalRepeatCount` 及其 `*Focused` 对应值，避免聚焦视图被误当成总量。
 识别类 `mla.signal` 会包含 `terminalMatches` 和 `candidateStatistics`，可按候选节点查看
 评估次数、匹配次数和未成功尝试次数，便于定位循环中持续失败的子节点。
 重复节点信号还会包含 `exitCandidates`：循环内被评估但从未匹配成功的候选，用于定位阻止
