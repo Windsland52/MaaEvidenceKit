@@ -58,6 +58,15 @@ type RecognitionDetailShape =
   | { kind: "child_array"; children: RecognitionChildSummary[] }
   | { kind: "unknown" };
 
+type RecognitionDescendantSummary = {
+  path: string[];
+  name: string | null;
+  algorithm: string | null;
+  allCount: number;
+  filteredCount: number;
+  best: RecognitionDetailCandidate | null;
+};
+
 type RecognitionDetailSample = RecognitionDetailCandidate & {
   timestamp: string;
   mergedLine: number | null;
@@ -95,6 +104,17 @@ export type MlaRecognitionDetail = {
     allCount: number | null;
     filteredCount: number | null;
   }>;
+  descendantRecognition?: Array<{
+    path: string[];
+    name: string | null;
+    algorithm: string | null;
+    occurrenceCount: number;
+    allCount: number;
+    filteredCount: number;
+    best: RecognitionDetailCandidate[];
+    bestTruncated: boolean;
+  }>;
+  descendantRecognitionTruncated?: boolean;
 };
 
 export type MlaTaskAnomaly = {
@@ -1195,6 +1215,61 @@ function parseRecognitionDetail(detail: unknown): RecognitionDetailShape {
   return { kind: "unknown" };
 }
 
+const MAX_DESCENDANT_RECOGNITIONS = 16;
+const MAX_DESCENDANT_RECOGNITION_DEPTH = 6;
+const MAX_DESCENDANT_BEST_SAMPLES = 3;
+
+function collectDescendantRecognitions(detail: unknown): {
+  items: RecognitionDescendantSummary[];
+  truncated: boolean;
+} {
+  const items: RecognitionDescendantSummary[] = [];
+  let truncated = false;
+  const visit = (value: unknown, parentPath: readonly string[], depth: number): void => {
+    if (!Array.isArray(value)) return;
+    if (depth >= MAX_DESCENDANT_RECOGNITION_DEPTH) {
+      if (value.some(isRecord)) truncated = true;
+      return;
+    }
+    for (const [index, child] of value.entries()) {
+      if (!isRecord(child)) continue;
+      const name = typeof child["name"] === "string" ? child["name"] : null;
+      const algorithm = typeof child["algorithm"] === "string" ? child["algorithm"] : null;
+      const segment = name ?? algorithm ?? `child-${index + 1}`;
+      const currentPath = [...parentPath, segment];
+      const childShape = parseRecognitionDetail(child["detail"]);
+      if (childShape.kind === "candidate_list") {
+        if (items.length >= MAX_DESCENDANT_RECOGNITIONS) {
+          truncated = true;
+          continue;
+        }
+        items.push({
+          path: currentPath,
+          name,
+          algorithm,
+          allCount: childShape.all.length,
+          filteredCount: childShape.filtered.length,
+          best: childShape.best,
+        });
+      } else if (childShape.kind === "child_array") {
+        visit(child["detail"], currentPath, depth + 1);
+      }
+    }
+  };
+  visit(detail, [], 0);
+  return { items, truncated };
+}
+
+function uniqueCandidates(candidates: readonly RecognitionDetailCandidate[]): RecognitionDetailCandidate[] {
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    const key = JSON.stringify(candidate);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function lengthStats(values: number[]): { count: number; minimum: number; maximum: number; average: number } {
   return {
     count: values.length,
@@ -1234,6 +1309,16 @@ function extractRecognitionDetails(
       allLengths: number[];
       filteredLengths: number[];
     }>;
+    descendantRecognition: Map<string, {
+      path: string[];
+      name: string | null;
+      algorithm: string | null;
+      count: number;
+      allLengths: number[];
+      filteredLengths: number[];
+      bestSamples: RecognitionDetailCandidate[];
+    }>;
+    descendantRecognitionTruncated: boolean;
   }>();
   for (const event of analyzed.events) {
     if (event.message !== "Node.Recognition.Succeeded" && event.message !== "Node.Recognition.Failed") continue;
@@ -1271,6 +1356,16 @@ function extractRecognitionDetails(
         allLengths: number[];
         filteredLengths: number[];
       }>(),
+      descendantRecognition: new Map<string, {
+        path: string[];
+        name: string | null;
+        algorithm: string | null;
+        count: number;
+        allLengths: number[];
+        filteredLengths: number[];
+        bestSamples: RecognitionDetailCandidate[];
+      }>(),
+      descendantRecognitionTruncated: false,
     };
     group.count += 1;
     group.detailShapes.add(shape.kind);
@@ -1315,6 +1410,25 @@ function extractRecognitionDetails(
         if (child.filteredCount !== null) entry.filteredLengths.push(child.filteredCount);
         group.childRecognition.set(childKey, entry);
       }
+      const descendants = collectDescendantRecognitions(recoDetails["detail"]);
+      if (descendants.truncated) group.descendantRecognitionTruncated = true;
+      for (const descendant of descendants.items) {
+        const descendantKey = JSON.stringify([descendant.path, descendant.algorithm]);
+        const entry = group.descendantRecognition.get(descendantKey) ?? {
+          path: descendant.path,
+          name: descendant.name,
+          algorithm: descendant.algorithm,
+          count: 0,
+          allLengths: [],
+          filteredLengths: [],
+          bestSamples: [],
+        };
+        entry.count += 1;
+        entry.allLengths.push(descendant.allCount);
+        entry.filteredLengths.push(descendant.filteredCount);
+        if (descendant.best !== null) entry.bestSamples.push(descendant.best);
+        group.descendantRecognition.set(descendantKey, entry);
+      }
       group.samples.push({ timestamp: event.timestamp, mergedLine: event._lineNumber ?? null });
     }
     groups.set(key, group);
@@ -1345,6 +1459,21 @@ function extractRecognitionDetails(
     const detailShape = group.detailShapes.size === 1
       ? [...group.detailShapes][0] as MlaRecognitionDetail["detailShape"]
       : "mixed" as const;
+    const descendantEntries = [...group.descendantRecognition.values()]
+      .sort((left, right) => JSON.stringify(left.path).localeCompare(JSON.stringify(right.path)));
+    const descendantRecognition = descendantEntries.slice(0, MAX_DESCENDANT_RECOGNITIONS).map((entry) => {
+      const uniqueBest = uniqueCandidates(entry.bestSamples);
+      return {
+        path: entry.path,
+        name: entry.name,
+        algorithm: entry.algorithm,
+        occurrenceCount: entry.count,
+        allCount: lengthStats(entry.allLengths).average,
+        filteredCount: lengthStats(entry.filteredLengths).average,
+        best: uniqueBest.slice(0, MAX_DESCENDANT_BEST_SAMPLES),
+        bestTruncated: uniqueBest.length > MAX_DESCENDANT_BEST_SAMPLES,
+      };
+    });
     return {
       algorithm: group.algorithm,
       node: group.node,
@@ -1371,6 +1500,13 @@ function extractRecognitionDetails(
         allCount: entry.allLengths.length === 0 ? null : lengthStats(entry.allLengths).average,
         filteredCount: entry.filteredLengths.length === 0 ? null : lengthStats(entry.filteredLengths).average,
       })),
+      ...(descendantRecognition.length === 0 && !group.descendantRecognitionTruncated
+        ? {}
+        : {
+          descendantRecognition,
+          descendantRecognitionTruncated:
+            group.descendantRecognitionTruncated || descendantEntries.length > MAX_DESCENDANT_RECOGNITIONS,
+        }),
     };
   });
 }

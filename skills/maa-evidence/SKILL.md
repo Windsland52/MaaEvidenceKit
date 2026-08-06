@@ -95,8 +95,11 @@ Inspect these fields before forming a diagnosis:
 
 `mla.recognition_detail` aggregates recognition events by node/algorithm/status and extracts
 the detail generically by shape: `all`/`filtered`/`best` candidate counts and score distributions,
-plus child-recognition summaries when `detail` is an array (e.g. Or). OCR text, template scores,
-and ColorMatch counts are unified candidate fields; empty `detail` (e.g. DirectHit) is skipped.
+plus child-recognition summaries when `detail` is an array (e.g. Or). Nested And/Or leaves are
+available in bounded `descendantRecognition` entries with their recognition path, counts, and best
+samples; check `descendantRecognitionTruncated` before assuming the list is exhaustive. OCR text,
+template scores, and ColorMatch counts are unified candidate fields; empty `detail` (e.g. DirectHit)
+is skipped.
 Use filtered counts and best candidates to distinguish a failed recognition from a low-confidence
 successful match, and to compare OCR text observed at issue time with the expected pipeline text.
 

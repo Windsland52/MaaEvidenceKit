@@ -293,6 +293,56 @@ test("extracts recognition detail generically across algorithms", async () => {
       reco_id: 5,
       detail: null,
     }, "DirectOk"),
+    recoEvent("2026-07-19 10:05:00.000", "Node.Recognition.Succeeded", {
+      algorithm: "Or",
+      box: [0, 0, 10, 10],
+      name: "NestedOr",
+      reco_id: 6,
+      detail: [{
+        algorithm: "And",
+        box: [0, 0, 10, 10],
+        name: "WeeklyByNew",
+        reco_id: 7,
+        detail: [{
+          algorithm: "OCR",
+          box: [0, 0, 10, 10],
+          name: "RecognitionNew",
+          reco_id: 8,
+          detail: {
+            all: [{ box: [0, 0, 10, 10], score: 0.99, text: "NEW" }],
+            filtered: [{ box: [0, 0, 10, 10], score: 0.99, text: "NEW" }],
+            best: { box: [0, 0, 10, 10], score: 0.99, text: "NEW" },
+          },
+        }, {
+          algorithm: "OCR",
+          box: [10, 10, 20, 20],
+          name: "WeeklyText",
+          reco_id: 9,
+          detail: {
+            all: [{ box: [10, 10, 20, 20], score: 0.999, text: "周任务" }],
+            filtered: [{ box: [10, 10, 20, 20], score: 0.999, text: "周任务" }],
+            best: { box: [10, 10, 20, 20], score: 0.999, text: "周任务" },
+          },
+        }],
+      }],
+    }, "NestedOr"),
+    recoEvent("2026-07-19 10:06:00.000", "Node.Recognition.Succeeded", {
+      algorithm: "Or",
+      box: [0, 0, 10, 10],
+      name: "WideOr",
+      reco_id: 10,
+      detail: Array.from({ length: 17 }, (_, index) => ({
+        algorithm: "OCR",
+        box: [0, 0, 10, 10],
+        name: `Leaf${index}`,
+        reco_id: 11 + index,
+        detail: {
+          all: [{ box: [0, 0, 10, 10], score: 0.9, text: `text-${index}` }],
+          filtered: [{ box: [0, 0, 10, 10], score: 0.9, text: `text-${index}` }],
+          best: { box: [0, 0, 10, 10], score: 0.9, text: `text-${index}` },
+        },
+      })),
+    }, "WideOr"),
   ].join("\n"), "utf8");
 
   const result = await inspectMla(log);
@@ -303,6 +353,14 @@ test("extracts recognition detail generically across algorithms", async () => {
   const templateData = byNode.get("TemplateOk")?.data as { detailShape?: string; candidateCounts?: { filtered?: { average?: number }; all?: { average?: number } }; best?: Array<{ score?: number }> } | undefined;
   const colorData = byNode.get("ColorOk")?.data as { detailShape?: string; best?: Array<{ count?: number }>; score?: { count?: number } } | undefined;
   const orData = byNode.get("OrNode")?.data as { detailShape?: string; childRecognition?: Array<{ name?: string | null; algorithm?: string | null; occurrenceCount?: number }> } | undefined;
+  const nestedData = byNode.get("NestedOr")?.data as {
+    descendantRecognition?: Array<{ path?: string[]; algorithm?: string | null; best?: Array<{ text?: string }> }>;
+    descendantRecognitionTruncated?: boolean;
+  } | undefined;
+  const wideData = byNode.get("WideOr")?.data as {
+    descendantRecognition?: unknown[];
+    descendantRecognitionTruncated?: boolean;
+  } | undefined;
 
   expect(byNode.has("DirectOk")).toBe(false);
   expect(templateData?.detailShape).toBe("candidate_list");
@@ -317,6 +375,21 @@ test("extracts recognition detail generically across algorithms", async () => {
     algorithm: "ColorMatch",
     occurrenceCount: 1,
   });
+  expect(nestedData?.descendantRecognition).toEqual([
+    expect.objectContaining({
+      path: ["WeeklyByNew", "RecognitionNew"],
+      algorithm: "OCR",
+      best: [expect.objectContaining({ text: "NEW" })],
+    }),
+    expect.objectContaining({
+      path: ["WeeklyByNew", "WeeklyText"],
+      algorithm: "OCR",
+      best: [expect.objectContaining({ text: "周任务" })],
+    }),
+  ]);
+  expect(nestedData?.descendantRecognitionTruncated).toBe(false);
+  expect(wideData?.descendantRecognition).toHaveLength(16);
+  expect(wideData?.descendantRecognitionTruncated).toBe(true);
 });
 
 test("inspectMla exposes complete signal totals alongside focused selection", async () => {
