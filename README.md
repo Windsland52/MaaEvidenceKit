@@ -91,6 +91,9 @@ MLA 默认输出其优先级为 `high` 的信号和每个任务的高亮信号�
 也从未形成终端匹配），便于直接看出循环里持续失败的子节点。
 其中 `persistentFailure` 的候选还会单独输出为 `mla.cycle_exit_blocker` evidence，
 标记“阻止循环退出”的候选及其观测计数，供 harness 据此定位退出条件为何未满足。
+`mla.cycle_exit_blocker` 还会带上 `relatedRecognition`：该候选节点最近一次
+`mla.recognition_detail` 的快照（算法、状态、best 分数/文本，或 Or 类子识别摘要），
+让 harness 能直接看到“退出阻塞候选最近一次识别的观测事实”。
 标准 `on_error` / `vision` 图片会作为本地路径交给 MLA 与当前及旋转日志关联；只有被运行事实
 实际引用的图片才标为 `selected`，图片字节不会嵌入结果。
 被失败事实引用的图片会额外输出为 `mla.failure_image` evidence，直接携带图片路径和关联节点，

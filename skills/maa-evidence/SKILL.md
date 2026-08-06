@@ -110,6 +110,10 @@ Each evaluated candidate in a repeated-node cycle is also emitted as
 Persistent-failure candidates are also emitted separately as
 `mla.cycle_exit_blocker` so the harness can identify which candidate blocked cycle exit
 and read the observed evaluation counts without deriving conclusions in MEK.
+Each `mla.cycle_exit_blocker` also carries `relatedRecognition`: a snapshot of that
+candidate node's most recent `mla.recognition_detail` (best score/text, or the
+child-recognition summary for Or-style nodes) so the harness can see the latest
+observed recognition facts without re-joining evidence.
 
 When a task reports `succeeded` but its execution also contains `next_list_timeout`,
 `action_failure`, or a repeated sequence still running at log end, MEK emits

@@ -6,6 +6,7 @@ import { afterEach, expect, test } from "vitest";
 
 import { inspectMla, renderText } from "../../src/index.js";
 import {
+  correlateCycleBlockers,
   countPossibleMirroredTaskGroups,
   countRuntimeSignals,
   cycleCandidateOutcomes,
@@ -1024,4 +1025,71 @@ test("decomposes cycle candidate success/failure outcomes", () => {
   const blockers = cycleExitBlockers(runtime, repeatedSignal);
   expect(blockers.map((item) => item.candidate)).toEqual(["TargetA"]);
   expect(blockers[0]?.persistentFailure).toBe(true);
+});
+
+
+
+test("correlates cycle exit blockers with the latest recognition detail", () => {
+  const blocker: import("../../src/evidence/types.js").Evidence = {
+    id: "blocker:1",
+    kind: "mla.cycle_exit_blocker",
+    summary: "blocked",
+    source: { artifactId: "a", path: "maafw.log" },
+    data: {
+      cycleSignalId: "repeat:1",
+      pipelineNode: "NodeA",
+      candidate: "TargetA",
+      evaluationCount: 8,
+      matchedAttemptCount: 0,
+      unsuccessfulAttemptCount: 8,
+      runningAttemptCount: 0,
+      terminalMatchCount: 0,
+      persistentFailure: true,
+      evidence: { timestamp: "2026-07-19 10:00:00.000", source: "file:maafw.log", path: "maafw.log", local_line: 1 },
+    },
+  };
+  const detail: import("../../src/evidence/types.js").Evidence = {
+    id: "detail:1",
+    kind: "mla.recognition_detail",
+    summary: "recognition",
+    source: { artifactId: "a", path: "maafw.log" },
+    data: {
+      algorithm: "TemplateMatch",
+      detailShape: "candidate_list",
+      node: "TargetA",
+      status: "failed",
+      best: [
+        {
+          box: [0, 0, 10, 10],
+          score: 0.212474,
+          text: "needle",
+          timestamp: "2026-07-19 10:05:00.000",
+          mergedLine: 40,
+        },
+      ],
+    },
+  };
+  const correlated = correlateCycleBlockers([blocker, detail]);
+  const blockerData = correlated.find((item) => item.kind === "mla.cycle_exit_blocker")?.data as {
+    relatedRecognition?: {
+      recognitionEvidenceId: string;
+      algorithm: string;
+      status: string;
+      score: number;
+      text: string;
+      timestamp: string;
+    };
+  };
+
+  expect(blockerData?.relatedRecognition).toEqual({
+    recognitionEvidenceId: "detail:1",
+    algorithm: "TemplateMatch",
+    status: "failed",
+    detailShape: "candidate_list",
+    score: 0.212474,
+    text: "needle",
+    count: null,
+    label: null,
+    timestamp: "2026-07-19 10:05:00.000",
+  });
 });

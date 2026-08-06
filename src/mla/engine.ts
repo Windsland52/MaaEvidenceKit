@@ -19,6 +19,7 @@ import {
   parseTimestamp,
   portablePath,
   type Artifact,
+  type Evidence,
   type EvidenceSource,
   type InspectionResult,
   type TimeRange,
@@ -156,7 +157,101 @@ export type MlaCycleCandidateOutcome = {
     path: string | null;
     local_line: number | null;
   };
+  relatedRecognition?: MlaBlockerRelatedRecognition;
 };
+
+export type MlaBlockerRelatedRecognition = {
+  recognitionEvidenceId: string;
+  algorithm: string;
+  status: "succeeded" | "failed";
+  detailShape: "candidate_list" | "child_array" | "none" | "unknown" | "mixed";
+  score: number | null;
+  text: string | null;
+  count: number | null;
+  label: string | null;
+  childRecognition?: {
+    name: string | null;
+    algorithm: string | null;
+    occurrenceCount: number;
+  };
+  timestamp: string;
+};
+
+function recognitionDetailTimestamp(item: Evidence): string {
+  const sourceTimestamp = item.source.timestamp;
+  if (typeof sourceTimestamp === "string" && sourceTimestamp.length > 0) return sourceTimestamp;
+  const data = item.data as {
+    representatives?: { first?: { timestamp?: string }; worst?: { timestamp?: string } };
+    best?: Array<{ timestamp?: string }>;
+  } | undefined;
+  return data?.best?.[0]?.timestamp
+    ?? data?.representatives?.first?.timestamp
+    ?? data?.representatives?.worst?.timestamp
+    ?? "";
+}
+
+function latestBlockerRecognitionSnapshot(related: readonly Evidence[]): MlaBlockerRelatedRecognition | undefined {
+  const sorted = [...related].sort((left, right) =>
+    recognitionDetailTimestamp(right).localeCompare(recognitionDetailTimestamp(left)),
+  );
+  const latest = sorted[0];
+  if (latest === undefined) return undefined;
+  const data = latest.data as MlaRecognitionDetail | undefined;
+  if (data === undefined) return undefined;
+  const best = data.best[0];
+  const child = data.childRecognition === undefined ? undefined : data.childRecognition[0];
+  return {
+    recognitionEvidenceId: latest.id,
+    algorithm: data.algorithm,
+    status: data.status,
+    detailShape: data.detailShape,
+    score: best?.score ?? null,
+    text: best?.text ?? null,
+    count: best?.count ?? null,
+    label: best?.label ?? null,
+    ...(child === undefined
+      ? {}
+      : {
+        childRecognition: {
+          name: child.name,
+          algorithm: child.algorithm,
+          occurrenceCount: child.occurrenceCount,
+        },
+      }),
+    timestamp: recognitionDetailTimestamp(latest),
+  };
+}
+
+export function correlateCycleBlockers(evidence: readonly Evidence[]): Evidence[] {
+  const recognitionByNode = new Map<string, Evidence[]>();
+  for (const item of evidence) {
+    if (item.kind !== "mla.recognition_detail") continue;
+    const node = (item.data as { node?: string } | undefined)?.node;
+    if (node === undefined) continue;
+    const list = recognitionByNode.get(node) ?? [];
+    list.push(item);
+    recognitionByNode.set(node, list);
+  }
+  if (recognitionByNode.size === 0) return [...evidence];
+  return evidence.map((item) => {
+    if (item.kind !== "mla.cycle_exit_blocker") return item;
+    const candidate = (item.data as { candidate?: string } | undefined)?.candidate;
+    if (candidate === undefined) return item;
+    const related = recognitionByNode.get(candidate);
+    if (related === undefined) return item;
+    const snapshot = latestBlockerRecognitionSnapshot(related);
+    if (snapshot === undefined) return item;
+    return {
+      ...item,
+      data: {
+        ...(item.data as Record<string, unknown>),
+        ...(item.data as MlaCycleCandidateOutcome).relatedRecognition === undefined
+          ? { relatedRecognition: snapshot }
+          : {},
+      },
+    };
+  });
+}
 
 export function cycleCandidateOutcomes(
   runtime: MlaRuntimeInspectionResult,
@@ -1409,7 +1504,7 @@ export async function inspectMla(
     if (task === undefined) continue;
     addTaskAnomalyEvidence(ledger, anomaly, task, discovery.artifacts, resolvedPath);
   }
-  const evidence = ledger.values();
+  const evidence = correlateCycleBlockers(ledger.values());
   const selectedArtifactIds = new Set(evidence.map((item) => item.source.artifactId));
   for (const loaded of loadedTargets) {
     for (const segment of loaded.sourceSegments) {
