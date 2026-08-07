@@ -8,6 +8,13 @@ description: Extract and correlate traceable MaaFramework evidence with MaaEvide
 Use MaaEvidenceKit as a deterministic evidence tool. Keep issue understanding, generic log reading,
 Sentry investigation, source research, and diagnostic judgment in the host harness.
 
+## Check the CLI first
+
+Before the first MEK command, verify that `maa-evidence --version` is available. If it is missing,
+tell the user to install the runtime package with `npm install --global maa-evidence-kit`; installing
+this Skill does not install the npm package. Prefer the installed CLI over invoking a checkout's
+`dist` files, unless the harness explicitly supplies a local development build.
+
 ## Choose the smallest useful operation
 
 - For MaaFramework runtime behavior, run `maa-evidence mla inspect <folder>`.

@@ -23,7 +23,21 @@ MEK 不负责理解 GitHub Issue、GUI/自定义日志、Sentry 数据或业务�
 
 ## 安装
 
-需要 Node.js 24+ 和 pnpm。
+需要 Node.js 24+。发布版用户先安装 CLI：
+
+```powershell
+npm install --global maa-evidence-kit
+maa-evidence --version
+```
+
+如果要让 Codex、Claude Code 等 agent 使用 MEK，再安装仓库中的 Skill。Skill 和 CLI 是两个
+独立的分发物，安装 Skill 不会自动安装 npm 包：
+
+```powershell
+npx skills add https://github.com/Windsland52/MaaEvidenceKit --skill maa-evidence
+```
+
+开发本仓库时则使用本地构建：
 
 ```powershell
 pnpm install
@@ -32,7 +46,8 @@ node dist/cli/main.js --help
 node dist/cli/main.js --version
 ```
 
-发布后可通过 `maa-evidence` 二进制调用。
+发布后可通过 `maa-evidence` 二进制调用。Skill 的目录、安装方式和本地开发说明见
+[`skills/README.md`](skills/README.md)。
 
 ## CLI
 
