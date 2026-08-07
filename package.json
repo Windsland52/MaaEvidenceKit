@@ -24,6 +24,7 @@
   "files": [
     "dist",
     "skills",
+    "CHANGELOG.md",
     "LICENSE",
     "PRIVACY.md",
     "README.md"
@@ -31,10 +32,14 @@
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "pnpm clean && tsc -p tsconfig.build.json",
+    "package:smoke": "node scripts/package-smoke.mjs",
+    "release:check": "pnpm check && pnpm package:smoke",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "oxlint src tests",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "lint": "oxlint src tests scripts",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "prepack": "pnpm build",
+    "prepublishOnly": "pnpm release:check"
   },
   "engines": {
     "node": ">=24"

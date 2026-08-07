@@ -26,8 +26,5 @@ jobs:
           corepack enable
           pnpm install --frozen-lockfile
 
-      - name: Check package
-        run: pnpm check
-
-      - name: Verify package contents
-        run: pnpm pack --dry-run
+      - name: Run release checks
+        run: pnpm release:check
