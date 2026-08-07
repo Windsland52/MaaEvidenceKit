@@ -1,0 +1,108 @@
+name: Publish npm package
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'Windsland52/MaaEvidenceKit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.5.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_NAME}" != v* ]]; then
+            echo "Publishing requires a v<version> tag; received ${GITHUB_REF_NAME}." >&2
+            exit 1
+          fi
+          tag_version="${GITHUB_REF_NAME#v}"
+          package_version="$(node -p "require('./package.json').version")"
+          if [[ "${tag_version}" != "${package_version}" ]]; then
+            echo "Tag version ${tag_version} does not match package version ${package_version}." >&2
+            exit 1
+          fi
+
+      - name: Run release checks
+        run: pnpm release:check
+
+      - name: Check npm authentication and package state
+        id: npm-state
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${NODE_AUTH_TOKEN}" ]]; then
+            echo "NPM_TOKEN is not configured." >&2
+            exit 1
+          fi
+          npm whoami >/dev/null
+          package_name="$(node -p "require('./package.json').name")"
+          package_version="$(node -p "require('./package.json').version")"
+          package_ref="${package_name}@${package_version}"
+          if npm_view_output=$(npm view "${package_ref}" version 2>&1); then
+            echo "already_published=true" >> "${GITHUB_OUTPUT}"
+            echo "${package_ref} already exists on npm; publish will be skipped."
+          elif grep -q 'E404' <<< "${npm_view_output}"; then
+            echo "already_published=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "Unable to query ${package_ref} on npm:" >&2
+            echo "${npm_view_output}" >&2
+            exit 1
+          fi
+
+      - name: Pack release tarball
+        if: steps.npm-state.outputs.already_published != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          pack_root="${RUNNER_TEMP}/maa-evidence-kit-package"
+          mkdir -p "${pack_root}"
+          pnpm pack --pack-destination "${pack_root}"
+          mapfile -t tarballs < <(find "${pack_root}" -maxdepth 1 -type f -name '*.tgz' -print)
+          if [[ "${#tarballs[@]}" -ne 1 ]]; then
+            echo "Expected one release tarball, found ${#tarballs[@]}." >&2
+            exit 1
+          fi
+          printf 'TARBALL=%s\n' "${tarballs[0]}" >> "${GITHUB_ENV}"
+
+      - name: Publish release tarball
+        if: steps.npm-state.outputs.already_published != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish "${TARBALL}" --access public --provenance

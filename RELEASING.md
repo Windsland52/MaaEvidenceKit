@@ -39,11 +39,15 @@ in local release notes. Do not commit user material or absolute local paths.
 ## Publish
 
 1. Commit the release metadata with `chore(release): <version>`.
-2. Create an annotated `v<version>` tag from the reviewed release commit.
-3. Publish with `pnpm publish --access public --provenance` using the configured npm account or
-   trusted publisher.
+2. Create an annotated `v<version>` tag from the reviewed release commit and push the tag. The
+   `Publish npm package` workflow publishes that exact tag automatically.
+3. Configure the repository `NPM_TOKEN` secret with publish permission before the first release.
+   The workflow authenticates with npm, checks that `v<version>` matches `package.json`, and skips a
+   version that is already published so a manual rerun is safe.
 4. Create the GitHub release from the matching changelog section.
 5. Install the published version in a clean directory and verify SDK import and `maa-evidence
    --version` once more.
 
-Do not publish from a dirty worktree, move an existing tag, or replace a published npm version.
+Do not publish from a dirty worktree, move an existing tag, or replace a published npm version. A
+manual workflow dispatch must select a `v<version>` tag; dispatching it from a branch intentionally
+fails the version validation.
