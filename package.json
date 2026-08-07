@@ -8,7 +8,12 @@
     "type": "git",
     "url": "https://github.com/Windsland52/MaaEvidenceKit.git"
   },
-  "keywords": ["maa-framework", "diagnostics", "logs", "evidence"],
+  "keywords": [
+    "maa-framework",
+    "diagnostics",
+    "logs",
+    "evidence"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -40,7 +45,8 @@
     "lint": "oxlint src tests scripts",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "prepack": "pnpm build",
-    "prepublishOnly": "pnpm release:check"
+    "prepublishOnly": "pnpm release:check",
+    "build:portable": "pnpm clean && npx --yes -p typescript@5.9.3 tsc -p tsconfig.build.json"
   },
   "engines": {
     "node": ">=24"
