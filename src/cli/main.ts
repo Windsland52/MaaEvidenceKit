@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { createInterface } from "node:readline/promises";
 
@@ -439,6 +440,6 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<numb
 }
 
 const invokedPath = process.argv[1];
-if (invokedPath !== undefined && import.meta.url === pathToFileURL(invokedPath).href) {
+if (invokedPath !== undefined && import.meta.url === pathToFileURL(realpathSync(invokedPath)).href) {
   process.exitCode = await main();
 }
