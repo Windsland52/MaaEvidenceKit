@@ -61,14 +61,26 @@ type PipelineReferenceEvidenceData = {
   pipelineControllers: string[];
   pipelineResources: string[];
   pipelineDefinitions: PipelineDefinitionEvidence[];
+  pipelineDefinitionEvidenceIds: string[];
   staticResolutionStatus: StaticResolutionStatus;
   incompleteReasons: string[];
+  runtimeOverrideEvidenceIds: string[];
+  unscopedRuntimeOverrideEvidenceIds: string[];
+  runtimeOverrideResolutionStatus: RuntimeOverrideResolutionStatus;
+  runtimeConfigurationIncompleteReasons: string[];
 };
 
 type MlaFailureDetails = {
   node_name?: string;
   task_name?: string;
   failure_id?: string;
+  task_id?: number;
+};
+
+type MlaPipelineOverrideDetails = {
+  taskId?: number | null;
+  taskAssociation?: "task_id" | "entry_only" | "none";
+  nodeNames?: string[];
 };
 
 type MlaRecognitionDetails = {
@@ -112,10 +124,12 @@ type RecognitionPipelineReferenceEvidenceData = {
 };
 
 type StaticResolutionStatus = "found" | "found_partial" | "not_found" | "incomplete";
+type RuntimeOverrideResolutionStatus = "found" | "found_partial" | "not_observed";
 
 type CorrelationResolutionIssues = {
   notFoundNodes: Set<string>;
   incompleteNodes: Set<string>;
+  runtimeConfigurationIncompleteNodes: Set<string>;
 };
 
 type MseTaskDefinitionDetails = {
@@ -158,6 +172,72 @@ function mseStaticResolutionIncompleteReasons(mse: MseInspectionResult): string[
 function staticResolutionStatus(found: boolean, incompleteReasons: readonly string[]): StaticResolutionStatus {
   if (found) return incompleteReasons.length === 0 ? "found" : "found_partial";
   return incompleteReasons.length === 0 ? "not_found" : "incomplete";
+}
+
+function definitionEvidenceIdsForNode(mse: MseInspectionResult, node: string): string[] {
+  return mse.evidence
+    .filter((item) =>
+      item.kind === "mse.task_definition"
+      && (item.data as MseTaskDefinitionDetails | undefined)?.name === node
+    )
+    .map((item) => item.id)
+    .sort();
+}
+
+function mlaOverrideIncompleteReasons(mla: MlaInspectionResult): string[] {
+  const reasonCodes = new Set([
+    "mla_pipeline_overrides_truncated",
+    "mla_pipeline_override_parse_incomplete",
+  ]);
+  return mla.warnings
+    .filter((warning) => reasonCodes.has(warning.code))
+    .map((warning) => warning.code)
+    .sort();
+}
+
+function runtimeOverridesForFailure(
+  mla: MlaInspectionResult,
+  failure: Evidence,
+  node: string,
+  taskId: number | undefined,
+): {
+  exactIds: string[];
+  unscopedIds: string[];
+  status: RuntimeOverrideResolutionStatus;
+  incompleteReasons: string[];
+} {
+  const failureTime = failure.source.timestamp === undefined
+    ? null
+    : Date.parse(failure.source.timestamp);
+  const exactIds: string[] = [];
+  const unscopedIds: string[] = [];
+  for (const item of mla.evidence) {
+    if (item.kind !== "mla.pipeline_override") continue;
+    if (item.source.artifactId !== failure.source.artifactId) continue;
+    const data = item.data as MlaPipelineOverrideDetails | undefined;
+    if (data?.nodeNames?.includes(node) !== true) continue;
+    if (failureTime === null || item.source.timestamp === undefined) continue;
+    const overrideTime = Date.parse(item.source.timestamp);
+    if (!Number.isFinite(overrideTime) || overrideTime > failureTime) continue;
+    if (taskId !== undefined && data.taskAssociation === "task_id" && data.taskId === taskId) {
+      exactIds.push(item.id);
+    } else {
+      unscopedIds.push(item.id);
+    }
+  }
+  const incompleteReasons = mlaOverrideIncompleteReasons(mla);
+  if (unscopedIds.length > 0) incompleteReasons.push("node_override_task_scope_unresolved");
+  if (failureTime === null) incompleteReasons.push("failure_timestamp_missing");
+  const uniqueReasons = [...new Set(incompleteReasons)].sort();
+  const status = exactIds.length === 0
+    ? unscopedIds.length === 0 ? "not_observed" : "found_partial"
+    : uniqueReasons.length === 0 ? "found" : "found_partial";
+  return {
+    exactIds: [...new Set(exactIds)],
+    unscopedIds: [...new Set(unscopedIds)],
+    status,
+    incompleteReasons: uniqueReasons,
+  };
 }
 
 function selectRuntimeNodesForMse(mla: MlaInspectionResult | null): RuntimeMseNodeSelection {
@@ -243,6 +323,7 @@ function addPipelineReferences(
   }
   const notFoundNodes = new Set<string>();
   const incompleteNodes = new Set<string>();
+  const runtimeConfigurationIncompleteNodes = new Set<string>();
   for (const failure of mla.evidence) {
     if (failure.kind !== "mla.failure") continue;
     const data = failure.data as MlaFailureDetails | undefined;
@@ -266,6 +347,8 @@ function addPipelineReferences(
     const resolutionStatus = staticResolutionStatus(pipelineFound, staticIncompleteReasons);
     if (resolutionStatus === "not_found") notFoundNodes.add(node);
     if (resolutionStatus === "incomplete" || resolutionStatus === "found_partial") incompleteNodes.add(node);
+    const runtimeOverrides = runtimeOverridesForFailure(mla, failure, node, data.task_id);
+    if (runtimeOverrides.status === "found_partial") runtimeConfigurationIncompleteNodes.add(node);
     const payload: PipelineReferenceEvidenceData = {
       failureId: data.failure_id ?? failure.id,
       failureKind: failure.kind,
@@ -275,8 +358,13 @@ function addPipelineReferences(
       pipelineControllers: controllers,
       pipelineResources: resources,
       pipelineDefinitions,
+      pipelineDefinitionEvidenceIds: definitionEvidenceIdsForNode(mse, node),
       staticResolutionStatus: resolutionStatus,
       incompleteReasons: [...staticIncompleteReasons],
+      runtimeOverrideEvidenceIds: runtimeOverrides.exactIds,
+      unscopedRuntimeOverrideEvidenceIds: runtimeOverrides.unscopedIds,
+      runtimeOverrideResolutionStatus: runtimeOverrides.status,
+      runtimeConfigurationIncompleteReasons: runtimeOverrides.incompleteReasons,
     };
     ledger.add(
       "combined.pipeline_reference",
@@ -298,7 +386,7 @@ function addPipelineReferences(
       payload,
     );
   }
-  return { notFoundNodes, incompleteNodes };
+  return { notFoundNodes, incompleteNodes, runtimeConfigurationIncompleteNodes };
 }
 
 function addRecognitionPipelineReferences(
@@ -417,7 +505,7 @@ function addRecognitionPipelineReferences(
       payload,
     );
   }
-  return { notFoundNodes, incompleteNodes };
+  return { notFoundNodes, incompleteNodes, runtimeConfigurationIncompleteNodes: new Set<string>() };
 }
 
 function mergeArtifacts(groups: readonly Artifact[][]): Artifact[] {
@@ -516,6 +604,12 @@ export async function inspect(
       combinedWarnings.push({
         code: "combined.pipeline_reference_incomplete",
         message: `Runtime failure-node static resolution was incomplete for: ${[...failureIssues.incompleteNodes].sort().join(", ")}.`,
+      });
+    }
+    if (failureIssues.runtimeConfigurationIncompleteNodes.size > 0) {
+      combinedWarnings.push({
+        code: "combined.runtime_configuration_incomplete",
+        message: `Runtime override scope or extraction was incomplete for failure nodes: ${[...failureIssues.runtimeConfigurationIncompleteNodes].sort().join(", ")}.`,
       });
     }
     if (recognitionIssues.notFoundNodes.size > 0) {

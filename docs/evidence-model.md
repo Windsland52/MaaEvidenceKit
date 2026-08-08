@@ -69,6 +69,29 @@ Click succeeded 不证明目标界面已发生业务变化,harness 仍应与后�
 action-detail 组超过 500 时会按时间轴均匀取样,并输出 `mla_action_details_truncated`;
 完整事件数仍保留在 `statistics.actionOccurrences` / `actionDetailsTotal`。
 
+## `mla.pipeline_override`
+
+MLA 会从 MaaFramework 核心日志中提取非空 `pipeline_override` JSON，按日志出现顺序输出
+`mla.pipeline_override` evidence。`patches` 保留 object 或 object array 的原始覆盖顺序，
+`nodeNames` 给出本次覆盖涉及的节点；`origin` 区分资源覆盖、任务提交、任务更新和 Context
+动态覆盖。内存地址不会直接输出，而是按当前日志内首次出现顺序归一化为
+`contextScopeId`。同一输入同时出现在 API/Tasker 层和 Context 核心层时优先保留 Context
+来源并去重；若 Context trace 不可见，仍保留可解析的任务或 API 输入，但不会补造其缺失的
+Context/task 关联。
+
+只有日志同时提供唯一的 Context ID 到 MaaFramework `task_id` 映射时，才标记
+`taskAssociation: "task_id"`；仅能对应任务入口时使用 `entry_only`，否则为 `none`。
+空覆盖不会产生 evidence。单个 MLA target 最多保留 500 条非空覆盖，优先保留具备精确
+task ID 关联的记录，再对其余记录做时间轴取样；完整数量在
+`statistics.pipelineOverridesTotal`，入选数量在 `statistics.pipelineOverrides` 和
+`details.selection.pipelineOverrides`。发生截断或覆盖日志行 JSON 不完整时分别输出
+`mla_pipeline_overrides_truncated`、`mla_pipeline_override_parse_incomplete`。
+
+该 evidence 只证明日志记录了覆盖输入，不是覆盖成功或最终运行配置的序列化结果。
+MaaFramework 会按 pipeline 协议和当时已有节点数据解析覆盖，并非普通 JSON 深合并；日志级别
+也可能令某些动态覆盖不可见。因此 `patches` 必须与静态基础定义、任务作用域、时间顺序及
+后续实际动作/识别事实分开解释，未观察到记录不能证明运行时不存在覆盖。
+
 ## `mla.task_anomaly`
 
 对标记为成功但运行期间出现 `next_list_timeout`、`action_failure` 或日志结束仍未停止的
@@ -90,7 +113,19 @@ action-detail 组超过 500 时会按时间轴均匀取样,并输出 `mla_action
 当 MLA 与 MSE 同时可用时,`inspect` 会额外输出 `combined.pipeline_reference`
 evidence,把运行时失败节点与静态 pipeline 任务关联起来,便于判断失败节点是否
 存在于提供的项目配置中。匹配到的节点会携带 `pipelineControllers`、
-`pipelineResources` 和 `pipelineDefinitions`(源码路径/行/列定位);匹配不到的节点
+`pipelineResources`、`pipelineDefinitions`(源码路径/行/列定位)和
+`pipelineDefinitionEvidenceIds`；后者指向保存 MSE `effectiveConfig` 的
+`mse.task_definition`。同一关系还会把失败发生前、同一日志 artifact、同一 task ID、同一节点的
+`mla.pipeline_override` 放入 `runtimeOverrideEvidenceIds`。仅节点和时间吻合但任务作用域无法
+确认的记录放入 `unscopedRuntimeOverrideEvidenceIds`，并将
+`runtimeOverrideResolutionStatus` 标为 `found_partial`；截断、解析不完整和作用域缺失会记录在
+`runtimeConfigurationIncompleteReasons` 并输出 `combined.runtime_configuration_incomplete`
+warning。`not_observed` 只表示所选日志中没有找到可关联覆盖，不等于证明没有覆盖。
+
+Combined relation 故意不生成一个新的“最终 effectiveConfig”：MSE 配置是所提供源码快照的
+静态基础，override evidence 是运行时记录的有序 patch，二者的关系不等价于通用 JSON 深合并，
+且日志可能缺少动态覆盖或覆盖成功结果。harness 应通过这些 evidence ID 分别查看基础定义和
+运行时 patch，再与实际动作参数、识别结果和应用状态对照。匹配不到的节点
 会输出 `pipelineFound: false`,并在 `warnings` 中给出
 `combined.pipeline_reference_missing` 提示。
 

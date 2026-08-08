@@ -43,7 +43,16 @@ this Skill does not install the npm package. Prefer the installed CLI over invok
   combined inspection bounded. Pass explicit MSE `depth` / `includeReferencers` options, or use
   `maa-evidence inspect --referencers --depth N`, only when execution-path context is needed.
   Matches carry `pipelineControllers`, `pipelineResources`, and `pipelineDefinitions`
-  source locations; nodes absent from the project emit a
+  source locations. Failure references also carry `pipelineDefinitionEvidenceIds` for the MSE
+  base definitions, plus `runtimeOverrideEvidenceIds` for overrides observed before that failure
+  with the same artifact, node, and exact MaaFramework task ID. Read the referenced
+  `mla.pipeline_override` records in sequence; keep `unscopedRuntimeOverrideEvidenceIds` separate.
+  Check `runtimeOverrideResolutionStatus` and `runtimeConfigurationIncompleteReasons`. A
+  `not_observed` status means no applicable override was extracted from the selected log, not that
+  no override existed. `found_partial` or `combined.runtime_configuration_incomplete` means task
+  scope, parsing, or truncation prevents a complete runtime-configuration claim. Combined evidence
+  deliberately links base definitions and patches instead of materializing a final config because
+  MaaFramework override parsing is not generic JSON deep merge. Nodes absent from the project emit a
   `combined.pipeline_reference_missing` warning.
 - Use `--depth N` to control recursive execution-path expansion. The default two levels
   shows the requested task plus its immediate execution references and their direct targets.
@@ -261,6 +270,14 @@ counts before treating the returned records as exhaustive.
 Use filtered counts and best candidates to distinguish a failed recognition from a low-confidence
 successful match, and to compare OCR text observed at issue time with the expected pipeline text.
 
+`mla.pipeline_override` preserves non-empty MaaFramework override patches in source order. Treat
+`patches` as observed override input, not as a serialized final node configuration. Use
+`taskAssociation: task_id` only as an exact task link; keep `entry_only` and `none` scoped records as
+possible context rather than silently assigning them to a run. Check
+`details.selection.pipelineOverrides`, `mla_pipeline_overrides_truncated`, and
+`mla_pipeline_override_parse_incomplete` before treating the patch sequence as complete. A missing
+record can reflect log level or extraction scope and is not proof that no runtime override occurred.
+
 Recognition `mla.signal` entries include `candidateStatistics` and `terminalMatches`. Use them to
 see which candidate nodes were evaluated, matched, or repeatedly unsuccessful inside a cycle.
 Repeated-node signals also include `exitCandidates`: candidates inside the cycle that were
@@ -352,9 +369,18 @@ render Mermaid.
 
 - Cite evidence IDs and their file/line/time/node locations.
 - Separate reported symptom, directly observed mechanism, and suspected initiating trigger.
+- Keep four layers distinct: the source snapshot's declared configuration, logged runtime override
+  inputs, parameters or results observed during framework execution, and the application state
+  observed after execution.
+- Before describing a runtime node configuration, inspect applicable `mla.pipeline_override`
+  evidence. When MSE is available, follow both `pipelineDefinitionEvidenceIds` and
+  `runtimeOverrideEvidenceIds`; preserve patch order and report unresolved scope or missing runtime
+  material instead of treating MSE `effectiveConfig` as the final runtime value.
 - Do not treat recognition misses as failures unless MLA reports a deterministic terminal failure.
 - Do not treat framework task success as proof of business success.
 - Do not claim MSE static configuration caused runtime behavior without runtime evidence.
+- Treat framework action success as an action-layer result, not proof that the intended application
+  state transition occurred; verify it with later recognition, application diagnostics, or images.
 - Keep competing explanations when evidence does not distinguish them.
 - State missing evidence instead of guessing around it.
 

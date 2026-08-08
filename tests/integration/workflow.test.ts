@@ -174,6 +174,50 @@ test("combined inspection links runtime failures to MSE pipeline nodes", async (
   expect(dataWithTasks?.pipelineFound).toBe(true);
 });
 
+test("combined failure references link MSE base definitions to task-scoped runtime overrides", async () => {
+  const root = await createCombinedFixture();
+  const failureLog = failingNodeLog("Start");
+  await writeFile(path.join(root, "maafw.log"), [
+    ...failureLog.slice(0, 2),
+    "[2026-07-19 10:00:59.000][INF][Px1][Tx1][Tasker.cpp][L87][MaaNS::Tasker::post_task] [entry=Start] [pipeline_override=[{\"Start\":{\"next\":[\"Fallback\"]}}]]",
+    "[2026-07-19 10:00:59.000][TRC][Px1][Tx1][Context.cpp][L195][MaaNS::TaskNS::Context::override_pipeline] [getptr()=ABC123] [pipeline_override=[{\"Start\":{\"next\":[\"Fallback\"]}}]]",
+    "[2026-07-19 10:00:59.010][INF][Px2][Tx2][AgentServer.cpp][L225][MaaNS::AgentNS::ServerNS::AgentServer::handle_action_request] [req={\"context_id\":\"ABC123\",\"task_id\":1}]",
+    ...failureLog.slice(2, 9),
+    "[2026-07-19 10:01:01.900][TRC][Px1][Tx1][Context.cpp][L195][MaaNS::TaskNS::Context::override_pipeline] [getptr()=ABC123] [pipeline_override={\"Start\":{\"attach\":{\"choice\":\"runtime\"}}}]",
+    ...failureLog.slice(9),
+  ].join("\n"), "utf8");
+
+  const result = await inspect(root);
+  const reference = result.evidence.find((item) => item.kind === "combined.pipeline_reference");
+  const data = reference?.data as {
+    pipelineDefinitionEvidenceIds?: string[];
+    runtimeOverrideEvidenceIds?: string[];
+    unscopedRuntimeOverrideEvidenceIds?: string[];
+    runtimeOverrideResolutionStatus?: string;
+    runtimeConfigurationIncompleteReasons?: string[];
+  } | undefined;
+
+  expect(data).toMatchObject({
+    runtimeOverrideResolutionStatus: "found",
+    runtimeConfigurationIncompleteReasons: [],
+    unscopedRuntimeOverrideEvidenceIds: [],
+  });
+  expect(data?.pipelineDefinitionEvidenceIds).toHaveLength(1);
+  expect(data?.runtimeOverrideEvidenceIds).toHaveLength(2);
+  expect(result.evidence.find((item) => item.id === data?.pipelineDefinitionEvidenceIds?.[0]))
+    .toMatchObject({ kind: "mse.task_definition" });
+  const runtimeOverrides = (data?.runtimeOverrideEvidenceIds ?? []).map((id) =>
+    result.evidence.find((item) => item.id === id)
+  );
+  expect(runtimeOverrides).toHaveLength(2);
+  expect(runtimeOverrides.every((item) => item?.kind === "mla.pipeline_override")).toBe(true);
+  expect(runtimeOverrides.map((item) => (item?.data as { patches?: unknown[] } | undefined)?.patches))
+    .toEqual([
+      [{ Start: { next: ["Fallback"] } }],
+      [{ Start: { attach: { choice: "runtime" } } }],
+    ]);
+});
+
 test("combined inspection reports runtime failure nodes missing from the MSE pipeline", async () => {
   const root = await createCombinedFixture();
   await writeFile(path.join(root, "maafw.log"), failingNodeLog("Ghost").join("\n"), "utf8");

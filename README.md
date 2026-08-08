@@ -111,9 +111,14 @@ const matches = searchEvidence(combined, {
 `warnings`、`statistics` 和 `details`。每条 evidence 都有稳定 ID 与来源定位;截断、缺失和
 上游限制都会作为显式的 warning / missingEvidence 输出,不会静默丢失。
 
-各 evidence 种类(`mla.recognition_detail`、`mla.action_detail`、`mla.task_anomaly`、
-`combined.pipeline_reference` 等)的聚合规则、统计字段与截断语义见
+各 evidence 种类(`mla.recognition_detail`、`mla.action_detail`、`mla.pipeline_override`、
+`mla.task_anomaly`、`combined.pipeline_reference` 等)的聚合规则、统计字段与截断语义见
 [`docs/evidence-model.md`](docs/evidence-model.md)。
+
+MLA 会保留 MaaFramework 日志中可解析的有序 pipeline override patch，并只在日志提供唯一
+Context-to-task 映射时标记精确 task ID 关联。Combined failure relation 通过 evidence ID 同时
+引用 MSE 静态基础定义和失败前的精确任务级 override；它不会用普通 JSON 深合并伪造最终运行
+配置。作用域不明、解析不完整或截断会以独立状态、原因和 warning 暴露。
 
 ## Harness Skill
 

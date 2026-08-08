@@ -7,6 +7,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Extract ordered MaaFramework pipeline override evidence with conservative Context-to-task
+  correlation, explicit truncation, and parse-completeness reporting.
+- Link runtime failure nodes to both MSE base-definition evidence and exact task-scoped override
+  evidence without presenting a generic JSON merge as the final runtime configuration.
+
+### Changed
+
+- Expand the harness Skill's configuration workflow to distinguish static declarations, runtime
+  override inputs, framework execution facts, and observed application state.
+
 ## [0.1.1] - 2026-08-08
 
 ### Fixed

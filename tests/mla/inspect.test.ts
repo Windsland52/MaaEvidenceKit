@@ -79,6 +79,109 @@ test("extracts source-backed runtime facts and filters them by time", async () =
   expect(renderText(focused)).not.toContain("Second: failed");
 });
 
+test("extracts ordered pipeline overrides and maps a context to its task", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-overrides-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    "[2026-07-19 10:01:00.000][INF][Px1][Tx1][Tasker.cpp][L87][MaaNS::Tasker::post_task] [entry=Combat] [pipeline_override=[{\"Target\":{\"action\":{\"param\":{\"custom_action_param\":{\"level\":\"hard\"}}}}}]]",
+    "[2026-07-19 10:01:00.000][TRC][Px1][Tx1][Context.cpp][L195][MaaNS::TaskNS::Context::override_pipeline] [getptr()=ABC123] [pipeline_override=[{\"Target\":{\"action\":{\"param\":{\"custom_action_param\":{\"level\":\"hard\"}}}}}]]",
+    event("2026-07-19 10:01:00.010", "Tasker.Task.Starting", {
+      task_id: 7, entry: "Combat", hash: "h1", uuid: "u1",
+    }),
+    "[2026-07-19 10:01:00.020][INF][Px2][Tx2][AgentServer.cpp][L225][MaaNS::AgentNS::ServerNS::AgentServer::handle_action_request] [req={\"context_id\":\"ABC123\",\"task_id\":7}]",
+    "[2026-07-19 10:01:00.500][DBG][Px1][Tx1][Tasker.cpp][L373][MaaNS::Tasker::override_pipeline] [task_id=7] [pipeline_override={\"Target\":{\"enabled\":false}}] | enter",
+    "[2026-07-19 10:01:00.500][TRC][Px1][Tx1][Context.cpp][L195][MaaNS::TaskNS::Context::override_pipeline] [getptr()=ABC123] [pipeline_override={\"Target\":{\"enabled\":false}}]",
+    "[2026-07-19 10:01:00.999][DBG][Px2][Tx2][MaaContext.cpp][L233][MaaContextOverridePipeline] [context=true] [pipeline_override={\"Target\":{\"attach\":{\"clicks\":[[10,20],[30,40]]}}}] | enter",
+    "[2026-07-19 10:01:01.000][TRC][Px1][Tx1][Context.cpp][L195][MaaNS::TaskNS::Context::override_pipeline] [getptr()=ABC123] [pipeline_override={\"Target\":{\"attach\":{\"clicks\":[[10,20],[30,40]]}}}]",
+    "[2026-07-19 10:01:01.200][DBG][Px1][Tx1][Tasker.cpp][L373][MaaNS::Tasker::override_pipeline] [task_id=7] [pipeline_override={\"Fallback\":{\"enabled\":false}}] | enter",
+    "[2026-07-19 10:01:01.300][DBG][Px2][Tx2][MaaContext.cpp][L233][MaaContextOverridePipeline] [context=true] [pipeline_override={\"Orphan\":{\"enabled\":false}}] | enter",
+    event("2026-07-19 10:01:02.000", "Node.PipelineNode.Failed", {
+      task_id: 7, node_id: 11, name: "Target",
+    }),
+    event("2026-07-19 10:01:03.000", "Tasker.Task.Failed", {
+      task_id: 7, entry: "Combat", hash: "h1", uuid: "u1",
+    }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const overrides = result.evidence
+    .filter((item) => item.kind === "mla.pipeline_override")
+    .map((item) => ({ source: item.source, data: item.data as Record<string, unknown> }));
+
+  expect(overrides).toHaveLength(5);
+  expect(overrides[0]).toMatchObject({
+    source: { path: "maafw.log", line: 4, task: "Combat", node: "Target" },
+    data: {
+      origin: "task_submission",
+      taskAssociation: "task_id",
+      taskId: 7,
+      taskName: "Combat",
+      contextScopeId: "context-1",
+      nodeNames: ["Target"],
+    },
+  });
+  expect(overrides[1]).toMatchObject({
+    source: { path: "maafw.log", line: 8, task: "Combat", node: "Target" },
+    data: {
+      origin: "task_update",
+      taskAssociation: "task_id",
+      taskId: 7,
+      taskName: "Combat",
+      contextScopeId: "context-1",
+      nodeNames: ["Target"],
+      patches: [{ Target: { enabled: false } }],
+    },
+  });
+  expect(overrides[2]).toMatchObject({
+    source: { path: "maafw.log", line: 10, task: "Combat", node: "Target" },
+    data: {
+      origin: "context",
+      taskAssociation: "task_id",
+      taskId: 7,
+      taskName: "Combat",
+      contextScopeId: "context-1",
+      nodeNames: ["Target"],
+      patches: [{ Target: { attach: { clicks: [[10, 20], [30, 40]] } } }],
+    },
+  });
+  expect(overrides[3]).toMatchObject({
+    source: { path: "maafw.log", line: 11, task: "Combat", node: "Fallback" },
+    data: {
+      scope: "task",
+      origin: "task_update",
+      taskAssociation: "task_id",
+      taskId: 7,
+      taskName: "Combat",
+      contextScopeId: null,
+      nodeNames: ["Fallback"],
+      patches: [{ Fallback: { enabled: false } }],
+    },
+  });
+  expect(overrides[4]).toMatchObject({
+    source: { path: "maafw.log", line: 12, node: "Orphan" },
+    data: {
+      scope: "context",
+      origin: "context",
+      taskAssociation: "none",
+      taskId: null,
+      taskName: null,
+      contextScopeId: null,
+      nodeNames: ["Orphan"],
+      patches: [{ Orphan: { enabled: false } }],
+    },
+  });
+  expect(result.details.selection.pipelineOverrides).toEqual({
+    total: 5,
+    selected: 5,
+    malformedLines: 0,
+  });
+  expect(result.statistics["pipelineOverrides"]).toBe(5);
+  expect(result.statistics["pipelineOverridesTotal"]).toBe(5);
+});
+
 test("reports missing framework log as missing evidence", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-empty-"));
   temporaryRoots.push(root);

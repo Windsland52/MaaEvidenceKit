@@ -26,9 +26,14 @@ import {
 } from "../evidence/index.js";
 import { profileStage, profileStageSync } from "../profiling.js";
 import { discoverArtifacts } from "./discovery.js";
+import {
+  extractPipelineOverrides,
+  type MlaPipelineOverrideObservation,
+} from "./overrides.js";
 import { translateRuntimeInspection, type MlaRuntimeInspectionResult } from "./translate.js";
 
 const MAX_ACTION_DETAILS = 500;
+const MAX_PIPELINE_OVERRIDES = 500;
 
 type RuntimeTask = MlaRuntimeInspectionResult["sessions"][number]["tasks"][number];
 type RuntimePosition = {
@@ -390,6 +395,11 @@ export type MlaInspectionDetails = {
       total: number;
       selected: number;
     };
+    pipelineOverrides: {
+      total: number;
+      selected: number;
+      malformedLines: number;
+    };
   };
 };
 
@@ -521,6 +531,42 @@ function evidenceSource(
     ...(scope?.task === undefined ? {} : { task: scope.task }),
     ...(scope?.node === undefined ? {} : { node: scope.node }),
   };
+}
+
+function addPipelineOverrideEvidence(
+  ledger: EvidenceLedger,
+  observation: MlaPipelineOverrideObservation,
+  artifacts: readonly Artifact[],
+  inputPath: string,
+  sourceSegments: readonly SourceSegment[],
+): void {
+  const position = positionForMergedLine(
+    sourceSegments,
+    observation.timestamp,
+    observation.mergedLine,
+  );
+  const nodeDescription = observation.nodeNames.length === 1
+    ? observation.nodeNames[0]
+    : `${observation.nodeNames.length} nodes`;
+  ledger.add(
+    "mla.pipeline_override",
+    `Observed ${observation.origin.replaceAll("_", " ")} pipeline override for ${nodeDescription}.`,
+    evidenceSource(artifacts, inputPath, position, {
+      ...(observation.taskName === null ? {} : { task: observation.taskName }),
+      ...(observation.nodeNames.length === 1 ? { node: observation.nodeNames[0] } : {}),
+    }),
+    {
+      sequence: observation.sequence,
+      scope: observation.scope,
+      origin: observation.origin,
+      taskAssociation: observation.taskAssociation,
+      taskId: observation.taskId,
+      taskName: observation.taskName,
+      contextScopeId: observation.contextScopeId,
+      nodeNames: observation.nodeNames,
+      patches: observation.patches,
+    },
+  );
 }
 
 function addRuntimeEvidence(
@@ -1000,6 +1046,9 @@ type LoadedMlaTarget = {
   actionDetails: MlaActionDetail[];
   actionDetailsTotal: number;
   actionOccurrences: number;
+  pipelineOverrides: MlaPipelineOverrideObservation[];
+  pipelineOverridesTotal: number;
+  pipelineOverrideMalformedLines: number;
   sourceSegments: SourceSegment[];
   artifacts: Artifact[];
 };
@@ -1528,6 +1577,30 @@ function boundedActionDetails(details: readonly MlaActionDetail[]): MlaActionDet
   });
 }
 
+function boundedPipelineOverrides(
+  observations: readonly MlaPipelineOverrideObservation[],
+): MlaPipelineOverrideObservation[] {
+  if (observations.length <= MAX_PIPELINE_OVERRIDES) return [...observations];
+  const taskAssociated = observations.filter((item) => item.taskAssociation === "task_id");
+  const unscoped = observations.filter((item) => item.taskAssociation !== "task_id");
+  const selected = taskAssociated.length >= MAX_PIPELINE_OVERRIDES
+    ? Array.from({ length: MAX_PIPELINE_OVERRIDES }, (_, index) => {
+      const sourceIndex = Math.floor(index * (taskAssociated.length - 1) / (MAX_PIPELINE_OVERRIDES - 1));
+      return taskAssociated[sourceIndex] as MlaPipelineOverrideObservation;
+    })
+    : [
+      ...taskAssociated,
+      ...Array.from({ length: MAX_PIPELINE_OVERRIDES - taskAssociated.length }, (_, index) => {
+        const sourceIndex = Math.floor(
+          index * (unscoped.length - 1) / (MAX_PIPELINE_OVERRIDES - taskAssociated.length - 1 || 1),
+        );
+        return unscoped[sourceIndex] as MlaPipelineOverrideObservation;
+      }),
+    ];
+  return [...new Map(selected.map((item) => [item.mergedLine, item])).values()]
+    .sort((left, right) => left.mergedLine - right.mergedLine);
+}
+
 function candidateFromUnknown(value: unknown): RecognitionDetailCandidate | null {
   if (!isRecord(value)) return null;
   const candidate: RecognitionDetailCandidate = {};
@@ -1983,19 +2056,21 @@ async function loadMlaTarget(
 ): Promise<LoadedMlaTarget | null> {
   const framework = extractFrameworkSessions(await loadFrameworkLogSources(target.path));
   let sourceSegments: SourceSegment[];
+  let content: string;
   let analyzed;
   if (target.kind === "directory") {
     const extracted = await loadNodeLogDirectory(target.path, focus === undefined ? {} : { focus });
     if (extracted === null) return null;
+    content = extracted.content;
     sourceSegments = [...extracted.sourceSegments];
     analyzed = await analyzeLogContent({
-      content: extracted.content,
+      content,
       errorImages: extracted.errorImages,
       visionImages: extracted.visionImages,
       waitFreezesImages: extracted.waitFreezesImages,
     });
   } else {
-    const content = await readNodeTextFileContent(target.path);
+    content = await readNodeTextFileContent(target.path);
     if (
       focus?.keywords !== undefined
       && focus.keywords.length > 0
@@ -2026,6 +2101,8 @@ async function loadMlaTarget(
     return null;
   }
   const allActionDetails = extractActionDetails(analyzed, timeRange);
+  const pipelineOverrideExtraction = extractPipelineOverrides(content, timeRange);
+  const pipelineOverrides = boundedPipelineOverrides(pipelineOverrideExtraction.observations);
   return {
     target,
     runtime: namespaceRuntime(runtime, target.namespace),
@@ -2033,6 +2110,9 @@ async function loadMlaTarget(
     actionDetails: boundedActionDetails(allActionDetails),
     actionDetailsTotal: allActionDetails.length,
     actionOccurrences: allActionDetails.reduce((total, detail) => total + detail.occurrenceCount, 0),
+    pipelineOverrides,
+    pipelineOverridesTotal: pipelineOverrideExtraction.observations.length,
+    pipelineOverrideMalformedLines: pipelineOverrideExtraction.malformedLines,
     sourceSegments,
     artifacts: targetArtifacts(target, artifacts),
   };
@@ -2146,6 +2226,15 @@ export async function inspectMla(
         loaded.sourceSegments,
       );
     }
+    for (const observation of loaded.pipelineOverrides) {
+      addPipelineOverrideEvidence(
+        ledger,
+        observation,
+        loaded.artifacts,
+        loaded.target.path,
+        loaded.sourceSegments,
+      );
+    }
   }
   addPossibleMirroredTaskEvidence(
     ledger,
@@ -2182,6 +2271,18 @@ export async function inspectMla(
       ? { ...artifact, status: "selected" as const, reason: undefined }
       : artifact,
   ).map(({ reason, ...artifact }) => reason === undefined ? artifact : { ...artifact, reason });
+  const pipelineOverridesTotal = loadedTargets.reduce(
+    (total, target) => total + target.pipelineOverridesTotal,
+    0,
+  );
+  const pipelineOverridesSelected = loadedTargets.reduce(
+    (total, target) => total + target.pipelineOverrides.length,
+    0,
+  );
+  const pipelineOverrideMalformedLines = loadedTargets.reduce(
+    (total, target) => total + target.pipelineOverrideMalformedLines,
+    0,
+  );
   const missingEvidence = [...discovery.missingEvidence, ...targetMissingEvidence];
   if (!discovery.artifacts.some((artifact) => artifact.kind === "maa_log")) {
     missingEvidence.push({
@@ -2228,6 +2329,20 @@ export async function inspectMla(
           message: `Selected ${target.actionDetails.length} of ${target.actionDetailsTotal} action-detail groups from ${target.target.label} using evenly spaced chronological samples.`,
         }]
     ),
+    ...loadedTargets.flatMap((target) =>
+      target.pipelineOverrides.length === target.pipelineOverridesTotal
+        ? []
+        : [{
+          code: "mla_pipeline_overrides_truncated",
+          message: `Selected ${target.pipelineOverrides.length} of ${target.pipelineOverridesTotal} non-empty pipeline override observations from ${target.target.label}; task-associated observations were prioritized before chronological sampling.`,
+        }]
+    ),
+    ...(pipelineOverrideMalformedLines === 0
+      ? []
+      : [{
+        code: "mla_pipeline_override_parse_incomplete",
+        message: `${pipelineOverrideMalformedLines} MaaFramework override log lines could not be parsed as complete JSON; runtime override evidence is incomplete.`,
+      }]),
   ];
   return {
     schemaVersion: EVIDENCE_SCHEMA_VERSION,
@@ -2258,6 +2373,8 @@ export async function inspectMla(
       actionOccurrences: loadedTargets.reduce((total, target) => total + target.actionOccurrences, 0),
       actionDetails: loadedTargets.reduce((total, target) => total + target.actionDetails.length, 0),
       actionDetailsTotal: loadedTargets.reduce((total, target) => total + target.actionDetailsTotal, 0),
+      pipelineOverrides: pipelineOverridesSelected,
+      pipelineOverridesTotal,
       repeatedNodeSegments: completeSignalCounts.repeatedNodeSegments,
       repeatedNodeSegmentsFocused: focusedSignalCounts.repeatedNodeSegments,
       repeatedNodeTotalRepeatCount: completeSignalCounts.repeatedNodeTotalRepeatCount,
@@ -2272,6 +2389,11 @@ export async function inspectMla(
         loadingGranularity,
         targets: loadedTargets.map((item) => item.target.label),
         signals: signalFocus.selection,
+        pipelineOverrides: {
+          total: pipelineOverridesTotal,
+          selected: pipelineOverridesSelected,
+          malformedLines: pipelineOverrideMalformedLines,
+        },
       },
     },
   };
