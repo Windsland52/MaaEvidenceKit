@@ -84,6 +84,11 @@ Respect `maa-evidence telemetry disable` and `MAA_EVIDENCE_TELEMETRY=0`; never r
 after the user or environment disables it. Original-material feedback remains separate and always
 requires an interactive preview plus explicit `UPLOAD` confirmation.
 
+Eligible inspection and follow-up commands attempt operational telemetry automatically. Do not
+rerun work merely to manufacture telemetry, and do not treat telemetry controls as a diagnostic
+submission. Aggregate telemetry cannot describe a specific extraction gap; use the feedback
+workflow below when problem details matter.
+
 ## Prepare input
 
 Extract ZIP and multipart material before invoking MEK. Pass the extracted folder rather than
@@ -389,10 +394,36 @@ above. Use it first to measure recurrence, affected users, release concentration
 Do not infer that a Sentry event belongs to an Issue from timestamp and release alone. Require the
 correlation levels and reporting rules in [references/sentry.md](references/sentry.md).
 
-## Report feedback
+## Surface and report MEK product gaps
 
-Offer feedback only with the user's permission. Classify it by severity with `--category`:
-`blocker` (cannot use / crash), `bug`, `suggestion`, or `other` (default).
+Classify a result as a MEK product gap only after comparing MEK output with the source material in
+the same inspected scope. Treat these as product-gap candidates:
+
+- a supported artifact contains a source-backed fact that MEK omits, misstates, or links to the
+  wrong provenance;
+- a documented command fails deterministically on valid supported input;
+- MEK violates a documented resolution, completeness, truncation, or evidence-window contract;
+- the smallest representative profile confirms unexplained MEK overhead worth investigating.
+
+Do not report a MEK gap merely because the application behaved incorrectly or the desired answer
+is absent. First exclude incomplete material, an incorrect time/task/controller/resource scope, a
+wrong source revision, an explicitly unsupported artifact, an upstream limitation that MEK reports
+accurately, and a harness interpretation mistake.
+
+When a product-gap candidate remains:
+
+1. Cite the source fact and the MEK output, warning, or missing evidence that demonstrates the
+   discrepancy.
+2. Tell the user that operational telemetry may already have recorded aggregate command usage but
+   cannot contain the problem description, paths, arguments, logs, source, or screenshots.
+3. Proactively offer a minimal feedback draft with a category, component, message, and whether an
+   attachment is actually needed. Prefer message-only feedback when the cited facts are sufficient.
+4. Wait for permission before invoking `feedback`; then preserve its interactive preview and
+   explicit `UPLOAD` confirmation. Enabled operational telemetry is not feedback consent.
+
+Use `blocker` for unusable commands or crashes, `bug` for incorrect or missing supported evidence,
+`suggestion` for useful unsupported coverage or performance improvements, and `other` only when the
+preceding categories do not fit.
 
 ```powershell
 maa-evidence feedback `
@@ -403,4 +434,7 @@ maa-evidence feedback `
 ```
 
 The command displays a preview and requires the user to type `UPLOAD`. Never send original material
-automatically or treat general telemetry consent as attachment consent.
+automatically or treat general telemetry consent as feedback or attachment consent. Even when the
+gap is fixed in the MEK repository during the same task, state that aggregate telemetry did not
+record the gap details and surface the separate feedback choice instead of silently assuming the
+code change replaced consent.
