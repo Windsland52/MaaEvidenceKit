@@ -8,6 +8,8 @@ must remain outside Git.
 
 1. Move completed entries from `Unreleased` in `CHANGELOG.md` into the target version and date.
 2. Keep `package.json` and `src/version.ts` versions identical. Update version assertions in tests.
+   Release every Skill behavior change with a new package version because automatic Skill sync is
+   keyed by the executing MEK version.
 3. Run `pnpm install --frozen-lockfile`.
 4. Run `pnpm release:check`.
 5. Review `pnpm pack --dry-run` and confirm only `dist`, Skill files, package metadata, license,
@@ -20,7 +22,8 @@ and invokes the packaged CLI version command. Registry access may be needed for 
 ## Manual Acceptance
 
 Use extracted, local-only issue material representing at least one MLA-only case and one combined
-MLA/MSE case. Set `MAA_EVIDENCE_TELEMETRY=0` unless telemetry delivery itself is being tested.
+MLA/MSE case. Set `MAA_EVIDENCE_AUTO_UPDATE=0` and `MAA_EVIDENCE_TELEMETRY=0` unless those delivery
+paths are being tested.
 
 1. Run `maa-evidence mla inspect` and verify tasks, recognition detail, source locators, explicit
    truncation fields, and missing-evidence records.
@@ -32,6 +35,10 @@ MLA/MSE case. Set `MAA_EVIDENCE_TELEMETRY=0` unless telemetry delivery itself is
    within its documented aggregate allowlist and command-exit budget. Never attach original material.
 5. Confirm no issue archive, extracted log, inspection JSON, profile, cache, or local source checkout
    appears in `git status` or the package tarball.
+6. In an isolated user/config directory, test the updater with command execution mocked or against
+   the published version: confirm exact-version handoff, once-per-version global Skill sync,
+   CI/opt-out, concurrent lock fallback, and offline local-runtime fallback. Do not let acceptance
+   tests modify a maintainer's real Agent Skill installation.
 
 Record the tested material identifiers, source commit/tag, commands, durations, and pass/fail result
 in local release notes. Do not commit user material or absolute local paths.
@@ -46,6 +53,10 @@ in local release notes. Do not commit user material or absolute local paths.
    version that is already published so a manual rerun is safe.
 4. Install the published version in a clean directory and verify SDK import and `maa-evidence
    --version` once more.
+5. For the first updater-enabled release, publish migration notes requiring `0.1.x` users to
+   reinstall the CLI and reinstall the Skill from the GitHub URL with `--global`. Confirm the npm
+   `latest` dist-tag and the repository Skill both point at the reviewed release contents before
+   announcing automatic updates.
 
 Do not publish from a dirty worktree, move an existing tag, or replace a published npm version. A
 manual workflow dispatch must select a `v<version>` tag; dispatching it from a branch intentionally

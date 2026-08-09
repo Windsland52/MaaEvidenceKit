@@ -18,7 +18,11 @@ function run(command, args, cwd) {
   const result = spawnSync(command, args, {
     cwd,
     encoding: "utf8",
-    env: { ...process.env, MAA_EVIDENCE_TELEMETRY: "0" },
+    env: {
+      ...process.env,
+      MAA_EVIDENCE_AUTO_UPDATE: "0",
+      MAA_EVIDENCE_TELEMETRY: "0",
+    },
     shell: false,
   });
   if (result.status !== 0) {

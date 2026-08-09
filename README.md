@@ -35,20 +35,46 @@ MaaEvidenceKit(MEK)从 MaaFramework 日志和 Maa 项目中提取可定位的运
 需要 Node.js 24+。发布版用户先安装 CLI:
 
 ```powershell
-npm install --global maa-evidence-kit
+npm install --global maa-evidence-kit@latest
 maa-evidence --version
 ```
 
-如果要让 Codex、Claude Code 等 agent 使用 MEK,再安装仓库中的 Skill。Skill 和 CLI 是两个
-独立的分发物,安装 Skill 不会自动安装 npm 包:
+如果要让 Codex、Claude Code 等 agent 使用 MEK,再从 GitHub 安装用户级 Skill。不要自行
+拼接 agent 的 Skill 目录;`skills` CLI 会检测或询问目标 agent,并维护各 agent 所需的路径:
 
 ```powershell
-npx skills add https://github.com/Windsland52/MaaEvidenceKit --skill maa-evidence
+npx skills add https://github.com/Windsland52/MaaEvidenceKit `
+  --skill maa-evidence `
+  --global
 ```
+
+交互安装时优先使用默认的符号链接方式,使多个 agent 指向同一个受管副本。Skill 和 CLI
+仍是两个独立的分发物,安装 Skill 不会自动安装 npm 包。
+
+### 从 0.1.x 迁移
+
+`0.1.x` 不包含更新启动器,无法通过发布新包获得自动更新能力。用户需要手动执行一次上面的
+两条安装命令。Skill 必须从 GitHub 地址安装以保留远端来源;本地路径安装只适合开发,不能由
+`skills update` 跟踪远端版本。
+
+### 使用时自动更新
+
+迁移后的发布版 CLI 在分析命令和 `--version` 启动时自动维护版本:
+
+1. 至多每 24 小时查询一次 npm `latest`,将结果记入本地 `updates.json`。
+2. 发现更高的稳定版本时,通过 npm 准备该精确版本并将本次命令交给它执行。全局安装保留为
+   启动器,无需在运行中覆盖自身文件。
+3. 每个 MEK 版本通过 `skills update maa-evidence --global` 同步一次受管的用户级 Skill。
+   Agent 目录、符号链接或副本仍完全由 `skills` CLI 处理。
+
+网络、npm 或 Skill 更新失败时继续使用当前可用版本。设置 `MAA_EVIDENCE_AUTO_UPDATE=0` 可
+关闭 CLI 和 Skill 自动更新;CI 默认关闭,需要时可显式设为 `1`。SDK import 不执行自动更新。
+完整网络与本地状态说明见 [`PRIVACY.md`](PRIVACY.md)。
 
 开发本仓库时则使用本地构建:
 
 ```powershell
+$env:MAA_EVIDENCE_AUTO_UPDATE = "0"
 pnpm install
 pnpm build
 node dist/cli/main.js --help

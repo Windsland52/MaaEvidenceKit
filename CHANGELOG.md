@@ -9,6 +9,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Add a use-time updater that rate-limits npm checks, hands commands to a newer exact stable
+  runtime, and delegates cross-Agent Skill synchronization to the `skills` CLI with offline and CI
+  fallbacks.
 - Extract ordered MaaFramework pipeline override evidence with conservative Context-to-task
   correlation, explicit truncation, and parse-completeness reporting.
 - Link runtime failure nodes to both MSE base-definition evidence and exact task-scoped override
@@ -16,6 +19,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Install the hosted Skill as a remotely managed global Skill so its installer, rather than MEK,
+  owns Agent-specific paths and update targets.
 - Expand the harness Skill's configuration workflow to distinguish static declarations, runtime
   override inputs, framework execution facts, and observed application state.
 

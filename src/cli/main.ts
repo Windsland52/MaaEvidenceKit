@@ -32,6 +32,7 @@ import {
 } from "../index.js";
 import { profileStage, profileStageSync } from "../profiling.js";
 import { flag, integerOption, option, options, parseArguments, type ParsedArguments } from "./args.js";
+import { runWithAutomaticUpdates } from "./auto-update.js";
 import { readBatchRequests } from "./batch-input.js";
 import { emit, readInspection } from "./io.js";
 import { withLocalProfile } from "./profile.js";
@@ -441,5 +442,5 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<numb
 
 const invokedPath = process.argv[1];
 if (invokedPath !== undefined && import.meta.url === pathToFileURL(realpathSync(invokedPath)).href) {
-  process.exitCode = await main();
+  process.exitCode = await runWithAutomaticUpdates(process.argv.slice(2), main);
 }

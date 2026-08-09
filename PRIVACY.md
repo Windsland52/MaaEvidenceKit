@@ -1,10 +1,33 @@
 # MaaEvidenceKit Privacy Notice
 
-Last updated: 2026-08-02
+Last updated: 2026-08-09
 
-MaaEvidenceKit performs its core log and project inspection locally. Core inspection does not
-require an account and does not make network requests. Network transmission occurs only through
-the optional operational telemetry and feedback features described below.
+MaaEvidenceKit performs log and project inspection locally and never sends inspected material for
+automatic updates. The published CLI may make update requests before inspection, and may also send
+the optional operational telemetry and feedback described below. Set
+`MAA_EVIDENCE_AUTO_UPDATE=0` and `MAA_EVIDENCE_TELEMETRY=0` for a fully offline inspection.
+
+## Automatic updates
+
+Automatic updates are enabled by default for the published CLI and are separate from telemetry.
+Before an analysis command or `--version`, the launcher may:
+
+- query `https://registry.npmjs.org/maa-evidence-kit/latest` at most once every 24 hours;
+- ask npm to download and execute a newer exact `maa-evidence-kit` version;
+- invoke the `skills` CLI once per MEK version to update remotely managed `maa-evidence` Skill
+  installations from their recorded source, normally GitHub.
+
+MEK does not include command arguments, paths, logs, source, screenshots, or evidence in these
+update requests. npm, GitHub, and their network providers receive the connection metadata required
+to serve requests, such as the source IP address and standard HTTP/client metadata. Their own
+privacy and authentication behavior applies. MEK sets `DISABLE_TELEMETRY=1` when invoking the
+third-party `skills` CLI so that invocation does not send its optional anonymous telemetry.
+
+The local `updates.json` file contains only check/sync timestamps and MEK version strings. It has no
+stable installation identifier. Update checks, downloads, and Skill synchronization fall back to
+the installed runtime and Skill when they cannot be prepared safely.
+`MAA_EVIDENCE_AUTO_UPDATE=0` disables both runtime and Skill updates. CI disables them unless the
+variable is explicitly set to `1`. SDK imports never run the updater.
 
 ## Consent
 
@@ -14,6 +37,7 @@ be disabled at any time.
 - `maa-evidence telemetry status` shows the current choice.
 - `maa-evidence telemetry enable` and `maa-evidence telemetry disable` change it.
 - Setting `MAA_EVIDENCE_TELEMETRY=0` also disables operational telemetry for the process.
+- Update behavior uses the separate `MAA_EVIDENCE_AUTO_UPDATE` setting above.
 - CI and non-interactive use send aggregate operational telemetry by default and never prompt.
 - Original-material feedback (logs, screenshots, source) is never sent automatically; it always
   requires an interactive preview and an explicit `UPLOAD` confirmation.

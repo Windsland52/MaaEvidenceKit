@@ -10,10 +10,18 @@ Sentry investigation, source research, and diagnostic judgment in the host harne
 
 ## Check the CLI first
 
-Before the first MEK command, verify that `maa-evidence --version` is available. If it is missing,
-tell the user to install the runtime package with `npm install --global maa-evidence-kit`; installing
-this Skill does not install the npm package. Prefer the installed CLI over invoking a checkout's
-`dist` files, unless the harness explicitly supplies a local development build.
+Before the first MEK command, run `maa-evidence --version`. If it is missing, tell the user to
+install the runtime with `npm install --global maa-evidence-kit@latest`; installing this Skill does
+not install the npm package. Prefer the installed CLI over a checkout's `dist` files unless the
+harness explicitly supplies a local development build.
+
+Treat published MEK's updater as the version owner. It checks npm at most once every 24 hours,
+hands the command to a newer stable runtime, and delegates managed Skill updates to the `skills`
+CLI. Never guess or write Codex, Claude Code, Cursor, Pi, or other agent Skill paths. If the user is
+migrating from `0.1.x` or installed this Skill from a local path, tell them to reinstall it once
+from `https://github.com/Windsland52/MaaEvidenceKit` with `--skill maa-evidence --global`; this gives
+the installer a remote source and lets it preserve the selected agent targets. Respect
+`MAA_EVIDENCE_AUTO_UPDATE=0` and do not re-enable updates for an offline or reproducible run.
 
 ## Choose the smallest useful operation
 

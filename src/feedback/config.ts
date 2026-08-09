@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
+
+import { maaEvidenceConfigDirectory } from "../config.js";
 
 export const TELEMETRY_CONFIG_SCHEMA_VERSION = "maa-evidence-telemetry/v1" as const;
 
@@ -12,18 +13,7 @@ type TelemetryConfig = {
   decidedAt: string;
 };
 
-export function telemetryConfigDirectory(environment: NodeJS.ProcessEnv = process.env): string {
-  if (environment["MAA_EVIDENCE_CONFIG_DIR"] !== undefined) {
-    return path.resolve(environment["MAA_EVIDENCE_CONFIG_DIR"]);
-  }
-  if (process.platform === "win32" && environment["LOCALAPPDATA"] !== undefined) {
-    return path.join(environment["LOCALAPPDATA"], "MaaEvidenceKit");
-  }
-  if (environment["XDG_CONFIG_HOME"] !== undefined) {
-    return path.join(environment["XDG_CONFIG_HOME"], "maa-evidence-kit");
-  }
-  return path.join(os.homedir(), ".config", "maa-evidence-kit");
-}
+export const telemetryConfigDirectory = maaEvidenceConfigDirectory;
 
 function configPath(directory?: string): string {
   return path.join(directory ?? telemetryConfigDirectory(), "telemetry.json");
