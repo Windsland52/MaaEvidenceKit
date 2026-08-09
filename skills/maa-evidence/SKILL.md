@@ -76,6 +76,37 @@ this Skill does not install the npm package. Prefer the installed CLI over invok
 
 Do not run the complete MEK inspection merely because the command exists.
 
+## Resolve framework semantics only when needed
+
+MEK reports runtime and static facts; it does not define MaaFramework protocol or API semantics.
+Research those semantics in the host harness only when a diagnosis or proposed change depends on
+an exact field meaning, default, merge rule, coordinate convention, algorithm mode, API behavior,
+or version difference. Skip this step when the question only asks what the supplied evidence
+records, or when the same semantic point is already supported by a version-matched original source
+in the current investigation.
+
+Use this bounded route:
+
+1. Resolve the MaaFramework version or revision from the supplied material. Keep it unknown when
+   the evidence does not identify it.
+2. Read [references/maa-llm-wiki.md](references/maa-llm-wiki.md), then follow its bounded catalog
+   discovery and query procedure. Stop at the first usable catalog and exact version route.
+3. Treat MaaLLMWiki as navigation-only. Follow its version-pinned route to the original
+   MaaFramework documentation, schema, public API, or source code and cite that original source for
+   the semantic claim. A Wiki route is not behavioral evidence by itself.
+4. If no matching catalog route is available, inspect the issue-version MaaFramework checkout or
+   official versioned source directly. Never substitute current HEAD to explain historical
+   behavior.
+5. Compare the source-defined behavior with the runtime and static evidence. Source semantics show
+   what the framework should do; they do not prove what happened in the supplied run.
+
+Keep the lookup focused: use one catalog search and the smallest relevant original-source window
+per unresolved semantic question, batch independent terms, and reuse a resolved route during the
+investigation. Do not query MaaLLMWiki for every task or configuration field. When a proposed value
+depends on application pixels, such as a click position or recognition ROI, also verify it against
+the relevant screenshot and scale; framework semantics cannot validate application-specific
+geometry.
+
 ## Respect the telemetry choice
 
 Anonymous aggregate operational telemetry is enabled by default, including in CI and non-TTY use,
