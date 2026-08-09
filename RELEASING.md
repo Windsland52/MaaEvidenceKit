@@ -44,8 +44,7 @@ in local release notes. Do not commit user material or absolute local paths.
 3. Configure the repository `NPM_TOKEN` secret with publish permission before the first release.
    The workflow authenticates with npm, checks that `v<version>` matches `package.json`, and skips a
    version that is already published so a manual rerun is safe.
-4. Create the GitHub release from the matching changelog section.
-5. Install the published version in a clean directory and verify SDK import and `maa-evidence
+4. Install the published version in a clean directory and verify SDK import and `maa-evidence
    --version` once more.
 
 Do not publish from a dirty worktree, move an existing tag, or replace a published npm version. A
