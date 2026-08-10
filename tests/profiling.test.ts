@@ -14,7 +14,7 @@ test("aggregates nested and concurrent local profile stages without recording op
   expect(outcome.ok).toBe(true);
   expect(outcome.profile).toMatchObject({
     schemaVersion: "maa-evidence-profile/v1",
-    mekVersion: "0.1.1",
+    mekVersion: "0.2.0",
     command: "test.command",
     status: "ok",
     concurrentStagesMayOverlap: true,

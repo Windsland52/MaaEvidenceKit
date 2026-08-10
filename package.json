@@ -1,6 +1,6 @@
 {
   "name": "maa-evidence-kit",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Deterministic evidence extraction and diagnostic toolkit for MaaFramework",
   "license": "MIT",
   "author": "Windsland52",
@@ -56,7 +56,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@nekosu/maa-pipeline-manager": "1.0.12",
+    "@nekosu/maa-pipeline-manager": "1.0.13",
     "@nekosu/maa-tasker": "1.0.0",
     "@sentry/node": "10.69.0",
     "@windsland52/maa-log-tools": "1.3.1",

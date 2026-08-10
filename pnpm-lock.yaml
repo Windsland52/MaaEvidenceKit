@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@nekosu/maa-pipeline-manager':
-        specifier: 1.0.12
-        version: 1.0.12
+        specifier: 1.0.13
+        version: 1.0.13
       '@nekosu/maa-tasker':
         specifier: 1.0.0
         version: 1.0.0
@@ -118,8 +118,8 @@ packages:
   '@nekosu/maa-locale@1.0.3':
     resolution: {integrity: sha512-7HNGbhhuKky8kumBxAJXrezSzIPmP1en+DlqENx5r5DZHwJRCDSjzbW7Wi7Zogbo8lpBZNq631kEDspdTbFKIA==}
 
-  '@nekosu/maa-pipeline-manager@1.0.12':
-    resolution: {integrity: sha512-xIw6xYbAZwcNl6NmpriqwZS2KrMLAA2ZGvOYij87rtTX+tp3749dyvTySBQ+2MqFg4kvMPm1M2L/zigmtt1vCQ==}
+  '@nekosu/maa-pipeline-manager@1.0.13':
+    resolution: {integrity: sha512-zgnZXk2HwIIGnTSMqAn36kfg4vVYMc9QfDFx6THz+cngkrNQB20kgK6jBgrUFopokMvEOlRY/KpBZmraJVwATw==}
 
   '@nekosu/maa-tasker@1.0.0':
     resolution: {integrity: sha512-p5SaBJGvAMr5J2uk6imoiK7eIF7yA67HndWyfxddAHHdoyliai2dkHqBhTmDDuRmmAJ/ly4INg5Hnx8CI7Po3A==}
@@ -1087,7 +1087,7 @@ snapshots:
 
   '@nekosu/maa-locale@1.0.3': {}
 
-  '@nekosu/maa-pipeline-manager@1.0.12':
+  '@nekosu/maa-pipeline-manager@1.0.13':
     dependencies:
       '@nekosu/maa-locale': 1.0.3
       '@nekosu/maa-tasker': 1.0.0

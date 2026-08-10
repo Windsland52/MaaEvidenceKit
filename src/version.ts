@@ -1,1 +1,1 @@
-export const MAA_EVIDENCE_VERSION = "0.1.1" as const;
+export const MAA_EVIDENCE_VERSION = "0.2.0" as const;

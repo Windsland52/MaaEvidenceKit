@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-11
+
 ### Added
 
 - Add a use-time updater that rate-limits npm checks, hands commands to a newer exact stable
@@ -23,6 +25,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Update `@nekosu/maa-pipeline-manager` to 1.0.13; `@nekosu/maa-tasker` remains pinned to its latest
+  1.0.0 release.
 - Update MaaLogAnalyzer tooling to retain nested-task runtime failures and their image evidence.
 - Install the hosted Skill as a remotely managed global Skill so its installer, rather than MEK,
   owns Agent-specific paths and update targets.
@@ -64,6 +68,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Whitelist-only operational telemetry, disabled default PII, and mandatory preview/confirmation for
   feedback attachments.
 
-[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Windsland52/MaaEvidenceKit/releases/tag/v0.1.0
