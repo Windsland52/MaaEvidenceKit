@@ -18,8 +18,8 @@ importers:
         specifier: 10.69.0
         version: 10.69.0(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))
       '@windsland52/maa-log-tools':
-        specifier: 1.3.0
-        version: 1.3.0
+        specifier: 1.3.1
+        version: 1.3.1
       cross-spawn:
         specifier: 7.0.6
         version: 7.0.6
@@ -625,8 +625,8 @@ packages:
     resolution: {integrity: sha512-33QSpc093kqGZR3yUzA+vz5QdeWednKeweqApJ6fvT2oWX71TEGWX2CHLUoyPlqqy6sMHA6zbHGHmyujAFROww==}
     engines: {node: '>=20.18.0'}
 
-  '@windsland52/maa-log-tools@1.3.0':
-    resolution: {integrity: sha512-dCmY8wjSWpv4bZ/8sPUW/HFtIl23B053GHtwKsxZbfUyrzJhAP6LqpQC96vuRtnqYSVKq9Qbu0N7fQDZzqHttw==}
+  '@windsland52/maa-log-tools@1.3.1':
+    resolution: {integrity: sha512-wzC4j1ZQLrtn7cZr4VjQhS9NAU7mcCRq9Ap2dZgyrThHgZYnd4OW6OhQlXkH88I5lx+Hcu5m6s2gRzFXyhqmaw==}
     engines: {node: '>=20.18.0'}
     hasBin: true
 
@@ -1446,7 +1446,7 @@ snapshots:
     dependencies:
       '@windsland52/maa-log-kernel': 1.0.2
 
-  '@windsland52/maa-log-tools@1.3.0':
+  '@windsland52/maa-log-tools@1.3.1':
     dependencies:
       '@windsland52/maa-log-adapter': 1.1.0
       '@windsland52/maa-log-kernel': 1.0.2

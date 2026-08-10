@@ -36,7 +36,13 @@ the installer a remote source and lets it preserve the selected agent targets. R
   `combined.recognition_pipeline_reference` to connect runtime recognition evidence with static
   MSE configuration. Recognition references carry controller/resource, definition locations, and
   `definitionEvidenceIds`; retrieve those `mse.task_definition` records when full MSE
-  `effectiveConfig` is needed. Do not infer a cause from the runtime score. Nodes absent from the
+  `effectiveConfig` is needed. For direct OCR nodes, inspect each static configuration's
+  `ocrObservationComparisons`: it exposes source-backed observed text/boxes alongside static
+  `expected`, `roi`, and `only_rec`. `equalsExpectedValue` is literal equality only, while
+  `roiRelation` and `roiBoundaryContacts` are geometry only. The declared
+  `configurationBasis: mse_static_effective_config` means this is not a reconstructed final runtime
+  configuration; inspect applicable `mla.pipeline_override` evidence before using the comparison in
+  a diagnosis. Do not infer a cause from the runtime score or boundary contact. Nodes absent from the
   supplied static snapshot emit a
   `combined.recognition_pipeline_reference_missing` warning.
   Check `staticResolutionStatus` and `incompleteReasons`: `not_found` means absence was observed in
@@ -146,9 +152,10 @@ Do not serialize independent network and local preparation work:
    metadata. Do not make MEK interpret the issue text.
 2. Verify all required archive parts, then extract archives in the harness. Start MLA as soon as the
    complete MaaFramework log directory is ready; do not wait for source checkout or MSE.
-3. Read the focused MLA result before acquiring source. Use its tasks, failed nodes, timestamps,
-   recognition details, actions, warnings, and missing evidence to decide whether static evidence
-   can answer a remaining question.
+3. Read the focused MLA result before acquiring source. Start each failure investigation from its
+   `mla.failure_context`, then follow the referenced task/failure/image evidence IDs. Use its tasks,
+   failed nodes, timestamps, recognition details, actions, warnings, and missing evidence to decide
+   whether static evidence can answer a remaining question.
 4. Acquire the issue-time source and run MSE only when static definitions, expected recognition
    configuration, execution edges, or source locations are needed. Do not run MSE merely because a
    repository or source archive is available.
@@ -264,7 +271,7 @@ maa-evidence mla inspect C:\path\to\materials `
   --format json
 ```
 
-MLA 1.3.0 selects matching files and MEK filters facts afterward. Treat the
+MLA 1.3.1 selects matching files and MEK filters facts afterward. Treat the
 `mla_time_window_file_granularity` warning as a real resource limitation.
 
 MLA output is focused by default: it keeps high-priority signals and each task's MLA-selected
@@ -284,6 +291,12 @@ Inspect these fields before forming a diagnosis:
 - `warnings`: truncation, compatibility, and upstream limitations.
 - `artifacts`: selected and skipped local material.
 - `details`: MLA execution facts or MSE static relations.
+
+For each `mla.failure`, read the matching `mla.failure_context` before treating the failed task in
+isolation. Its bounded `precedingTasks`, `concurrentTasks`, and `followingTasks` restore the selected
+runtime chronology and link back to `mla.task` evidence. Check `counts` and `truncated`; a missing
+task in a time-filtered or truncated context is not proof that it did not run. These relations are
+temporal facts, not causality.
 
 `mla.recognition_detail` aggregates recognition events by node/algorithm/status and extracts
 the detail generically by shape. Top-level `score` and `textCounts` select one representative per
@@ -350,6 +363,9 @@ MLA failure facts may reference standard `on_error` or `vision` images by local 
 referenced images needed for the question; MEK does not embed or interpret their pixels.
 Each failure-referenced image is also emitted as `mla.failure_image` evidence with its path and
 associated node, so a visual harness can open the exact screenshot without re-parsing the log.
+Use `mla.failure_context.nearbyFailures` to open nearby failures' referenced images in order when a
+leftover dialog or shared screen may span tasks. Compare pixels with the host's visual tool; MEK
+does not perform visual similarity and chronology alone does not prove that images show one screen.
 
 Treat task counts as observed records. If `mla_possible_mirrored_tasks` or
 `mla.possible_mirrored_task_group` is present, inspect its task fingerprint, execution IDs,
@@ -413,6 +429,9 @@ render Mermaid.
 
 - Cite evidence IDs and their file/line/time/node locations.
 - Separate reported symptom, directly observed mechanism, and suspected initiating trigger.
+- Check failure-centered task chronology and nearby failure images before assuming each task failed
+  independently; describe a prior-task trigger only when later application-state evidence supports
+  it.
 - Keep four layers distinct: the source snapshot's declared configuration, logged runtime override
   inputs, parameters or results observed during framework execution, and the application state
   observed after execution.

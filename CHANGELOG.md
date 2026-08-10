@@ -16,9 +16,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   correlation, explicit truncation, and parse-completeness reporting.
 - Link runtime failure nodes to both MSE base-definition evidence and exact task-scoped override
   evidence without presenting a generic JSON merge as the final runtime configuration.
+- Add bounded failure-centered task chronology with stable task, failure, and failure-image evidence
+  references.
+- Compare direct static OCR expected values and ROIs with bounded source-backed runtime observations
+  using explicit literal and geometry-only semantics.
 
 ### Changed
 
+- Update MaaLogAnalyzer tooling to retain nested-task runtime failures and their image evidence.
 - Install the hosted Skill as a remotely managed global Skill so its installer, rather than MEK,
   owns Agent-specific paths and update targets.
 - Expand the harness Skill's configuration workflow to distinguish static declarations, runtime

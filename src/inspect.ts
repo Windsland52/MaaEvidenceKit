@@ -20,6 +20,7 @@ import {
 import { profileStage, profileStageSync } from "./profiling.js";
 
 const MAX_COMBINED_RUNTIME_MSE_NODES = 128;
+const MAX_OCR_OBSERVATIONS = 12;
 
 export type InspectOptions = {
   mla?: MlaInspectOptions | false;
@@ -88,6 +89,46 @@ type MlaRecognitionDetails = {
   node?: string;
   occurrenceCount?: number;
   status?: "succeeded" | "failed";
+  representatives?: {
+    first?: MlaRecognitionObservation;
+  };
+  candidateStages?: {
+    all?: {
+      candidateCount?: number;
+      samples?: MlaRecognitionObservation[];
+      samplesTruncated?: boolean;
+    };
+  } | null;
+};
+
+type MlaRecognitionObservation = {
+  text?: string;
+  box?: [number, number, number, number];
+  score?: number;
+  timestamp?: string;
+  source?: Evidence["source"];
+};
+
+type OcrObservationComparison = {
+  text: string;
+  box: [number, number, number, number] | null;
+  score: number | null;
+  timestamp: string | null;
+  source: Evidence["source"] | null;
+  equalsExpectedValue: boolean;
+  roiRelation: "inside" | "touches_boundary" | "crosses_boundary" | "outside" | "unavailable";
+  roiBoundaryContacts: Array<"left" | "top" | "right" | "bottom">;
+};
+
+type StaticOcrObservationComparison = {
+  configurationPath: string;
+  expectedValues: string[];
+  roi: [number, number, number, number] | null;
+  onlyRec: boolean | null;
+  comparisonSemantics: "literal_equality_and_roi_geometry";
+  observations: OcrObservationComparison[];
+  observationCount: number;
+  observationsTruncated: boolean;
 };
 
 type RuntimeMseNodeSelection = {
@@ -107,6 +148,8 @@ type RecognitionPipelineConfiguration = {
   definitions: PipelineDefinitionEvidence[];
   definitionEvidenceIds: string[];
   definitionLinksComplete: boolean;
+  configurationBasis: "mse_static_effective_config";
+  ocrObservationComparisons: StaticOcrObservationComparison[];
 };
 
 type RecognitionPipelineReferenceEvidenceData = {
@@ -389,6 +432,113 @@ function addPipelineReferences(
   return { notFoundNodes, incompleteNodes, runtimeConfigurationIncompleteNodes };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function numericBox(value: unknown): [number, number, number, number] | null {
+  if (!Array.isArray(value) || value.length !== 4 || !value.every((item) => typeof item === "number" && Number.isFinite(item))) {
+    return null;
+  }
+  return value as [number, number, number, number];
+}
+
+function stringValues(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+function recognitionObservations(data: MlaRecognitionDetails): {
+  observations: Array<MlaRecognitionObservation & { text: string }>;
+  total: number;
+  truncated: boolean;
+} {
+  const stage = data.candidateStages?.all;
+  const source = stage?.samples ?? (data.representatives?.first === undefined ? [] : [data.representatives.first]);
+  const unique = [...new Map(source
+    .filter((sample): sample is MlaRecognitionObservation & { text: string } => typeof sample.text === "string")
+    .map((sample) => [JSON.stringify([sample.text, sample.box ?? null, sample.timestamp ?? null]), sample])).values()];
+  return {
+    observations: unique.slice(0, MAX_OCR_OBSERVATIONS),
+    total: stage?.candidateCount ?? unique.length,
+    truncated: stage?.samplesTruncated === true || unique.length > MAX_OCR_OBSERVATIONS,
+  };
+}
+
+function roiRelation(
+  box: [number, number, number, number] | undefined,
+  roi: [number, number, number, number] | null,
+): Pick<OcrObservationComparison, "roiRelation" | "roiBoundaryContacts"> {
+  if (box === undefined || roi === null) return { roiRelation: "unavailable", roiBoundaryContacts: [] };
+  const [x, y, width, height] = box;
+  const [roiX, roiY, roiWidth, roiHeight] = roi;
+  const right = x + width;
+  const bottom = y + height;
+  const roiRight = roiX + roiWidth;
+  const roiBottom = roiY + roiHeight;
+  const horizontalOverlap = x < roiRight && right > roiX;
+  const verticalOverlap = y < roiBottom && bottom > roiY;
+  if (!horizontalOverlap || !verticalOverlap) return { roiRelation: "outside", roiBoundaryContacts: [] };
+  const contacts: OcrObservationComparison["roiBoundaryContacts"] = [];
+  if (x <= roiX) contacts.push("left");
+  if (y <= roiY) contacts.push("top");
+  if (right >= roiRight) contacts.push("right");
+  if (bottom >= roiBottom) contacts.push("bottom");
+  if (contacts.length === 0) return { roiRelation: "inside", roiBoundaryContacts: contacts };
+  const contained = x >= roiX && y >= roiY && right <= roiRight && bottom <= roiBottom;
+  return {
+    roiRelation: contained ? "touches_boundary" : "crosses_boundary",
+    roiBoundaryContacts: contacts,
+  };
+}
+
+function directOcrConfiguration(
+  effectiveConfig: Record<string, unknown>,
+): { configurationPath: string; parameters: Record<string, unknown> } | null {
+  const recognition = effectiveConfig["recognition"];
+  if (recognition === "OCR") return { configurationPath: "effectiveConfig", parameters: effectiveConfig };
+  if (!isRecord(recognition)) return null;
+  const type = recognition["type"] ?? recognition["algorithm"];
+  if (type !== "OCR") return null;
+  const param = recognition["param"];
+  return {
+    configurationPath: isRecord(param) ? "recognition.param" : "recognition",
+    parameters: isRecord(param) ? param : recognition,
+  };
+}
+
+function staticOcrObservationComparisons(
+  effectiveConfig: Record<string, unknown>,
+  recognition: MlaRecognitionDetails,
+): StaticOcrObservationComparison[] {
+  const configuration = directOcrConfiguration(effectiveConfig);
+  if (configuration === null || recognition.algorithm !== "OCR") return [];
+  const expectedValues = stringValues(configuration.parameters["expected"]);
+  const roi = numericBox(configuration.parameters["roi"]);
+  const onlyRecValue = configuration.parameters["only_rec"] ?? configuration.parameters["onlyRec"];
+  const onlyRec = typeof onlyRecValue === "boolean" ? onlyRecValue : null;
+  const observed = recognitionObservations(recognition);
+  return [{
+    configurationPath: configuration.configurationPath,
+    expectedValues,
+    roi,
+    onlyRec,
+    comparisonSemantics: "literal_equality_and_roi_geometry",
+    observations: observed.observations.map((sample) => ({
+      text: sample.text,
+      box: sample.box ?? null,
+      score: sample.score ?? null,
+      timestamp: sample.timestamp ?? null,
+      source: sample.source ?? null,
+      equalsExpectedValue: expectedValues.includes(sample.text),
+      ...roiRelation(sample.box, roi),
+    })),
+    observationCount: observed.total,
+    observationsTruncated: observed.truncated,
+  }];
+}
+
 function addRecognitionPipelineReferences(
   ledger: EvidenceLedger,
   mla: MlaInspectionResult,
@@ -457,6 +607,8 @@ function addRecognitionPipelineReferences(
         definitions: pipelineDefinitions(task),
         definitionEvidenceIds: [...new Set(definitionIds.flat())].sort(),
         definitionLinksComplete: definitionIds.every((ids) => ids.length > 0),
+        configurationBasis: "mse_static_effective_config" as const,
+        ocrObservationComparisons: staticOcrObservationComparisons(task.effective_config, data),
       };
     }).sort((left, right) =>
       [left.controller ?? "", left.resource ?? "", JSON.stringify(left.definitionEvidenceIds)]

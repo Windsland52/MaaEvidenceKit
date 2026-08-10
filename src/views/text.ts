@@ -80,6 +80,7 @@ function renderGraph(graph: MseGraph, projectLabel: string): string[] {
 
 const EVIDENCE_PRIORITY: Record<string, number> = {
   "mla.failure": 0,
+  "mla.failure_context": 1,
   "mla.outcome": 1,
   "mla.task": 5,
   "mla.signal": 4,

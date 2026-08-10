@@ -76,7 +76,7 @@ function recognitionNodeLog(nodeName: string): string[] {
         algorithm: "OCR",
         name: nodeName,
         detail: {
-          all: [{ score: 0.72, text: "start" }],
+          all: [{ box: [100, 200, 50, 20], score: 0.72, text: "start" }],
           filtered: [],
           best: null,
         },
@@ -475,7 +475,15 @@ test("combined inspection links runtime recognition evidence to static MSE confi
   const root = await createCombinedFixture();
   await writeFile(path.join(root, "maafw.log"), recognitionNodeLog("Start").join("\n"), "utf8");
   await writeFile(path.join(root, "assets", "resource", "base", "pipeline", "combat.json"), JSON.stringify({
-    Start: { recognition: "OCR", threshold: 0.95, template: "start.png", next: ["Done"] },
+    Start: {
+      recognition: "OCR",
+      expected: ["Start"],
+      roi: [100, 190, 200, 50],
+      only_rec: true,
+      threshold: 0.95,
+      template: "start.png",
+      next: ["Done"],
+    },
     Done: { recognition: "DirectHit" },
   }), "utf8");
 
@@ -497,6 +505,19 @@ test("combined inspection links runtime recognition evidence to static MSE confi
       customRecognition?: unknown;
       definitionEvidenceIds?: string[];
       definitionLinksComplete?: boolean;
+      configurationBasis?: string;
+      ocrObservationComparisons?: Array<{
+        expectedValues?: string[];
+        roi?: number[];
+        onlyRec?: boolean;
+        comparisonSemantics?: string;
+        observations?: Array<{
+          text?: string;
+          equalsExpectedValue?: boolean;
+          roiRelation?: string;
+          roiBoundaryContacts?: string[];
+        }>;
+      }>;
       definitions?: Array<{ sourcePath?: string; line?: number; column?: number }>;
     }>;
   } | undefined;
@@ -519,6 +540,19 @@ test("combined inspection links runtime recognition evidence to static MSE confi
     recognition: "OCR",
     customRecognition: null,
     definitionLinksComplete: true,
+    configurationBasis: "mse_static_effective_config",
+    ocrObservationComparisons: [{
+      expectedValues: ["Start"],
+      roi: [100, 190, 200, 50],
+      onlyRec: true,
+      comparisonSemantics: "literal_equality_and_roi_geometry",
+      observations: [{
+        text: "start",
+        equalsExpectedValue: false,
+        roiRelation: "touches_boundary",
+        roiBoundaryContacts: ["left"],
+      }],
+    }],
   });
   expect(data?.staticConfigurations?.[0]).not.toHaveProperty("effectiveConfig");
   expect(data?.staticConfigurations?.[0]?.definitions?.[0]).toMatchObject({

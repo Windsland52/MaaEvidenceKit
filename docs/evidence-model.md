@@ -35,6 +35,19 @@ MLA 默认输出其优先级为 `high` 的信号和每个任务的高亮信号,�
 `mla.recognition_detail` 的快照(算法、状态、best 分数/文本,或 Or 类子识别摘要),
 让 harness 能直接看到“退出阻塞候选最近一次识别的观测事实”。
 
+## 失败上下文
+
+每条 `mla.failure` 都会产生一条 `mla.failure_context`,在同一已选运行时作用域内关联当前任务、
+最多 5 条已完成的前置任务、失败时仍在运行的并发/嵌套任务和后续任务。任务条目保留状态、
+起止时间、first/last node 及对应 `mla.task` evidence ID。`counts` 给出各组完整观测数量,
+`truncated` 标明有界列表是否省略记录。这里的 preceding/concurrent/following 只表示日志时序,
+不表示任务间存在因果关系。时间范围检查只描述被选中的运行时事实,不能用“没有前置任务”证明
+范围之外不存在任务。
+
+`nearbyFailures` 还会按同一作用域的失败顺序保留最多 5 个失败,并引用各自的 `mla.failure`
+及 `mla.failure_image` evidence ID。这为 harness 连续打开相邻失败截图提供确定性索引；MEK
+不比较图片像素,也不因时间接近而宣称截图属于同一界面。
+
 ## 图片关联
 
 标准 `on_error` / `vision` 图片会作为本地路径交给 MLA 与当前及旋转日志关联;只有被运行事实
@@ -136,6 +149,15 @@ Combined relation 故意不生成一个新的“最终 effectiveConfig”：MSE 
 `threshold`、`template` 等实际存在的配置字段。该关系只表示运行时名称与提供的静态快照匹配,
 不表示配置导致了本次识别结果;若节点不在该快照中,会以 `pipelineFound: false` 及
 `combined.recognition_pipeline_reference_missing` 提示明确输出。
+
+对于直接 OCR 配置,每个 `staticConfigurations` 条目还会输出
+`configurationBasis: mse_static_effective_config` 和 `ocrObservationComparisons`。后者保留静态
+`expected`、`roi`、`only_rec`,并将最多 12 个 MLA OCR 候选的文本、框、分数和 source locator
+逐项关联。`equalsExpectedValue` 只做区分大小写的字面相等,不模拟 MaaFramework 的正则或匹配
+语义；`roiRelation` 与 `roiBoundaryContacts` 只做矩形几何比较。候选总数和截断状态分别由
+`observationCount`、`observationsTruncated` 表示。该对照是静态源码快照与运行观测的并列事实,
+不是最终运行时配置；若日志存在 override,仍需读取对应 `mla.pipeline_override` 并保留无法确定
+识别事件 task scope 的限制。
 两类 combined relation 都通过 `staticResolutionStatus` 区分 `found`、`found_partial`、
 `not_found` 和 `incomplete`,并在 `incompleteReasons` 中列出配置组合截断、项目发现截断或
 definition evidence 链接缺失。只有完整静态范围内确认缺失才使用 `not_found`;不完整范围

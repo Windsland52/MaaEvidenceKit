@@ -858,6 +858,218 @@ test("correlates standard MaaFramework error images with failures from rotated l
   expect(failureImage?.data).toMatchObject({ imagePath: imagePath.replaceAll("\\", "/"), kind: "error" });
 });
 
+test("retains failure images from tasks nested inside an active action", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-nested-image-"));
+  temporaryRoots.push(root);
+  const onError = path.join(root, "on_error");
+  await mkdir(onError);
+  const failedAction = {
+    action: "Custom",
+    action_id: 12,
+    box: [0, 0, 10, 10],
+    detail: {},
+    name: "ParentAction",
+    success: false,
+  };
+  await writeFile(path.join(root, "maafw.log"), [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "ParentTask", hash: "hash", uuid: "uuid",
+    }),
+    event("2026-07-19 10:01:00.100", "Node.PipelineNode.Starting", {
+      task_id: 1, node_id: 11, name: "ParentTask",
+    }),
+    event("2026-07-19 10:01:00.200", "Node.NextList.Starting", {
+      focus: null, list: [{ anchor: false, jump_back: false, name: "ParentAction" }],
+      name: "ParentTask", task_id: 1,
+    }),
+    event("2026-07-19 10:01:00.300", "Node.Recognition.Succeeded", {
+      focus: null,
+      name: "ParentAction",
+      reco_details: {
+        algorithm: "DirectHit", box: [0, 0, 10, 10], detail: null, name: "ParentAction", reco_id: 21,
+      },
+      reco_id: 21,
+      task_id: 1,
+    }),
+    event("2026-07-19 10:01:00.400", "Node.NextList.Succeeded", {
+      focus: null, list: [{ anchor: false, jump_back: false, name: "ParentAction" }],
+      name: "ParentTask", task_id: 1,
+    }),
+    event("2026-07-19 10:01:00.500", "Node.Action.Starting", {
+      action_id: 12, focus: null, name: "ParentAction", task_id: 1,
+    }),
+    event("2026-07-19 10:01:01.000", "Node.PipelineNode.Starting", {
+      task_id: 2, node_id: 201, name: "NestedTask",
+    }),
+    event("2026-07-19 10:01:01.100", "Node.NextList.Starting", {
+      focus: null, list: [{ anchor: false, jump_back: false, name: "MissingTarget" }],
+      name: "NestedTask", task_id: 2,
+    }),
+    event("2026-07-19 10:01:01.200", "Node.Recognition.Failed", {
+      focus: null,
+      name: "MissingTarget",
+      reco_details: {
+        algorithm: "OCR", box: null, detail: { all: [], best: null, filtered: [] },
+        name: "MissingTarget", reco_id: 31,
+      },
+      reco_id: 31,
+      task_id: 2,
+    }),
+    event("2026-07-19 10:01:01.300", "Node.NextList.Failed", {
+      focus: null, list: [{ anchor: false, jump_back: false, name: "MissingTarget" }],
+      name: "NestedTask", task_id: 2,
+    }),
+    event("2026-07-19 10:01:02.000", "Node.PipelineNode.Failed", {
+      focus: null, name: "NestedTask", node_id: 201, task_id: 2,
+    }),
+    event("2026-07-19 10:01:02.100", "Node.Action.Failed", {
+      action_details: failedAction, action_id: 12, focus: null, name: "ParentAction", task_id: 1,
+    }),
+    event("2026-07-19 10:01:02.200", "Node.PipelineNode.Failed", {
+      action_details: failedAction,
+      focus: null,
+      name: "ParentTask",
+      node_details: { action_id: 12, completed: false, name: "ParentAction", node_id: 11, reco_id: 21 },
+      node_id: 11,
+      task_id: 1,
+    }),
+    event("2026-07-19 10:01:03.000", "Tasker.Task.Failed", {
+      task_id: 1, entry: "ParentTask", hash: "hash", uuid: "uuid",
+    }),
+  ].join("\n"), "utf8");
+  const imagePath = path.join(onError, "2026.07.19-10.01.02.000_NestedTask.png");
+  await writeFile(imagePath, new Uint8Array());
+
+  const result = await inspectMla(root);
+  const nestedFailure = result.details.runtime.failures.find((failure) => failure.task_id === 2);
+  const nestedFailureImage = result.evidence.find((item) =>
+    item.kind === "mla.failure_image"
+    && (item.data as { taskId?: number }).taskId === 2
+  );
+  const nestedFailureContext = result.evidence.find((item) =>
+    item.kind === "mla.failure_context"
+    && (item.data as { failureId?: string }).failureId === nestedFailure?.failure_id
+  );
+  const parentTask = result.details.runtime.sessions[0]?.tasks.find((task) => task.task_id === 1);
+
+  expect(nestedFailure).toMatchObject({
+    kind: "next_list_timeout",
+    task_name: "NestedTask",
+    node_name: "NestedTask",
+    error_images: [`file:${imagePath.replaceAll("\\", "/")}`],
+  });
+  expect(nestedFailureImage?.source.artifactId)
+    .toBe(result.artifacts.find((artifact) => artifact.path === imagePath)?.id);
+  expect((nestedFailureContext?.data as {
+    nearbyFailures?: Array<{ failureId?: string; imageEvidenceIds?: string[] }>;
+  } | undefined)?.nearbyFailures).toContainEqual(expect.objectContaining({
+    failureId: nestedFailure?.failure_id,
+    imageEvidenceIds: [nestedFailureImage?.id],
+  }));
+  expect(parentTask?.direct_failure_ids).not.toContain(nestedFailure?.failure_id);
+});
+
+test("records bounded task and image chronology around each failure", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-failure-context-"));
+  temporaryRoots.push(root);
+  await writeFile(path.join(root, "maafw.log"), [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "Prepare", hash: "h1", uuid: "u1",
+    }),
+    event("2026-07-19 10:01:00.100", "Node.PipelineNode.Starting", {
+      task_id: 1, node_id: 11, name: "Prepare",
+    }),
+    event("2026-07-19 10:01:00.200", "Node.PipelineNode.Succeeded", {
+      task_id: 1, node_id: 11, name: "Prepare",
+    }),
+    event("2026-07-19 10:01:00.300", "Tasker.Task.Succeeded", {
+      task_id: 1, entry: "Prepare", hash: "h1", uuid: "u1",
+    }),
+    event("2026-07-19 10:02:00.000", "Tasker.Task.Starting", {
+      task_id: 2, entry: "FailingTask", hash: "h2", uuid: "u2",
+    }),
+    event("2026-07-19 10:02:00.100", "Node.PipelineNode.Starting", {
+      task_id: 2, node_id: 21, name: "FailingTask",
+    }),
+    event("2026-07-19 10:02:00.200", "Node.NextList.Starting", {
+      focus: null,
+      list: [{ anchor: false, jump_back: false, name: "MissingTarget" }],
+      name: "FailingTask",
+      task_id: 2,
+    }),
+    event("2026-07-19 10:02:00.300", "Node.Recognition.Failed", {
+      focus: null,
+      name: "MissingTarget",
+      reco_details: {
+        algorithm: "OCR",
+        box: null,
+        detail: { all: [], best: null, filtered: [] },
+        name: "MissingTarget",
+        reco_id: 31,
+      },
+      reco_id: 31,
+      task_id: 2,
+    }),
+    event("2026-07-19 10:02:00.400", "Node.NextList.Failed", {
+      focus: null,
+      list: [{ anchor: false, jump_back: false, name: "MissingTarget" }],
+      name: "FailingTask",
+      task_id: 2,
+    }),
+    event("2026-07-19 10:02:00.500", "Node.PipelineNode.Failed", {
+      focus: null, name: "FailingTask", node_id: 21, task_id: 2,
+    }),
+    event("2026-07-19 10:02:00.600", "Tasker.Task.Failed", {
+      task_id: 2, entry: "FailingTask", hash: "h2", uuid: "u2",
+    }),
+    event("2026-07-19 10:03:00.000", "Tasker.Task.Starting", {
+      task_id: 3, entry: "Cleanup", hash: "h3", uuid: "u3",
+    }),
+    event("2026-07-19 10:03:00.100", "Node.PipelineNode.Starting", {
+      task_id: 3, node_id: 31, name: "Cleanup",
+    }),
+    event("2026-07-19 10:03:00.200", "Node.PipelineNode.Succeeded", {
+      task_id: 3, node_id: 31, name: "Cleanup",
+    }),
+    event("2026-07-19 10:03:00.300", "Tasker.Task.Succeeded", {
+      task_id: 3, entry: "Cleanup", hash: "h3", uuid: "u3",
+    }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(root);
+  const context = result.evidence.find((item) => item.kind === "mla.failure_context");
+  const data = context?.data as {
+    failureEvidenceId?: string;
+    currentTask?: { taskName?: string; taskEvidenceId?: string };
+    precedingTasks?: Array<{ taskName?: string; status?: string; taskEvidenceId?: string }>;
+    followingTasks?: Array<{ taskName?: string; status?: string; taskEvidenceId?: string }>;
+    nearbyFailures?: Array<{ relation?: string; failureEvidenceId?: string; imageEvidenceIds?: string[] }>;
+    truncated?: Record<string, boolean>;
+  } | undefined;
+
+  expect(context?.summary).toContain("Prepare");
+  expect(data?.currentTask).toMatchObject({ taskName: "FailingTask", taskEvidenceId: expect.stringMatching(/^evidence-/) });
+  expect(data?.precedingTasks).toEqual([
+    expect.objectContaining({ taskName: "Prepare", status: "succeeded", taskEvidenceId: expect.stringMatching(/^evidence-/) }),
+  ]);
+  expect(data?.followingTasks).toEqual([
+    expect.objectContaining({ taskName: "Cleanup", status: "succeeded", taskEvidenceId: expect.stringMatching(/^evidence-/) }),
+  ]);
+  expect(data?.nearbyFailures).toEqual([
+    expect.objectContaining({ relation: "current", failureEvidenceId: data?.failureEvidenceId, imageEvidenceIds: [] }),
+  ]);
+  expect(data?.truncated).toEqual({
+    precedingTasks: false,
+    concurrentTasks: false,
+    followingTasks: false,
+    nearbyFailures: false,
+  });
+});
+
 test("namespaces every task-to-signal reference together with its signal", () => {
   const position = {
     timestamp: "2026-07-19 10:00:00.000",

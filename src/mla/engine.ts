@@ -34,6 +34,8 @@ import { translateRuntimeInspection, type MlaRuntimeInspectionResult } from "./t
 
 const MAX_ACTION_DETAILS = 500;
 const MAX_PIPELINE_OVERRIDES = 500;
+const MAX_FAILURE_CONTEXT_TASKS = 5;
+const MAX_FAILURE_CONTEXT_FAILURES = 5;
 
 type RuntimeTask = MlaRuntimeInspectionResult["sessions"][number]["tasks"][number];
 type RuntimePosition = {
@@ -575,6 +577,8 @@ function addRuntimeEvidence(
   artifacts: readonly Artifact[],
   inputPath: string,
 ): void {
+  const taskEvidenceIds = new Map<string, string>();
+  const taskSessionIds = new Map<string, string | null>();
   for (const session of runtime.sessions) {
     ledger.add(
       "mla.session",
@@ -594,15 +598,23 @@ function addRuntimeEvidence(
         versions: session.versions,
       },
     );
-    for (const task of session.tasks) addTaskEvidence(ledger, task, artifacts, inputPath);
+    for (const task of session.tasks) {
+      taskEvidenceIds.set(task.execution_id, addTaskEvidence(ledger, task, artifacts, inputPath).id);
+      taskSessionIds.set(task.execution_id, session.session_id);
+    }
   }
-  for (const task of runtime.unscoped_tasks) addTaskEvidence(ledger, task, artifacts, inputPath);
+  for (const task of runtime.unscoped_tasks) {
+    taskEvidenceIds.set(task.execution_id, addTaskEvidence(ledger, task, artifacts, inputPath).id);
+    taskSessionIds.set(task.execution_id, null);
+  }
+  const failureEvidenceIds = new Map<string, string>();
+  const failureImageEvidenceIds = new Map<string, string[]>();
   for (const failure of runtime.failures) {
     const imageReferences = [...failure.error_images, ...failure.vision_images];
     for (const imageRef of imageReferences) {
       const imagePath = imageRef.startsWith("file:") ? imageRef.slice(5) : imageRef;
       const imageArtifact = imageArtifactForReference(artifacts, imageRef);
-      ledger.add(
+      const imageEvidence = ledger.add(
         "mla.failure_image",
         `Failure ${failure.node_name} references image ${imagePath}.`,
         imageArtifact === undefined
@@ -630,8 +642,11 @@ function addRuntimeEvidence(
           timestamp: failure.evidence.timestamp,
         },
       );
+      const imageIds = failureImageEvidenceIds.get(failure.failure_id) ?? [];
+      imageIds.push(imageEvidence.id);
+      failureImageEvidenceIds.set(failure.failure_id, imageIds);
     }
-    ledger.add(
+    const failureEvidence = ledger.add(
       "mla.failure",
       `Node ${failure.node_name} reported ${failure.kind} in task ${failure.task_name}.`,
       evidenceSource(artifacts, inputPath, failure.evidence, {
@@ -639,6 +654,20 @@ function addRuntimeEvidence(
         node: failure.node_name,
       }),
       failure,
+    );
+    failureEvidenceIds.set(failure.failure_id, failureEvidence.id);
+  }
+  for (const failure of runtime.failures) {
+    addFailureContextEvidence(
+      ledger,
+      runtime,
+      failure,
+      taskEvidenceIds,
+      taskSessionIds,
+      failureEvidenceIds,
+      failureImageEvidenceIds,
+      artifacts,
+      inputPath,
     );
   }
   for (const outcome of runtime.outcomes) {
@@ -735,12 +764,118 @@ function addTaskEvidence(
   task: RuntimeTask,
   artifacts: readonly Artifact[],
   inputPath: string,
-): void {
-  ledger.add(
+): Evidence<RuntimeTask> {
+  return ledger.add(
     "mla.task",
     `Task ${task.name} was ${task.status}${task.completeness === "open_at_log_end" ? " when the log ended" : ""}.`,
     evidenceSource(artifacts, inputPath, task.evidence.start, { task: task.name }),
     task,
+  );
+}
+
+type RuntimeFailure = MlaRuntimeInspectionResult["failures"][number];
+
+function failureContextTask(task: RuntimeTask, taskEvidenceId: string | undefined): Record<string, unknown> {
+  return {
+    executionId: task.execution_id,
+    taskId: task.task_id,
+    taskName: task.name,
+    status: task.status,
+    completeness: task.completeness,
+    startedAt: task.started_at,
+    endedAt: task.ended_at,
+    firstNode: task.first_node,
+    lastNode: task.last_node,
+    ...(taskEvidenceId === undefined ? {} : { taskEvidenceId }),
+  };
+}
+
+function addFailureContextEvidence(
+  ledger: EvidenceLedger,
+  runtime: MlaRuntimeInspectionResult,
+  failure: RuntimeFailure,
+  taskEvidenceIds: ReadonlyMap<string, string>,
+  taskSessionIds: ReadonlyMap<string, string | null>,
+  failureEvidenceIds: ReadonlyMap<string, string>,
+  failureImageEvidenceIds: ReadonlyMap<string, string[]>,
+  artifacts: readonly Artifact[],
+  inputPath: string,
+): void {
+  const sessionId = taskSessionIds.get(failure.execution_id) ?? failure.session_id;
+  const scopedTasks = sessionId === null
+    ? runtime.unscoped_tasks
+    : runtime.sessions.find((session) => session.session_id === sessionId)?.tasks ?? [];
+  const currentTask = scopedTasks.find((task) => task.execution_id === failure.execution_id);
+  const otherTasks = scopedTasks.filter((task) => task.execution_id !== failure.execution_id);
+  const preceding = otherTasks
+    .filter((task) => task.ended_at !== null && task.ended_at <= failure.started_at)
+    .sort((left, right) => left.started_at.localeCompare(right.started_at));
+  const concurrent = otherTasks
+    .filter((task) => task.started_at <= failure.started_at && (task.ended_at === null || task.ended_at > failure.started_at))
+    .sort((left, right) => left.started_at.localeCompare(right.started_at));
+  const following = otherTasks
+    .filter((task) => task.started_at > failure.started_at)
+    .sort((left, right) => left.started_at.localeCompare(right.started_at));
+  const selectedPreceding = preceding.slice(-MAX_FAILURE_CONTEXT_TASKS);
+  const selectedConcurrent = concurrent.slice(-MAX_FAILURE_CONTEXT_TASKS);
+  const selectedFollowing = following.slice(0, MAX_FAILURE_CONTEXT_TASKS);
+  const scopedFailures = runtime.failures
+    .filter((item) => (taskSessionIds.get(item.execution_id) ?? item.session_id) === sessionId)
+    .sort((left, right) => left.started_at.localeCompare(right.started_at));
+  const failureIndex = scopedFailures.findIndex((item) => item.failure_id === failure.failure_id);
+  const nearbyStart = Math.min(
+    Math.max(0, failureIndex - Math.floor(MAX_FAILURE_CONTEXT_FAILURES / 2)),
+    Math.max(0, scopedFailures.length - MAX_FAILURE_CONTEXT_FAILURES),
+  );
+  const nearbyFailures = scopedFailures
+    .slice(nearbyStart, nearbyStart + MAX_FAILURE_CONTEXT_FAILURES)
+    .map((item, index) => ({
+      relation: item.failure_id === failure.failure_id
+        ? "current"
+        : nearbyStart + index < failureIndex ? "preceding" : "following",
+      failureId: item.failure_id,
+      failureEvidenceId: failureEvidenceIds.get(item.failure_id) ?? null,
+      taskId: item.task_id,
+      taskName: item.task_name,
+      nodeName: item.node_name,
+      kind: item.kind,
+      startedAt: item.started_at,
+      endedAt: item.ended_at,
+      imageEvidenceIds: failureImageEvidenceIds.get(item.failure_id) ?? [],
+    }));
+  const precedingNames = selectedPreceding.map((task) => task.name);
+  const summary = precedingNames.length === 0
+    ? `Failure context for ${failure.node_name} has no completed preceding task in the selected runtime scope.`
+    : `Failure context for ${failure.node_name} follows ${precedingNames.join(" -> ")}.`;
+  ledger.add(
+    "mla.failure_context",
+    summary,
+    evidenceSource(artifacts, inputPath, failure.evidence, {
+      task: failure.task_name,
+      node: failure.node_name,
+    }),
+    {
+      failureId: failure.failure_id,
+      failureEvidenceId: failureEvidenceIds.get(failure.failure_id) ?? null,
+      sessionId,
+      currentTask: currentTask === undefined ? null : failureContextTask(currentTask, taskEvidenceIds.get(currentTask.execution_id)),
+      precedingTasks: selectedPreceding.map((task) => failureContextTask(task, taskEvidenceIds.get(task.execution_id))),
+      concurrentTasks: selectedConcurrent.map((task) => failureContextTask(task, taskEvidenceIds.get(task.execution_id))),
+      followingTasks: selectedFollowing.map((task) => failureContextTask(task, taskEvidenceIds.get(task.execution_id))),
+      nearbyFailures,
+      counts: {
+        precedingTasks: preceding.length,
+        concurrentTasks: concurrent.length,
+        followingTasks: following.length,
+        sessionFailures: scopedFailures.length,
+      },
+      truncated: {
+        precedingTasks: preceding.length > selectedPreceding.length,
+        concurrentTasks: concurrent.length > selectedConcurrent.length,
+        followingTasks: following.length > selectedFollowing.length,
+        nearbyFailures: scopedFailures.length > nearbyFailures.length,
+      },
+    },
   );
 }
 
