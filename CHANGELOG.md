@@ -7,6 +7,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-11
+
+### Added
+
+- Search retained direct-child and descendant recognition nodes by exact name, with the matching
+  relation and nested recognition path included in each result.
+
+### Fixed
+
+- Report a failed combined-directory MLA load as an explicit fallback warning when individual log
+  inspection remains available, without duplicating the same file as directory-level missing
+  evidence.
+- Include the linked task status and nearby-failure count in failure-context summaries so a
+  succeeded root task does not hide adjacent failed subtasks.
+
+### Changed
+
+- Refine the host-agent Skill to gather evidence progressively, identify exact or prefix-overlapping
+  issue exports before counting reproductions, and keep original Sentry groups separate from
+  host-inferred signature families.
+- State explicitly that application Sentry queries and diagnostic interpretation remain external
+  harness responsibilities; MEK does not receive application Sentry credentials.
+
 ## [0.2.0] - 2026-08-11
 
 ### Added
@@ -68,7 +91,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Whitelist-only operational telemetry, disabled default PII, and mandatory preview/confirmation for
   feedback attachments.
 
-[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Windsland52/MaaEvidenceKit/releases/tag/v0.1.0

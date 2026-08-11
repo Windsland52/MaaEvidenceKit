@@ -1,6 +1,6 @@
 {
   "name": "maa-evidence-kit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Deterministic evidence extraction and diagnostic toolkit for MaaFramework",
   "license": "MIT",
   "author": "Windsland52",
