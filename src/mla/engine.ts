@@ -846,9 +846,17 @@ function addFailureContextEvidence(
       imageEvidenceIds: failureImageEvidenceIds.get(item.failure_id) ?? [],
     }));
   const precedingNames = selectedPreceding.map((task) => task.name);
-  const summary = precedingNames.length === 0
-    ? `Failure context for ${failure.node_name} has no completed preceding task in the selected runtime scope.`
-    : `Failure context for ${failure.node_name} follows ${precedingNames.join(" -> ")}.`;
+  const summaryParts = [currentTask === undefined
+    ? "has no matching current task"
+    : `occurred during task ${currentTask.name} (${currentTask.status})`];
+  if (precedingNames.length > 0) {
+    summaryParts.push(`followed ${precedingNames.join(" -> ")}`);
+  }
+  const relatedFailureCount = nearbyFailures.filter((item) => item.relation !== "current").length;
+  if (relatedFailureCount > 0) {
+    summaryParts.push(`links ${relatedFailureCount} nearby ${relatedFailureCount === 1 ? "failure" : "failures"}`);
+  }
+  const summary = `Failure context for ${failure.node_name} ${summaryParts.join("; ")} in the selected runtime scope.`;
   ledger.add(
     "mla.failure_context",
     summary,

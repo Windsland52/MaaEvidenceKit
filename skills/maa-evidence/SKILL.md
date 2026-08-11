@@ -301,6 +301,9 @@ isolation. Its bounded `precedingTasks`, `concurrentTasks`, and `followingTasks`
 runtime chronology and link back to `mla.task` evidence. Check `counts` and `truncated`; a missing
 task in a time-filtered or truncated context is not proof that it did not run. These relations are
 temporal facts, not causality.
+The summary names the linked current task and its status and counts other nearby failures, so it can
+surface a succeeded root task beside failed subtasks. Read the structured task and failure references
+before deciding which failure corresponds to the reported symptom.
 
 `mla.recognition_detail` aggregates recognition events by node/algorithm/status and extracts
 the detail generically by shape. Top-level `score` and `textCounts` select one representative per

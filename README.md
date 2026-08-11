@@ -141,6 +141,8 @@ const matches = searchEvidence(combined, {
 `mla.pipeline_override`、`mla.task_anomaly`、`combined.pipeline_reference` 等)的聚合规则、
 统计字段与截断语义见
 [`docs/evidence-model.md`](docs/evidence-model.md)。
+`mla.failure_context` 摘要会显示当前关联任务的状态和附近失败数量,便于直接发现“根任务成功但
+附近子任务失败”;结构化任务/失败引用仍是判断范围与时序的权威数据。
 
 MLA 会保留 MaaFramework 日志中可解析的有序 pipeline override patch，并只在日志提供唯一
 Context-to-task 映射时标记精确 task ID 关联。Combined failure relation 通过 evidence ID 同时

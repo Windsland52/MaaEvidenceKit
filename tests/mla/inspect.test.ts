@@ -1088,7 +1088,8 @@ test("records bounded task and image chronology around each failure", async () =
     truncated?: Record<string, boolean>;
   } | undefined;
 
-  expect(context?.summary).toContain("Prepare");
+  expect(context?.summary).toContain("occurred during task FailingTask (failed)");
+  expect(context?.summary).toContain("followed Prepare");
   expect(data?.currentTask).toMatchObject({ taskName: "FailingTask", taskEvidenceId: expect.stringMatching(/^evidence-/) });
   expect(data?.precedingTasks).toEqual([
     expect.objectContaining({ taskName: "Prepare", status: "succeeded", taskEvidenceId: expect.stringMatching(/^evidence-/) }),
