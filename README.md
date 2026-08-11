@@ -162,6 +162,9 @@ issue-time 源码并运行聚焦 MSE。已知 task/controller/resource 必须传
 和前向路径时使用 `--no-referencers`。多个后续证据查询使用 `batch`,不重复启动 CLI 和解析结果。
 `search --node` 会精确匹配顶层节点和 inspection 中已保留的 And/Or 子识别节点,并通过
 `nodeMatches` 返回匹配关系和嵌套路径;若识别详情标记了截断,空搜索结果不能证明节点不存在。
+当 MLA 无法把日志目录作为一个组合目标加载、但仍能逐文件回退时,输出会用
+`mla_directory_fallback_used` 警告说明跨文件聚合可能不完整;只有实际逐文件失败继续进入
+`missingEvidence`,避免同一大文件同时产生目录级和文件级缺失记录。
 
 Skill 同时定义由 harness 管理的三层本地缓存:附件按内容 SHA-256,源码按仓库与不可变 commit,
 inspection 按完整材料清单、规范化选项、MEK 版本及可选源码 commit。CLI 可用

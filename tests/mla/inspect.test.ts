@@ -15,6 +15,7 @@ import {
   findPossibleMirroredTaskGroups,
   focusRuntimeSignals,
   namespaceRuntime,
+  reportMlaTargetFailures,
   summarizeTaskAnomalies,
 } from "../../src/mla/engine.js";
 import type { MlaRuntimeInspectionResult } from "../../src/mla/translate.js";
@@ -28,6 +29,42 @@ afterEach(async () => {
 function event(timestamp: string, message: string, details: Record<string, unknown>): string {
   return `[${timestamp}][INF][Px1][Tx2][test] !!!OnEventNotify!!! [handle=1] [msg=${message}] [details=${JSON.stringify(details)}]`;
 }
+
+test("reports directory loading failures as fallback warnings without duplicating file failures", () => {
+  const directory = {
+    path: "C:/logs/debug",
+    kind: "directory" as const,
+    label: "debug",
+    namespace: "directory",
+  };
+  const first = {
+    path: "C:/logs/debug/maafw.log",
+    kind: "file" as const,
+    label: "debug/maafw.log",
+    namespace: "first",
+  };
+  const second = {
+    path: "C:/logs/debug/maafw.bak.log",
+    kind: "file" as const,
+    label: "debug/maafw.bak.log",
+    namespace: "second",
+  };
+
+  const report = reportMlaTargetFailures([
+    { target: directory, message: "combined size exceeded" },
+    { target: second, message: "file size exceeded" },
+  ], [directory, first, second]);
+
+  expect(report.missingEvidence).toEqual([{
+    code: "mla_target_unreadable",
+    message: "MLA could not inspect debug/maafw.bak.log: file size exceeded",
+    path: "C:/logs/debug/maafw.bak.log",
+  }]);
+  expect(report.warnings).toEqual([{
+    code: "mla_directory_fallback_used",
+    message: expect.stringContaining("attempted 2 discovered MaaFramework log files individually; 1 file-level failure is"),
+  }]);
+});
 
 test("extracts source-backed runtime facts and filters them by time", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-"));

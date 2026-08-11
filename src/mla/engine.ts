@@ -21,7 +21,9 @@ import {
   type Artifact,
   type Evidence,
   type EvidenceSource,
+  type InspectionWarning,
   type InspectionResult,
+  type MissingEvidence,
   type TimeRange,
 } from "../evidence/index.js";
 import { profileStage, profileStageSync } from "../profiling.js";
@@ -1188,6 +1190,46 @@ type LoadedMlaTarget = {
   artifacts: Artifact[];
 };
 
+type MlaTargetFailure = {
+  target: MlaTarget;
+  message: string;
+};
+
+export function reportMlaTargetFailures(
+  failures: readonly MlaTargetFailure[],
+  targets: readonly MlaTarget[],
+): { missingEvidence: MissingEvidence[]; warnings: InspectionWarning[] } {
+  const missingEvidence: MissingEvidence[] = [];
+  const warnings: InspectionWarning[] = [];
+  for (const failure of failures) {
+    if (failure.target.kind === "directory") {
+      const fileTargets = targets.filter((target) =>
+        target.kind === "file" && pathKey(path.dirname(target.path)) === pathKey(failure.target.path)
+      );
+      if (fileTargets.length > 0) {
+        const fileTargetKeys = new Set(fileTargets.map((target) => pathKey(target.path)));
+        const failedFileCount = failures.filter((item) =>
+          item.target.kind === "file" && fileTargetKeys.has(pathKey(item.target.path))
+        ).length;
+        warnings.push({
+          code: "mla_directory_fallback_used",
+          message: `MLA could not inspect ${failure.target.label} as one combined directory target: ${failure.message}. `
+            + `It attempted ${fileTargets.length} discovered MaaFramework log files individually; `
+            + `${failedFileCount} file-level ${failedFileCount === 1 ? "failure is" : "failures are"} reported separately. `
+            + "Cross-file aggregation may be incomplete.",
+        });
+        continue;
+      }
+    }
+    missingEvidence.push({
+      code: "mla_target_unreadable",
+      message: `MLA could not inspect ${failure.target.label}: ${failure.message}`,
+      path: failure.target.path,
+    });
+  }
+  return { missingEvidence, warnings };
+}
+
 type MlaImageMaps = {
   errorImages: Map<string, string>;
   visionImages: Map<string, string>;
@@ -2272,7 +2314,8 @@ export async function inspectMla(
     focus !== undefined,
   ));
   const loadedTargets: LoadedMlaTarget[] = [];
-  const targetMissingEvidence: MlaInspectionResult["missingEvidence"] = [];
+  const targetEmptyEvidence: MlaInspectionResult["missingEvidence"] = [];
+  const targetFailures: MlaTargetFailure[] = [];
   const coveredFiles = new Set<string>();
   const imageMapsByDirectory = buildImageMapsByLogDirectory(targets, discovery.artifacts);
   for (const target of targets) {
@@ -2288,7 +2331,7 @@ export async function inspectMla(
       ));
       if (loaded === null) {
         if (focus === undefined) {
-          targetMissingEvidence.push({
+          targetEmptyEvidence.push({
             code: "mla_target_empty",
             message: `MLA selected no analyzable content from ${target.label}.`,
             path: target.path,
@@ -2305,13 +2348,13 @@ export async function inspectMla(
         }
       }
     } catch (error: unknown) {
-      targetMissingEvidence.push({
-        code: "mla_target_unreadable",
-        message: `MLA could not inspect ${target.label}: ${error instanceof Error ? error.message : String(error)}`,
-        path: target.path,
+      targetFailures.push({
+        target,
+        message: error instanceof Error ? error.message : String(error),
       });
     }
   }
+  const targetFailureReport = reportMlaTargetFailures(targetFailures, targets);
   return profileStageSync("mla.evidence_materialization", () => {
   const completeRuntime = loadedTargets.length === 0
     ? emptyRuntime(["No analyzable MaaFramework log content was selected."])
@@ -2418,7 +2461,11 @@ export async function inspectMla(
     (total, target) => total + target.pipelineOverrideMalformedLines,
     0,
   );
-  const missingEvidence = [...discovery.missingEvidence, ...targetMissingEvidence];
+  const missingEvidence = [
+    ...discovery.missingEvidence,
+    ...targetEmptyEvidence,
+    ...targetFailureReport.missingEvidence,
+  ];
   if (!discovery.artifacts.some((artifact) => artifact.kind === "maa_log")) {
     missingEvidence.push({
       code: "maa_framework_log_missing",
@@ -2437,6 +2484,7 @@ export async function inspectMla(
   }
   const warnings = [
     ...discovery.warnings,
+    ...targetFailureReport.warnings,
     ...runtime.warnings.map((message) => ({ code: "mla_warning", message })),
     ...(options.timeRange === undefined
       ? []

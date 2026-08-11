@@ -273,6 +273,10 @@ maa-evidence mla inspect C:\path\to\materials `
 
 MLA 1.3.1 selects matching files and MEK filters facts afterward. Treat the
 `mla_time_window_file_granularity` warning as a real resource limitation.
+If `mla_directory_fallback_used` is present, MEK could not load a log directory as one combined
+target and attempted its discovered MaaFramework logs individually. Read any separate
+`mla_target_unreadable` entries and keep cross-file chronology or aggregation incomplete even when
+the focused file facts were extracted successfully.
 
 MLA output is focused by default: it keeps high-priority signals and each task's MLA-selected
 highlights. Check `details.selection.signals` for selected and total counts. Add `--all-signals`
