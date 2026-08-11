@@ -84,10 +84,16 @@ test("renders a bounded evidence search index as text", () => {
       kind: "mla.recognition_detail",
       summary: "OCR observation",
       source: { artifactId: "artifact-1", path: "maafw.log", line: 10 },
+      nodeMatches: [{
+        node: "NestedLeaf",
+        relation: "recognition_descendant",
+        path: ["NestedAnd", "NestedLeaf"],
+      }],
     }],
   };
 
   const text = renderEvidenceSearch(result, "text");
   expect(text).toContain("1 returned / 2 total (truncated)");
   expect(text).toContain("evidence-1 [mla.recognition_detail]");
+  expect(text).toContain("NestedLeaf (recognition_descendant: NestedAnd -> NestedLeaf)");
 });

@@ -12,7 +12,12 @@ export function renderEvidenceSearch(result: EvidenceSearchResult, format: Evide
     const location = evidence.source.line === undefined
       ? evidence.source.path
       : `${evidence.source.path}:${evidence.source.line}`;
-    lines.push(`- ${evidence.id} [${evidence.kind}] ${evidence.summary} (${location})`);
+    const nodeMatches = evidence.nodeMatches === undefined
+      ? ""
+      : ` node matches: ${evidence.nodeMatches.map((match) =>
+        `${match.node} (${match.relation}${match.path === undefined ? "" : `: ${match.path.join(" -> ")}`})`
+      ).join(", ")};`;
+    lines.push(`- ${evidence.id} [${evidence.kind}]${nodeMatches} ${evidence.summary} (${location})`);
   }
   if (result.evidence.length === 0) lines.push("- No matching evidence records");
   return lines.join("\n");

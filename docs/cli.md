@@ -145,6 +145,10 @@ MSE 未提供 `--task` 时只执行 Interface、资源组合和静态诊断预�
 
 `search` 只读取已有 inspection JSON,不重新解析原日志。`--kind`、`--node`、`--task`
 和 `--artifact-id` 执行区分大小写的精确匹配;可重复传入同一选项表示任一值均可。
+`--node` 除顶层 source node 外,也精确匹配 `mla.recognition_detail` 中已保留的
+`childRecognition` / `descendantRecognition` 节点;结果的 `nodeMatches` 会标明顶层、直接子节点
+或后代节点及其路径。嵌套列表仍受 inspection 的既有上限约束,当对应 `*Truncated` 为 true 时,
+搜索结果不能证明未返回的节点不存在。
 重复的 `--text` 条件执行大小写不敏感的 AND 匹配,搜索 evidence 的摘要、source 和
 结构化 data 的原始值,不匹配 JSON 字段名。
 `--from` / `--to` 只匹配带 source timestamp 的 evidence。结果默认最多返回 50 条索引、

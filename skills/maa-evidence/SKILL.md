@@ -413,7 +413,11 @@ IDs returned by another request in the same batch; run search and dependent view
 as two batches.
 
 `search` reads the saved inspection only; it does not re-run MLA or MSE. Artifact ID, kind, node,
-and task filters are exact and case-sensitive. Repeated values within one exact filter are OR
+and task filters are exact and case-sensitive. A node filter also matches retained
+`childRecognition` and `descendantRecognition` names in `mla.recognition_detail`; inspect each
+result's `nodeMatches` for the direct or nested recognition path. These nested lists remain bounded,
+so check `childRecognitionTruncated` and `descendantRecognitionTruncated` before treating an empty
+node search as proof of absence. Repeated values within one exact filter are OR
 alternatives; repeated `--text` values are case-insensitive AND terms across primitive values in the
 summary, source, and structured data. JSON field names are not searched. Time filters exclude
 evidence without a source timestamp. Results are bounded indexes without

@@ -32,6 +32,7 @@ export {
   EVIDENCE_SEARCH_SCHEMA_VERSION,
   searchEvidence,
   type EvidenceSearchItem,
+  type EvidenceSearchNodeMatch,
   type EvidenceSearchQuery,
   type EvidenceSearchResult,
 } from "./search.js";

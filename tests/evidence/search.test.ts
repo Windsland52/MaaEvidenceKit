@@ -74,8 +74,44 @@ test("searches deterministic evidence fields and returns a bounded index", () =>
     kind: "mla.recognition_detail",
     summary: "OCR observation",
     source: result.evidence[0]?.source,
+    nodeMatches: [{ node: "DailyProtocolSwitchWeeklyMission", relation: "source" }],
   }]);
   expect(search.evidence[0]).not.toHaveProperty("data");
+});
+
+test("matches retained child and descendant recognition nodes exactly", () => {
+  const result = inspection([{
+    id: "evidence-nested",
+    kind: "mla.recognition_detail",
+    summary: "Nested And observation",
+    source: {
+      artifactId: "artifact-1",
+      path: "maafw.log",
+      node: "Parent",
+    },
+    data: {
+      childRecognition: [{ name: "DirectChild" }],
+      descendantRecognition: [
+        { name: "DirectChild", path: ["DirectChild"] },
+        { name: "NestedLeaf", path: ["NestedAnd", "NestedLeaf"] },
+      ],
+      descendantRecognitionTruncated: false,
+    },
+  }]);
+
+  const child = searchEvidence(result, { nodes: ["DirectChild"] });
+  expect(child.evidence[0]?.nodeMatches).toEqual([{
+    node: "DirectChild",
+    relation: "recognition_child",
+    path: ["DirectChild"],
+  }]);
+
+  const descendant = searchEvidence(result, { nodes: ["NestedLeaf"] });
+  expect(descendant.evidence[0]?.nodeMatches).toEqual([{
+    node: "NestedLeaf",
+    relation: "recognition_descendant",
+    path: ["NestedAnd", "NestedLeaf"],
+  }]);
 });
 
 test("reports truncation and rejects invalid search bounds", () => {
