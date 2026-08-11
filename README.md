@@ -175,6 +175,8 @@ inspection 按完整材料清单、规范化选项、MEK 版本及可选源码 c
 `maa-evidence --version` 提供缓存键版本。缓存不属于 MEK 核心,不得提交到仓库;若 cached
 inspection 记录的 artifact 原路径已不可用,只能继续做 `view`/`search`,读取 `window` 前必须
 恢复原路径或重新检查。
+跨 Issue 比较时,harness 还会用提取后 artifact 哈希或完整日志的精确字节前缀识别重叠/延长
+导出;保留各自来源,但同一运行只计一次。相似文件名、大小、任务或时间本身不足以去重。
 
 ## 遥测与反馈
 

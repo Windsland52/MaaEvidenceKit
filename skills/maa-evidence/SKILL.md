@@ -215,6 +215,12 @@ keywords, tasks, depth, syntax mode, controller/resource, all-signals, and refer
 applicable. Do not reuse an MLA-only result for a combined query or a broad MSE result as proof that
 a differently resolved controller/resource was inspected.
 
+When comparing several Issues, also compare extracted artifact hashes. An exact artifact match, or
+an entire earlier log that is an exact byte prefix of a later log, proves material overlap. Preserve
+both Issues and their attachment provenance, but count the shared run once and label the later
+material as an extended export. Similar filenames, sizes, task names, or timestamps alone do not
+prove overlap, and overlapping material does not by itself prove reporter identity.
+
 An inspection stores authorized artifact paths used by `window`. Keep its extracted material root
 at those paths for the cache lifetime. If an artifact no longer exists at the recorded path, treat
 the cached result as view/search-only or rerun inspection before requesting a source window; never
@@ -459,6 +465,8 @@ render Mermaid.
   state transition occurred; verify it with later recognition, application diagnostics, or images.
 - Keep competing explanations when evidence does not distinguish them.
 - State missing evidence instead of guessing around it.
+- Do not count overlapping or extended exports from separate Issues as independent reproductions.
+  Cite the content-hash or exact-byte relation used to identify the shared material.
 
 When Sentry is available, keep its error-cluster evidence separate from the single-run evidence
 above. Use it first to measure recurrence, affected users, release concentration, and regressions.
