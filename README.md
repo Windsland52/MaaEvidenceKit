@@ -136,6 +136,8 @@ const matches = searchEvidence(combined, {
 核心输出使用 `maa-evidence/v1`,包含 `artifacts`、`evidence`、`missingEvidence`、
 `warnings`、`statistics` 和 `details`。每条 evidence 都有稳定 ID 与来源定位;截断、缺失和
 上游限制都会作为显式的 warning / missingEvidence 输出,不会静默丢失。
+常见 PNG、JPEG、GIF、WebP 与 BMP 即使附件名没有扩展名,也会通过文件签名确定性地登记为
+`image` artifact；MEK 只登记格式与来源,不解释像素含义。
 
 各 evidence 种类(`mla.failure_context`、`mla.recognition_detail`、`mla.action_detail`、
 `mla.pipeline_override`、`mla.task_anomaly`、`combined.pipeline_reference` 等)的聚合规则、

@@ -24,12 +24,20 @@ test("discovers Maa logs while reporting unsupported and missing multipart mater
     "utf8",
   );
   await writeFile(path.join(root, "notes.md"), "not supported", "utf8");
+  await writeFile(
+    path.join(root, "attachment-without-extension"),
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+  );
   await writeFile(path.join(root, "logs.part1of3.zip"), "part 1", "utf8");
   await writeFile(path.join(root, "logs.part3of3.zip"), "part 3", "utf8");
 
   const discovery = await discoverArtifacts(root);
 
   expect(discovery.artifacts.find((item) => item.relativePath === "runtime.txt")?.kind).toBe("maa_log");
+  expect(discovery.artifacts.find((item) => item.relativePath === "attachment-without-extension")).toMatchObject({
+    kind: "image",
+    status: "available",
+  });
   expect(discovery.artifacts.find((item) => item.relativePath === "notes.md")?.status).toBe("skipped");
   expect(discovery.missingEvidence).toEqual(expect.arrayContaining([
     expect.objectContaining({ code: "multipart_archive_part_missing" }),

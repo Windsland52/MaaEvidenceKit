@@ -21,6 +21,7 @@ const MAA_LINE =
   /\[\d{4}-\d{2}-\d{2} [^\]]+\]\[(?:TRC|DBG|INF|WRN|ERR|FTL)\]\[Px\d+\]\[Tx\d+\]\[[^\]]+\]/g;
 const NUMBERED_ARCHIVE = /^(.*?part)(\d+)(?:[._-]?of[._-]?(\d+))?(\.(?:zip|7z|rar|tar(?:\.gz)?|tgz))$/i;
 const SPLIT_ARCHIVE = /^(.*)\.(z|r)(\d{2,})$/i;
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 export type ArtifactDiscovery = {
   root: string;
@@ -54,6 +55,25 @@ async function boundedSample(file: string): Promise<string> {
   }
 }
 
+async function hasSupportedImageSignature(file: string): Promise<boolean> {
+  const handle = await open(file, "r");
+  try {
+    const header = Buffer.alloc(12);
+    const { bytesRead } = await handle.read(header, 0, header.length, 0);
+    if (bytesRead >= PNG_SIGNATURE.length && header.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
+      return true;
+    }
+    if (bytesRead >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) return true;
+    if (bytesRead >= 6 && ["GIF87a", "GIF89a"].includes(header.toString("ascii", 0, 6))) return true;
+    if (bytesRead >= 2 && header.toString("ascii", 0, 2) === "BM") return true;
+    return bytesRead >= 12
+      && header.toString("ascii", 0, 4) === "RIFF"
+      && header.toString("ascii", 8, 12) === "WEBP";
+  } finally {
+    await handle.close();
+  }
+}
+
 function isMaaFilename(file: string): boolean {
   const name = path.basename(file).toLowerCase();
   return (
@@ -69,6 +89,7 @@ async function classifyFile(file: string): Promise<Artifact["kind"]> {
   if (["interface.json", "interface.jsonc"].includes(name)) return "interface";
   if (/\.(?:png|jpe?g|webp|bmp)$/i.test(name)) return "image";
   if (/\.jsonc?$/i.test(name) && /(?:pipeline|resource|task)/i.test(file)) return "pipeline";
+  if (await hasSupportedImageSignature(file)) return "image";
   if (!name.endsWith(".log") && !name.endsWith(".txt")) return "other";
   if (isMaaFilename(file)) return "maa_log";
   const sample = await boundedSample(file);
