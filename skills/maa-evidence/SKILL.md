@@ -84,9 +84,11 @@ the installer a remote source and lets it preserve the selected agent targets. R
   keyword search instead of a parser: prefer `rg` (e.g. `rg -i "err|failed" go-service.log`), fall back to
   `grep` when ripgrep is unavailable (or PowerShell `Select-String` on Windows). Keep these host-side
   findings out of MEK evidence.
-- For application telemetry, use Sentry MCP or CLI directly. Read
+- For application telemetry, use Sentry MCP or CLI directly from the host harness. Read
   [references/sentry.md](references/sentry.md) before querying or correlating Sentry. MEK does not
-  query application Sentry projects.
+  receive Sentry credentials or query application Sentry projects. Aggregate titles and counts
+  before drilling into groups, and preserve original groups when reporting an inferred signature
+  family across native-stack, culprit, release, or localized-message variants.
 
 Do not run the complete MEK inspection merely because the command exists.
 
@@ -460,6 +462,8 @@ render Mermaid.
 
 When Sentry is available, keep its error-cluster evidence separate from the single-run evidence
 above. Use it first to measure recurrence, affected users, release concentration, and regressions.
+Keep Sentry's original issue groups separate from host-inferred signature families and label the
+latter as interpretation.
 Do not infer that a Sentry event belongs to an Issue from timestamp and release alone. Require the
 correlation levels and reporting rules in [references/sentry.md](references/sentry.md).
 

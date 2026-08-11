@@ -153,7 +153,9 @@ Context-to-task 映射时标记精确 task ID 关联。Combined failure relation
 
 [`skills/maa-evidence/SKILL.md`](skills/maa-evidence/SKILL.md) 指导外部 agent 按需选择 MLA、
 MSE、证据窗口和文本视图。Skill 不要求每个问题都运行完整检查;Sentry 调查也由 harness
-直接使用 Sentry MCP 或 CLI 完成。Sentry 默认用于聚类错误、衡量影响范围和版本趋势;若
+直接使用 Sentry MCP 或 CLI 完成,MEK SDK/CLI 本身不接收 Sentry 凭据也不查询应用项目。
+Sentry 默认用于聚类错误、衡量影响范围和版本趋势;宿主可把错误码与执行阶段一致的多个原始
+group 标成“推断的签名族”,但必须保留原 group 和计数并明确这是解释。若
 Issue/本地日志与 Sentry 没有共享 `event_id` 或隐私安全的 `run_id`,不得仅凭时间和版本将
 两者认定为同一次事件。详细规则见
 [`skills/maa-evidence/references/sentry.md`](skills/maa-evidence/references/sentry.md)。

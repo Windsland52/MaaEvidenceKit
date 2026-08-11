@@ -2,6 +2,8 @@
 
 Use application Sentry telemetry as a separate evidence source owned by the host harness. Do not
 confuse it with MaaEvidenceKit's optional product telemetry and extraction-gap feedback.
+Every application-data query in this workflow is executed by the external Sentry CLI or MCP
+client. The MEK SDK and CLI neither receive Sentry credentials nor query application projects.
 
 ## Start with the aggregate view
 
@@ -29,12 +31,29 @@ sentry explore <org>/<project> `
   --field release `
   --field environment `
   --field 'count()' `
+  --field 'count_unique(user)' `
   --fresh --json
 ```
 
 With Sentry MCP, use the equivalent structured project, issue-search, aggregate, and event-detail
 tools. Prefer MCP when it exposes the required fields clearly; use the CLI when scripting or
 dataset exploration is easier. Do not require either surface when the other is sufficient.
+
+## Keep Sentry groups and inferred signature families distinct
+
+One underlying error class can appear under several Sentry groups because the culprit, native
+stack, mechanism, release, or localized operating-system message differs. Start with a title/count
+aggregate as well as the issue-group list so a high-volume class is not hidden by fragmentation.
+
+The host may report an inferred **signature family** when several rows share a stable exception
+type or error code and the same execution phase. Preserve every original Sentry group, its counts,
+and its title, and label the family as an interpretation rather than a Sentry identity. In
+particular, translated messages such as Windows errors should only be grouped when a locale-neutral
+code and compatible exception context are also present. Similar wording alone is insufficient.
+
+Do not merge, resolve, or otherwise mutate Sentry groups to express this analysis. A signature
+family also does not strengthen the link between any member event and a GitHub Issue; apply the
+cross-source correlation grades below independently.
 
 ## Drill down only when useful
 
