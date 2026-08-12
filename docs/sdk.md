@@ -9,6 +9,7 @@ import {
   inspect,
   inspectMla,
   inspectMse,
+  inspectRepositoryDocs,
   evidenceById,
   queryEvidenceBatch,
   queryEvidenceWindow,
@@ -32,6 +33,7 @@ const resolvedProject = await resolveMse("C:/project", {
   includeReferencers: false,
 });
 const combined = await inspect("C:/materials");
+const repositoryDocs = await inspectRepositoryDocs("C:/issue-checkout");
 const text = view(combined, { format: "text" });
 const matches = searchEvidence(combined, {
   kinds: ["mla.recognition_detail"],
@@ -66,6 +68,8 @@ const answers = await queryEvidenceBatch(runtime, [
   关闭反向引用展开;展开深度由 `depth` 控制(默认两层)。
 - `inspect`(组合检查):`InspectOptions.mse.depth` / `includeReferencers` 可覆盖 SDK 默认;
   CLI 需要展开反向引用时使用 `inspect --referencers --depth N`。
+- `inspectRepositoryDocs`:显式清点 checkout 中受界的 `AGENTS.md` 文本和三个已知 Skill 根目录
+  下的 `SKILL.md` 路径结构。它不解析或执行 Skill,也不会由组合 `inspect` 自动调用。
 - `searchEvidence` / `queryEvidenceBatch` / `queryEvidenceWindow`:与 CLI `search` / `batch` /
   `window` 命令同语义,包括精确/模糊匹配规则、结果上限与批量严格校验,见 [CLI 参考](cli.md)。
 - MLA 信号穷举:设置 `includeAllSignals: true`(对应 CLI `--all-signals`),见

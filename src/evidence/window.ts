@@ -1,4 +1,6 @@
-import { createReadStream } from "node:fs";
+import { createReadStream, type ReadStream } from "node:fs";
+import { lstat, open, realpath, type FileHandle } from "node:fs/promises";
+import path from "node:path";
 import { createInterface } from "node:readline";
 
 import type { InspectionResult } from "./types.js";
@@ -34,6 +36,45 @@ function boundedInteger(value: number | undefined, fallback: number, minimum: nu
   return value;
 }
 
+type AuthorizedFileIdentity = { dev: number; ino: number; size: number; mtimeMs: number };
+
+async function authorizeRepositoryDocsArtifact(
+  inspection: InspectionResult,
+  artifactPath: string,
+): Promise<AuthorizedFileIdentity> {
+  const [rootMetadata, artifactMetadata] = await Promise.all([
+    lstat(inspection.input.path),
+    lstat(artifactPath),
+  ]);
+  if (rootMetadata.isSymbolicLink() || !rootMetadata.isDirectory()) {
+    throw new Error("Repository documentation windows require the original non-symbolic checkout root.");
+  }
+  if (artifactMetadata.isSymbolicLink() || !artifactMetadata.isFile()) {
+    throw new Error("Repository documentation windows do not follow symbolic or non-file artifacts.");
+  }
+  const [rootReal, artifactReal] = await Promise.all([
+    realpath(inspection.input.path),
+    realpath(artifactPath),
+  ]);
+  const relative = path.relative(rootReal, artifactReal);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("Repository documentation artifact resolves outside the inventoried checkout.");
+  }
+  return {
+    dev: artifactMetadata.dev,
+    ino: artifactMetadata.ino,
+    size: artifactMetadata.size,
+    mtimeMs: artifactMetadata.mtimeMs,
+  };
+}
+
+function sameIdentity(left: AuthorizedFileIdentity, right: AuthorizedFileIdentity): boolean {
+  return left.dev === right.dev
+    && left.ino === right.ino
+    && left.size === right.size
+    && left.mtimeMs === right.mtimeMs;
+}
+
 export async function queryEvidenceWindow(
   inspection: InspectionResult,
   query: EvidenceWindowQuery,
@@ -50,9 +91,15 @@ export async function queryEvidenceWindow(
   }
   const artifact = inspection.artifacts.find((item) => item.id === targetArtifactId);
   if (artifact === undefined) throw new Error(`Unknown artifact ID: ${targetArtifactId}`);
+  if (artifact.status === "skipped" || artifact.status === "unreadable") {
+    throw new Error(`Evidence windows require an authorized readable artifact, received status ${artifact.status}.`);
+  }
   if (["image", "directory", "archive_part"].includes(artifact.kind)) {
     throw new Error(`Evidence windows require a text artifact, received ${artifact.kind}.`);
   }
+  const repositoryDocsIdentity = inspection.kind === "repo_docs"
+    ? await authorizeRepositoryDocsArtifact(inspection, artifact.path)
+    : undefined;
   const before = boundedInteger(query.before, 20, 0, 200);
   const after = boundedInteger(query.after, 20, 0, 200);
   const maxLines = boundedInteger(query.maxLines, 400, 1, 400);
@@ -65,7 +112,19 @@ export async function queryEvidenceWindow(
   let currentLine = 0;
   let endLine = requestedStart - 1;
   let truncated = false;
-  const stream = createReadStream(artifact.path, { encoding: "utf8" });
+  let repositoryDocsHandle: FileHandle | undefined;
+  let stream: ReadStream;
+  if (repositoryDocsIdentity === undefined) {
+    stream = createReadStream(artifact.path, { encoding: "utf8" });
+  } else {
+    repositoryDocsHandle = await open(artifact.path, "r");
+    const openedIdentity = await repositoryDocsHandle.stat();
+    if (!sameIdentity(repositoryDocsIdentity, openedIdentity)) {
+      await repositoryDocsHandle.close();
+      throw new Error("Repository documentation artifact changed before its evidence window was read.");
+    }
+    stream = repositoryDocsHandle.createReadStream({ encoding: "utf8", autoClose: false });
+  }
   const reader = createInterface({ input: stream, crlfDelay: Infinity });
   try {
     for await (const line of reader) {
@@ -84,6 +143,13 @@ export async function queryEvidenceWindow(
   } finally {
     reader.close();
     stream.destroy();
+    await repositoryDocsHandle?.close();
+  }
+  if (repositoryDocsIdentity !== undefined) {
+    const afterRead = await authorizeRepositoryDocsArtifact(inspection, artifact.path);
+    if (!sameIdentity(repositoryDocsIdentity, afterRead)) {
+      throw new Error("Repository documentation artifact changed while the evidence window was read.");
+    }
   }
   if (endLine < requestedEnd && currentLine > endLine) truncated = true;
   return {

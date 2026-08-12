@@ -29,6 +29,12 @@ const ALLOWED_EXTRA = new Set([
   "task_anomalies",
   "possible_mirrored_task_groups",
   "recognition_pipeline_references",
+  "repo_docs_agents_documents",
+  "repo_docs_agents_omitted",
+  "repo_docs_agents_truncated",
+  "repo_docs_skill_files",
+  "repo_docs_skill_files_omitted",
+  "repo_docs_scan_truncated",
   "runtime_node_resolution_omitted",
 ]);
 let initialized = false;
@@ -106,6 +112,12 @@ export type OperationalCounts = {
   taskAnomalies?: number;
   possibleMirroredTaskGroups?: number;
   recognitionPipelineReferences?: number;
+  repoDocsAgentsDocuments?: number;
+  repoDocsAgentsOmitted?: number;
+  repoDocsAgentsTruncated?: number;
+  repoDocsSkillFiles?: number;
+  repoDocsSkillFilesOmitted?: number;
+  repoDocsScanTruncated?: number;
   runtimeNodeResolutionOmitted?: number;
 };
 
@@ -143,6 +155,12 @@ export async function sendOperationalTelemetry(event: OperationalTelemetry): Pro
       ...(event.counts?.taskAnomalies === undefined ? {} : { task_anomalies: event.counts.taskAnomalies }),
       ...(event.counts?.possibleMirroredTaskGroups === undefined ? {} : { possible_mirrored_task_groups: event.counts.possibleMirroredTaskGroups }),
       ...(event.counts?.recognitionPipelineReferences === undefined ? {} : { recognition_pipeline_references: event.counts.recognitionPipelineReferences }),
+      ...(event.counts?.repoDocsAgentsDocuments === undefined ? {} : { repo_docs_agents_documents: event.counts.repoDocsAgentsDocuments }),
+      ...(event.counts?.repoDocsAgentsOmitted === undefined ? {} : { repo_docs_agents_omitted: event.counts.repoDocsAgentsOmitted }),
+      ...(event.counts?.repoDocsAgentsTruncated === undefined ? {} : { repo_docs_agents_truncated: event.counts.repoDocsAgentsTruncated }),
+      ...(event.counts?.repoDocsSkillFiles === undefined ? {} : { repo_docs_skill_files: event.counts.repoDocsSkillFiles }),
+      ...(event.counts?.repoDocsSkillFilesOmitted === undefined ? {} : { repo_docs_skill_files_omitted: event.counts.repoDocsSkillFilesOmitted }),
+      ...(event.counts?.repoDocsScanTruncated === undefined ? {} : { repo_docs_scan_truncated: event.counts.repoDocsScanTruncated }),
       ...(event.counts?.runtimeNodeResolutionOmitted === undefined ? {} : { runtime_node_resolution_omitted: event.counts.runtimeNodeResolutionOmitted }),
     },
   });

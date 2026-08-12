@@ -26,6 +26,7 @@ MaaEvidenceKit(MEK)从 MaaFramework 日志和 Maa 项目中提取可定位的运
 | 从完整材料目录中发现受支持的 MaaFramework 日志和 Maa 项目 | 理解 GitHub Issue、GUI/自定义日志、Sentry 数据或业务结果 |
 | 通过 MaaLogAnalyzer(MLA)提取会话、任务、故障、结果与运行信号 | 输出根因结论 |
 | 通过 MSE 公共包提取 Interface、资源、静态诊断、任务定义和节点引用 | 模型、诊断 agent 或自动修复逻辑 |
+| 显式清点 issue-time checkout 中受界的 `AGENTS.md` 文本和 Skill 文件结构 | 解析、激活或遵循 checkout 中的 Skill |
 | 生成稳定 evidence ID,以及文件、行号、时间、任务和节点定位 | |
 | 输出 JSON、纯文本和可选 Mermaid | |
 | 默认发送匿名聚合遥测(可关闭),并按需发送需明确确认的提取缺口反馈 | |
@@ -114,6 +115,7 @@ import {
   inspect,
   inspectMla,
   inspectMse,
+  inspectRepositoryDocs,
   resolveMse,
   searchEvidence,
   view,
@@ -124,6 +126,7 @@ const runtime = await inspectMla("C:/debug", {
 });
 const project = await inspectMse("C:/project", { tasks: ["StartUp"] });
 const combined = await inspect("C:/materials");
+const repositoryDocs = await inspectRepositoryDocs("C:/issue-checkout");
 const text = view(combined, { format: "text" });
 const matches = searchEvidence(combined, {
   kinds: ["mla.recognition_detail"],
@@ -141,6 +144,10 @@ const matches = searchEvidence(combined, {
 上游限制都会作为显式的 warning / missingEvidence 输出,不会静默丢失。
 常见 PNG、JPEG、GIF、WebP 与 BMP 即使附件名没有扩展名,也会通过文件签名确定性地登记为
 `image` artifact；MEK 只登记格式与来源,不解释像素含义。
+`repo-docs` 只在显式调用时扫描 checkout:根目录及嵌套 `AGENTS.md` 以受界文本进入
+`repo_docs.agents_document` evidence,三个已知 Skill 根目录中的 `SKILL.md` 只以路径、大小和
+目录深度进入 `repo_docs.skill_file` evidence。MEK 不解析或执行仓库 Skill;固定扫描、深度、
+文件数和文本字节上限及其截断状态均在输出中公开。
 
 各 evidence 种类(`mla.failure_context`、`mla.recognition_detail`、`mla.action_detail`、
 `mla.pipeline_override`、`mla.task_anomaly`、`combined.pipeline_reference` 等)的聚合规则、
@@ -207,6 +214,7 @@ src/
   evidence/    证据、来源、稳定 ID、原文窗口
   mla/         日志发现与 MLA 集成
   mse/         MSE 集成与静态关系图
+  repo-docs/   仓库说明与 Skill 文件结构清点
   views/       JSON、文本和 Mermaid
   feedback/    同意状态、匿名遥测和分级反馈
   cli/         命令行入口

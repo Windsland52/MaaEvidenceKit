@@ -150,6 +150,8 @@ async function runMse(parsed: ParsedArguments): Promise<InspectionResult> {
 }
 
 async function runRepoDocs(parsed: ParsedArguments): Promise<InspectionResult> {
+  const format = option(parsed, "--format");
+  if (format === "mermaid") throw new Error("repo-docs --format must be json or text.");
   const result = await inspectRepositoryDocs(requirePositional(parsed, 1, "checkout path"));
   await emitInspection(result, parsed);
   return result;
@@ -344,6 +346,14 @@ function countsFromInspection(result: InspectionResult): OperationalCounts {
     counts["taskAnomalies"] = evidence.filter((item) => item.kind === "mla.task_anomaly").length;
     counts["possibleMirroredTaskGroups"] = evidence.filter((item) => item.kind === "mla.possible_mirrored_task_group").length;
     counts["recognitionPipelineReferences"] = evidence.filter((item) => item.kind === "combined.recognition_pipeline_reference").length;
+  }
+  if (result.kind === "repo_docs") {
+    counts["repoDocsAgentsDocuments"] = result.statistics["agentsDocumentsSelected"] ?? 0;
+    counts["repoDocsAgentsOmitted"] = result.statistics["agentsDocumentsOmitted"] ?? 0;
+    counts["repoDocsAgentsTruncated"] = result.statistics["agentsDocumentsTruncated"] ?? 0;
+    counts["repoDocsSkillFiles"] = result.statistics["skillFilesSelected"] ?? 0;
+    counts["repoDocsSkillFilesOmitted"] = result.statistics["skillFilesOmitted"] ?? 0;
+    counts["repoDocsScanTruncated"] = result.statistics["scanTruncated"] ?? 0;
   }
   return Object.fromEntries(
     Object.entries(counts).filter(([, value]) => value !== undefined),

@@ -1,8 +1,9 @@
 # MaaEvidenceKit Privacy Notice
 
-Last updated: 2026-08-09
+Last updated: 2026-08-12
 
-MaaEvidenceKit performs log and project inspection locally and never sends inspected material for
+MaaEvidenceKit performs log, project, and explicitly requested repository-document inspection
+locally and never sends inspected material for
 automatic updates. The published CLI may make update requests before inspection, and may also send
 the optional operational telemetry and feedback described below. Set
 `MAA_EVIDENCE_AUTO_UPDATE=0` and `MAA_EVIDENCE_TELEMETRY=0` for a fully offline inspection.
@@ -56,7 +57,8 @@ When enabled, an operational event may contain only:
 - aggregate counts only: evidence totals, adapters used, total signals, counts of
   recognition-detail, cycle-exit-blocker, task-anomaly, possible-mirrored-task, and
   recognition-to-MSE-reference records, plus the number of runtime nodes omitted by an automatic
-  correlation limit.
+  correlation limit; for `repo-docs`, aggregate counts of selected and list-omitted `AGENTS.md` and
+  `SKILL.md`, truncated `AGENTS.md` text, and whether the repository scan hit its entry limit.
 
 Operational telemetry does not intentionally contain command arguments, file paths, environment
 variables, usernames, logs, source code, screenshots, exception messages, or stack traces.
@@ -64,6 +66,11 @@ The Sentry SDK is configured with `sendDefaultPii: false` and a client-side even
 Delivery is best-effort: a CLI command gives its operational event a 200ms flush budget, and a
 delivery timeout does not change the command's result. Feedback submissions use a separate, longer
 confirmation flow.
+
+`repo-docs` reads repository documents only on the local machine. Its operational telemetry does
+not include checkout paths, relative paths, filenames, document sizes, document text, evidence IDs,
+warning messages, or Skill contents. Repository documents can be sent only if a user explicitly
+selects them in the separate feedback preview and confirms that submission.
 
 ## Local performance profiles
 

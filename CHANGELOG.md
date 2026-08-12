@@ -7,6 +7,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-12
+
+### Added
+
+- Add an explicit `repo-docs` CLI/SDK inspection kind that exports bounded, source-backed
+  `AGENTS.md` evidence and deterministic `SKILL.md` path structure without parsing or activating
+  repository skills.
+
+### Fixed
+
+- Discover common image formats by file signature when an attachment has no filename extension.
+- Constrain repository-document discovery with deterministic ordering, fixed scan/depth/list/text
+  limits, checkout confinement, symbolic-link rejection, and authorized evidence windows.
+
+### Changed
+
+- Generalize the host Skill's Sentry and OCR triage guidance, keeping project-specific failure
+  explanations conditional and evidence-backed.
+
 ## [0.3.0] - 2026-08-11
 
 ### Added
@@ -91,7 +110,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Whitelist-only operational telemetry, disabled default PII, and mandatory preview/confirmation for
   feedback attachments.
 
-[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.1.0...v0.1.1

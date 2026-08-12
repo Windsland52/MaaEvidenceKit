@@ -12,7 +12,23 @@ CLI 与 SDK 共用该模型;命令用法见 [`docs/cli.md`](cli.md),SDK 用法�
 - `missingEvidence`:缺失分卷、空时间窗或缺失项目等;
 - `warnings`:上游限制、截断和兼容性信息;
 - `statistics`:确定性计数;
-- `details`:MLA/MSE 的项目自有结构化结果。
+- `details`:MLA/MSE 的项目自有结构化结果,或 `repo_docs` 的 evidence ID 索引、固定上限与
+  扫描截断状态。
+
+## 仓库说明清点
+
+`repo-docs` 使用同一 `maa-evidence/v1` schema,但必须显式调用,不会自动并入组合检查:
+
+- `repo_docs.agents_document`:每个已选 `AGENTS.md` 一条 evidence,包含文件大小、实际返回字节/
+  行数、最多 64 KiB 的 UTF-8 文本、`truncated` 与 `endsMidLine`;source 从第一行开始并指向
+  原 artifact。文本变化会改变 evidence ID,相对路径不变时 artifact ID 保持稳定。
+- `repo_docs.skill_file`:只记录 `SKILL.md` 的路径来源、文件大小、所属已知 Skill 根和目录深度;
+  不解析 frontmatter/正文,也不赋予其中内容指令权威。
+
+成功形成 evidence 的文件 artifact 标为 `selected`。符号链接、越界、不可读或深度受限条目
+标为 `skipped` 并携带 reason;`window` 拒绝读取 `skipped`/`unreadable` artifact。没有
+`AGENTS.md` 或 Skill 是合法空清单,不构成 `missingEvidence`。固定资源上限及已知/未知遗漏通过
+`details.scan`、`statistics` 和 warning 明确公开。
 
 ## MLA 信号与统计
 

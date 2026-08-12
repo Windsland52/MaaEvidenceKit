@@ -78,5 +78,12 @@ describe("evidence ledger", () => {
     await expect(queryEvidenceWindow(result, { artifactId: "unknown" })).rejects.toThrow(
       "Unknown artifact ID",
     );
+    const skipped: InspectionResult = {
+      ...result,
+      artifacts: [{ ...artifact, status: "skipped", reason: "not_authorized" }],
+    };
+    await expect(queryEvidenceWindow(skipped, { artifactId: artifact.id })).rejects.toThrow(
+      "authorized readable artifact",
+    );
   });
 });

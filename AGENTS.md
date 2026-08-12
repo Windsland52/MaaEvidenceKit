@@ -17,6 +17,7 @@ MaaEvidenceKit
     ├─ discovers supported local artifacts
     ├─ extracts deterministic MLA runtime facts
     ├─ extracts deterministic MSE static facts
+    ├─ inventories bounded repository-document facts when explicitly requested
     ├─ provides evidence windows and views
     └─ sends optional, explicitly consented product feedback
 ```
@@ -36,6 +37,7 @@ src/
   evidence/    Public facts, provenance, stable IDs, and bounded evidence windows
   mla/         MaaFramework log discovery and MaaLogAnalyzer integration
   mse/         Public MSE package integration and static node/reference graphs
+  repo-docs/   Bounded repository-document and skill-file structure inventory
   views/       JSON, text, and Mermaid rendering
   feedback/    Consent state, operational telemetry, and extraction-gap feedback
   cli/         Argument handling and command entry point

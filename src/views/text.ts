@@ -14,6 +14,21 @@ function isMseDetails(value: unknown): value is MseInspectionDetails {
   return isRecord(value) && Array.isArray(value["projects"]);
 }
 
+function renderRepositoryDocs(result: InspectionResult): string[] {
+  const lines = ["Repository documentation"];
+  const documents = result.evidence
+    .filter((item) => item.kind === "repo_docs.agents_document")
+    .sort((left, right) => left.source.path.localeCompare(right.source.path));
+  const skills = result.evidence
+    .filter((item) => item.kind === "repo_docs.skill_file")
+    .sort((left, right) => left.source.path.localeCompare(right.source.path));
+  lines.push(`AGENTS.md: ${documents.length}`);
+  for (const evidence of documents) lines.push(`- ${evidence.source.path} (${evidence.id})`);
+  lines.push(`SKILL.md: ${skills.length}`);
+  for (const evidence of skills) lines.push(`- ${evidence.source.path} (${evidence.id})`);
+  return lines;
+}
+
 function renderMla(details: MlaInspectionDetails): string[] {
   const lines = ["MLA execution flow"];
   const signalSelection = details.selection.signals;
@@ -133,6 +148,8 @@ export function renderText(result: InspectionResult): string {
         lines.push(...renderGraph(project.graph, project.projectRoot), "");
       }
     }
+  } else if (result.kind === "repo_docs") {
+    lines.push(...renderRepositoryDocs(result), "");
   }
   lines.push("Evidence ledger");
   const evidenceLimit = 200;

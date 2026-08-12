@@ -73,6 +73,24 @@ maa-evidence mse inspect C:\path\to\project `
   --no-referencers
 ```
 
+### `repo-docs`:清点 issue-time 仓库上下文
+
+```powershell
+maa-evidence repo-docs C:\path\to\issue-checkout --format json --output repo-docs.json
+maa-evidence repo-docs C:\path\to\issue-checkout --format text
+```
+
+该命令不会自动并入普通 `inspect`。它按规范化相对路径确定性排序,在整个 checkout 中发现
+`AGENTS.md`,并在 `.agents/skills`、`.claude/skills`、`skills` 三个已知根目录中递归发现
+`SKILL.md`。`AGENTS.md` 输出最多 64 KiB 受界文本;Skill 只输出路径结构和文件大小,不解析
+frontmatter 或正文,也不会激活仓库 Skill。
+
+固定上限为 50,000 个目录项、64 个 `AGENTS.md`、256 个 `SKILL.md`、checkout 深度 32、
+Skill 根内目录深度 8。输出区分已知列表遗漏与扫描提前结束造成的未知遗漏。符号链接不跟随;
+越界、不可读、深度受限和扫描截断均显式报告。text 视图列出路径及 evidence ID;受界
+`AGENTS.md` 文本通过 JSON 或 `view --evidence-id` 获取。harness 决定确有需要时,可用受授权的
+`window` 显式读取已清点的 `AGENTS.md` 或 `SKILL.md`。`repo-docs` 只支持 JSON/text,不支持 Mermaid。
+
 ### `window` / `view` / `search` / `batch`:查询已有结果
 
 ```powershell
@@ -174,7 +192,8 @@ MSE 未提供 `--task` 时只执行 Interface、资源组合和静态诊断预�
 
 ## `--profile`:本地阶段计时
 
-`--profile FILE` 可用于 `mla inspect`、`mse inspect`、`mse resolve`、组合 `inspect` 及已有结果的查询命令。
+`--profile FILE` 可用于 `mla inspect`、`mse inspect`、`mse resolve`、`repo-docs`、组合 `inspect`
+及已有结果的查询命令。
 它输出本地 `maa-evidence-profile/v1` 旁路 JSON,聚合 discovery、MLA load/parse、MSE
 preflight/resolution、inspection load、render 和 output write 等阶段的 `count`、总耗时与最大耗时。
 profile 与 inspection 输出必须使用不同文件;失败命令也会写 `status: error`,但不会写异常消息、
