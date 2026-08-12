@@ -97,6 +97,8 @@ an ID returned by another request in the same batch.
 
 Read additional material only when the investigation reaches that branch:
 
+- Final diagnosis, Issue comment, or repair handoff: read
+  [references/reporting.md](references/reporting.md) before drafting the report.
 - Exact framework field/API semantics: [references/maa-llm-wiki.md](references/maa-llm-wiki.md),
   then cite the routed version-pinned MaaFramework source/docs rather than the wiki itself.
 - Sentry grouping/correlation: [references/sentry.md](references/sentry.md).
