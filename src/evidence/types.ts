@@ -1,6 +1,6 @@
 export const EVIDENCE_SCHEMA_VERSION = "maa-evidence/v1" as const;
 
-export type InspectionKind = "mla" | "mse" | "combined";
+export type InspectionKind = "mla" | "mse" | "combined" | "repo_docs";
 
 export type TimeRange = {
   from?: string;
@@ -81,7 +81,7 @@ export function isInspectionResult(value: unknown): value is InspectionResult {
   const record = value as Record<string, unknown>;
   return (
     record["schemaVersion"] === EVIDENCE_SCHEMA_VERSION
-    && ["mla", "mse", "combined"].includes(String(record["kind"]))
+    && ["mla", "mse", "combined", "repo_docs"].includes(String(record["kind"]))
     && Array.isArray(record["artifacts"])
     && Array.isArray(record["evidence"])
     && Array.isArray(record["missingEvidence"])

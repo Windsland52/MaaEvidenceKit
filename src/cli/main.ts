@@ -8,6 +8,7 @@ import {
   inspect,
   inspectMla,
   inspectMse,
+  inspectRepositoryDocs,
   MAA_EVIDENCE_VERSION,
   getTelemetryStatus,
   previewFeedback,
@@ -43,6 +44,7 @@ Usage:
   maa-evidence mla inspect <path> [--from ISO] [--to ISO] [--keyword TEXT] [--all-signals] [--format json|text|mermaid]
   maa-evidence mse inspect <path> [--task NAME] [--depth N] [--controller NAME] [--resource NAME] [--no-referencers] [--syntax-mode maafw|maa] [--format json|text|mermaid]
   maa-evidence mse resolve <path> --task NAME [--depth N] [--controller NAME] [--resource NAME] [--no-referencers] [--syntax-mode maafw|maa] [--format json|text|mermaid]
+  maa-evidence repo-docs <checkout> [--format json|text]
   maa-evidence inspect <path> [--from ISO] [--to ISO] [--task NAME] [--controller NAME] [--resource NAME] [--referencers|--no-referencers] [--no-mla] [--no-mse]
   maa-evidence window --input result.json (--evidence-id ID | --artifact-id ID) [--line N]
   maa-evidence view --input result.json [--evidence-id ID] --format json|text|mermaid
@@ -143,6 +145,12 @@ async function runMse(parsed: ParsedArguments): Promise<InspectionResult> {
   const result = command === "inspect"
     ? await inspectMse(inputPath, commonOptions)
     : await resolveMse(inputPath, commonOptions);
+  await emitInspection(result, parsed);
+  return result;
+}
+
+async function runRepoDocs(parsed: ParsedArguments): Promise<InspectionResult> {
+  const result = await inspectRepositoryDocs(requirePositional(parsed, 1, "checkout path"));
   await emitInspection(result, parsed);
   return result;
 }
@@ -344,7 +352,7 @@ function countsFromInspection(result: InspectionResult): OperationalCounts {
 
 async function withOperationalTelemetry(
   command: string,
-  component: "mla" | "mse" | "combined" | "view" | "window" | "search" | "batch",
+  component: "mla" | "mse" | "combined" | "view" | "window" | "search" | "batch" | "repo-docs",
   operation: () => Promise<InspectionResult | void>,
 ): Promise<void> {
   const startedAt = performance.now();
@@ -371,7 +379,7 @@ async function withOperationalTelemetry(
 async function runOperationalCommand(
   parsed: ParsedArguments,
   command: string,
-  component: "mla" | "mse" | "combined" | "view" | "window" | "search" | "batch",
+  component: "mla" | "mse" | "combined" | "view" | "window" | "search" | "batch" | "repo-docs",
   operation: () => Promise<InspectionResult | void>,
 ): Promise<void> {
   await withLocalProfile(command, parsed, () =>
@@ -402,6 +410,10 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<numb
           "mse",
           () => runMse(parsed),
         );
+        return 0;
+      case "repo-docs":
+        rejectUnexpectedPositionals(parsed, 2);
+        await runOperationalCommand(parsed, "repo-docs", "repo-docs", () => runRepoDocs(parsed));
         return 0;
       case "inspect":
         rejectUnexpectedPositionals(parsed, 2);

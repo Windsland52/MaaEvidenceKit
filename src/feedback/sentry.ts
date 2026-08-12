@@ -113,7 +113,7 @@ export type OperationalTelemetry = {
   command: string;
   status: "ok" | "error";
   durationMs: number;
-  component?: "mla" | "mse" | "combined" | "view" | "window" | "search" | "batch";
+  component?: "mla" | "mse" | "combined" | "view" | "window" | "search" | "batch" | "repo-docs";
   counts?: OperationalCounts;
 };
 

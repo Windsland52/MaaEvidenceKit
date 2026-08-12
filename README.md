@@ -99,6 +99,9 @@ maa-evidence mla inspect C:\path\to\materials --format json
 # 只检查指定项目任务
 maa-evidence mse inspect C:\path\to\project --task StartUp --format text
 
+# 清点 issue 源码里的 AGENTS.md 与技能索引（确定性，不解释内容）
+maa-evidence repo-docs C:\path\to\issue-checkout --format json
+
 # 从已有结果中读取某条证据及其来源上下文
 maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format text
 maa-evidence window --input inspection.json --evidence-id evidence-abc123
