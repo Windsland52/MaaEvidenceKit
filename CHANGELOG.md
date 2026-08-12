@@ -25,6 +25,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Generalize the host Skill's Sentry and OCR triage guidance, keeping project-specific failure
   explanations conditional and evidence-backed.
+- Add an on-demand host reporting template that separates reported symptoms, observed mechanisms,
+  suspected triggers, evidence gaps, user guidance, and repair handoffs without exposing internal
+  reasoning or partial drafts.
 
 ## [0.3.0] - 2026-08-11
 
