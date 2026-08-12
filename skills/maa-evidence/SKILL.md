@@ -106,5 +106,7 @@ Read additional material only when the investigation reaches that branch:
   product-gap rules: [references/full-guide.md](references/full-guide.md). Read the relevant section,
   not the entire guide, unless conducting a MEK product audit.
 
-Core inspection is offline. Operational telemetry is aggregate and whitelist-only. Original
-material feedback always requires a preview and explicit `UPLOAD`; never submit it automatically.
+Core inspection is offline. Operational telemetry is aggregate and whitelist-only; when enabled,
+it uses a random local installation identity only to estimate active installations and invocation
+frequency, never a hardware-derived identity. Original material feedback always requires a preview
+and explicit `UPLOAD`; never submit it automatically.

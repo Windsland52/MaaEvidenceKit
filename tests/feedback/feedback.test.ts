@@ -14,7 +14,13 @@ const sentry = vi.hoisted(() => ({
     callback({ addEventProcessor: vi.fn() })),
 }));
 
+const installation = vi.hoisted(() => ({
+  getOrCreateInstallationId: vi.fn(async () => "a".repeat(64)),
+  removeInstallationIdentity: vi.fn(async () => undefined),
+}));
+
 vi.mock("@sentry/node", () => sentry);
+vi.mock("../../src/feedback/installation.js", () => installation);
 
 import {
   getTelemetryStatus,
@@ -24,7 +30,9 @@ import {
 } from "../../src/index.js";
 import { scrubFeedbackEvent } from "../../src/feedback/sentry.js";
 import {
+  classifyOperationalError,
   OPERATIONAL_TELEMETRY_FLUSH_TIMEOUT_MS,
+  OPERATIONAL_TELEMETRY_SCHEMA_VERSION,
   sendOperationalTelemetry,
 } from "../../src/feedback/sentry.js";
 import type { ScrubbableFeedbackEvent } from "../../src/feedback/sentry.js";
@@ -58,16 +66,78 @@ test("operational telemetry uses a bounded flush budget", async () => {
     component: "mla",
     status: "ok",
     durationMs: 12,
+    counts: { evidenceCount: 12 },
   });
 
   expect(OPERATIONAL_TELEMETRY_FLUSH_TIMEOUT_MS).toBe(200);
+  expect(OPERATIONAL_TELEMETRY_SCHEMA_VERSION).toBe("2");
   const flushTimeout = sentry.flush.mock.calls.at(-1)?.[0] as number | undefined;
   expect(flushTimeout).toBeDefined();
   expect(flushTimeout).toBeGreaterThanOrEqual(0);
   expect(flushTimeout).toBeLessThanOrEqual(OPERATIONAL_TELEMETRY_FLUSH_TIMEOUT_MS);
   expect(sentry.captureMessage).toHaveBeenCalledWith("maa-evidence.command", expect.objectContaining({
     level: "info",
+    user: { id: "a".repeat(64) },
+    tags: expect.objectContaining({
+      duration_bucket: "lt_100ms",
+      evidence_bucket: "10_to_99",
+      telemetry_schema: "2",
+    }),
   }));
+  expect(sentry.init).toHaveBeenCalledWith(expect.objectContaining({
+    environment: "production",
+    release: "maa-evidence-kit@0.3.2",
+    skipOpenTelemetrySetup: true,
+  }));
+
+  const beforeSend = sentry.init.mock.calls.at(-1)?.[0]?.beforeSend as
+    | ((event: Record<string, unknown>) => Record<string, unknown>)
+    | undefined;
+  expect(beforeSend).toBeDefined();
+  const scrubbed = beforeSend?.({
+    message: "maa-evidence.command",
+    user: { id: "a".repeat(64), username: "private-user", email: "private@example.com" },
+    request: { url: "file:///private" },
+    contexts: { trace: { trace_id: "private-trace" } },
+    tags: { command: "mla.inspect", private_tag: "private" },
+    extra: { duration_ms: 12, private_path: "C:/private" },
+  });
+  expect(scrubbed).toMatchObject({
+    message: "maa-evidence.command",
+    user: { id: "a".repeat(64) },
+    tags: { command: "mla.inspect" },
+    extra: { duration_ms: 12 },
+  });
+  expect(scrubbed).not.toHaveProperty("request");
+  expect(scrubbed).not.toHaveProperty("contexts");
+  expect(beforeSend?.({
+    message: "maa-evidence.command",
+    user: { id: "invalid", username: "private-user" },
+  })).not.toHaveProperty("user");
+});
+
+test("operational errors use bounded categories and fingerprints without messages", async () => {
+  await sendOperationalTelemetry({
+    command: "window",
+    component: "window",
+    status: "error",
+    durationMs: 1_500,
+    errorCategory: "invalid_input",
+    errorStage: "evidence_query",
+  });
+
+  expect(sentry.captureMessage).toHaveBeenLastCalledWith("maa-evidence.command", expect.objectContaining({
+    fingerprint: ["maa-evidence.command", "window", "invalid_input"],
+    tags: expect.objectContaining({
+      duration_bucket: "1s_to_10s",
+      error_category: "invalid_input",
+      error_stage: "evidence_query",
+    }),
+  }));
+  expect(classifyOperationalError(Object.assign(new Error("private path"), { code: "ENOENT" })))
+    .toBe("input_not_found");
+  expect(classifyOperationalError(new SyntaxError("private input"))).toBe("invalid_input");
+  expect(classifyOperationalError(new Error("private failure"))).toBe("operation_failed");
 });
 
 test("feedback scrubbing removes SDK-added host context", () => {

@@ -15,4 +15,8 @@ export {
   type FeedbackRequest,
 } from "./report.js";
 export { operationalTelemetryEligible, recordOperationalTelemetry } from "./telemetry.js";
-export type { OperationalCounts } from "./sentry.js";
+export type {
+  OperationalCounts,
+  OperationalErrorCategory,
+  OperationalErrorStage,
+} from "./sentry.js";

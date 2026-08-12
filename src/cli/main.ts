@@ -15,6 +15,7 @@ import {
   queryEvidenceBatch,
   type FeedbackCategory,
   type OperationalCounts,
+  type OperationalErrorStage,
   queryEvidenceWindow,
   recordOperationalTelemetry,
   renderEvidenceWindow,
@@ -31,6 +32,7 @@ import {
   type TimeRange,
   type ViewFormat,
 } from "../index.js";
+import { classifyOperationalError } from "../feedback/sentry.js";
 import { profileStage, profileStageSync } from "../profiling.js";
 import { flag, integerOption, option, options, parseArguments, type ParsedArguments } from "./args.js";
 import { runWithAutomaticUpdates } from "./auto-update.js";
@@ -376,11 +378,18 @@ async function withOperationalTelemetry(
       ...(result === undefined ? {} : { counts: countsFromInspection(result) }),
     });
   } catch (error: unknown) {
+    const errorStage: OperationalErrorStage = component === "repo-docs"
+      ? "repository_scan"
+      : ["window", "view", "search", "batch"].includes(component)
+        ? "evidence_query"
+        : "inspection";
     await recordOperationalTelemetry({
       command,
       component,
       status: "error",
       durationMs: performance.now() - startedAt,
+      errorCategory: classifyOperationalError(error),
+      errorStage,
     });
     throw error;
   }

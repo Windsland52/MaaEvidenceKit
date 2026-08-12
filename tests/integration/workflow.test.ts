@@ -285,7 +285,6 @@ test("CLI writes JSON inspection and can query a cited source window", async () 
     "mse.preflight",
     "render",
     "output.write",
-    "telemetry.config",
   ]));
   expect(await main([
     "inspect",

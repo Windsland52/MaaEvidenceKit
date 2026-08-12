@@ -11,6 +11,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      MAA_EVIDENCE_TELEMETRY: "0"
 
     steps:
       - name: Check out repository

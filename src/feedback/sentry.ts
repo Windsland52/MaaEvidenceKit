@@ -1,19 +1,26 @@
 import * as Sentry from "@sentry/node";
 
 import { MAA_EVIDENCE_VERSION } from "../version.js";
+import { getOrCreateInstallationId } from "./installation.js";
 
 const DEFAULT_SENTRY_DSN =
   "https://ed349e23de6a10cf40c71af3ec19c730@o4511840769277952.ingest.us.sentry.io/4511840804929536";
 export const OPERATIONAL_TELEMETRY_FLUSH_TIMEOUT_MS = 200;
+export const OPERATIONAL_TELEMETRY_SCHEMA_VERSION = "2" as const;
 const ALLOWED_TAGS = new Set([
   "arch",
   "category",
   "command",
   "component",
+  "duration_bucket",
+  "error_category",
+  "error_stage",
+  "evidence_bucket",
   "mek_version",
   "node_major",
   "platform",
   "status",
+  "telemetry_schema",
 ]);
 const ALLOWED_EXTRA = new Set([
   "attachment_bytes",
@@ -38,6 +45,8 @@ const ALLOWED_EXTRA = new Set([
   "runtime_node_resolution_omitted",
 ]);
 let initialized = false;
+
+const INSTALLATION_ID_PATTERN = /^[0-9a-f]{64}$/u;
 
 function removeDisallowed(input: Record<string, unknown> | undefined, allowed: ReadonlySet<string>): void {
   if (input === undefined) return;
@@ -79,12 +88,21 @@ function initializeSentry(): void {
   Sentry.init({
     dsn: process.env["MAA_EVIDENCE_SENTRY_DSN"] ?? DEFAULT_SENTRY_DSN,
     defaultIntegrations: false,
+    environment: "production",
+    release: `maa-evidence-kit@${MAA_EVIDENCE_VERSION}`,
     sendClientReports: false,
     sendDefaultPii: false,
     serverName: "maa-evidence-cli",
+    skipOpenTelemetrySetup: true,
     tracesSampleRate: 0,
     beforeSend(event) {
-      delete event.user;
+      const installationId = event.message === "maa-evidence.command"
+        && typeof event.user?.id === "string"
+        && INSTALLATION_ID_PATTERN.test(event.user.id)
+        ? event.user.id
+        : undefined;
+      if (installationId === undefined) delete event.user;
+      else event.user = { id: installationId };
       delete event.request;
       delete event.breadcrumbs;
       delete event.contexts;
@@ -127,17 +145,69 @@ export type OperationalTelemetry = {
   durationMs: number;
   component?: "mla" | "mse" | "combined" | "view" | "window" | "search" | "batch" | "repo-docs";
   counts?: OperationalCounts;
+  errorCategory?: OperationalErrorCategory;
+  errorStage?: OperationalErrorStage;
 };
+
+export type OperationalErrorCategory =
+  | "input_not_found"
+  | "invalid_input"
+  | "permission_denied"
+  | "resource_limit"
+  | "operation_failed";
+
+export type OperationalErrorStage = "inspection" | "evidence_query" | "repository_scan";
+
+function errnoCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
+  return typeof error.code === "string" ? error.code : undefined;
+}
+
+export function classifyOperationalError(error: unknown): OperationalErrorCategory {
+  const code = errnoCode(error);
+  if (code === "ENOENT" || code === "ENOTDIR") return "input_not_found";
+  if (code === "EACCES" || code === "EPERM") return "permission_denied";
+  if (["EMFILE", "ENFILE", "ENOSPC"].includes(code ?? "")) return "resource_limit";
+  if (error instanceof SyntaxError || error instanceof RangeError) return "invalid_input";
+  return "operation_failed";
+}
+
+function durationBucket(durationMs: number): string {
+  if (durationMs < 100) return "lt_100ms";
+  if (durationMs < 1_000) return "100ms_to_1s";
+  if (durationMs < 10_000) return "1s_to_10s";
+  return "gte_10s";
+}
+
+function evidenceBucket(evidenceCount: number): string {
+  if (evidenceCount === 0) return "0";
+  if (evidenceCount < 10) return "1_to_9";
+  if (evidenceCount < 100) return "10_to_99";
+  if (evidenceCount < 1_000) return "100_to_999";
+  return "gte_1000";
+}
 
 export async function sendOperationalTelemetry(event: OperationalTelemetry): Promise<void> {
   const startedAt = performance.now();
+  const installationId = await getOrCreateInstallationId();
   initializeSentry();
   Sentry.captureMessage("maa-evidence.command", {
     level: event.status === "ok" ? "info" : "error",
+    user: { id: installationId },
+    ...(event.status === "error"
+      ? { fingerprint: ["maa-evidence.command", event.command, event.errorCategory ?? "operation_failed"] }
+      : {}),
     tags: {
       command: event.command,
       status: event.status,
       component: event.component ?? "other",
+      telemetry_schema: OPERATIONAL_TELEMETRY_SCHEMA_VERSION,
+      duration_bucket: durationBucket(event.durationMs),
+      ...(event.counts?.evidenceCount === undefined
+        ? {}
+        : { evidence_bucket: evidenceBucket(event.counts.evidenceCount) }),
+      ...(event.errorCategory === undefined ? {} : { error_category: event.errorCategory }),
+      ...(event.errorStage === undefined ? {} : { error_stage: event.errorStage }),
       mek_version: MAA_EVIDENCE_VERSION,
       platform: process.platform,
       arch: process.arch,

@@ -43,29 +43,44 @@ be disabled at any time.
 - Original-material feedback (logs, screenshots, source) is never sent automatically; it always
   requires an interactive preview and an explicit `UPLOAD` confirmation.
 
-No stable installation, device, user, or advertising identifier is created.
+When operational telemetry first attempts to send, MEK creates a random installation seed in the
+local configuration directory. It is not derived from hardware, operating-system accounts, usernames,
+network addresses, or other machine identifiers. MEK sends only a one-way SHA-256 derivative as
+Sentry's anonymous user ID so maintainers can estimate active installations and command frequency.
+The seed is deleted by `telemetry disable`; enabling telemetry later creates a new identity.
+Clearing the configuration, reinstalling without preserving it, or using another device also
+counts as another installation. Consequently, this is not an exact count of people and it is not
+used for advertising or cross-product tracking.
 
 ## Operational telemetry
 
 When enabled, an operational event may contain only:
 
 - MaaEvidenceKit version;
+- telemetry schema version and an anonymous random installation ID as described above;
 - command category, component, and success/error status;
-- rounded command duration;
+- rounded command duration and a low-cardinality duration bucket;
 - operating-system platform and CPU architecture;
 - Node.js major version;
 - aggregate counts only: evidence totals, adapters used, total signals, counts of
   recognition-detail, cycle-exit-blocker, task-anomaly, possible-mirrored-task, and
   recognition-to-MSE-reference records, plus the number of runtime nodes omitted by an automatic
   correlation limit; for `repo-docs`, aggregate counts of selected and list-omitted `AGENTS.md` and
-  `SKILL.md`, truncated `AGENTS.md` text, and whether the repository scan hit its entry limit.
+  `SKILL.md`, truncated `AGENTS.md` text, and whether the repository scan hit its entry limit;
+- low-cardinality evidence-count bucket and, for failed commands, a deterministic error category
+  and execution stage. Error messages and stack traces remain excluded.
 
 Operational telemetry does not intentionally contain command arguments, file paths, environment
-variables, usernames, logs, source code, screenshots, exception messages, or stack traces.
+variables, usernames, hardware identifiers, logs, source code, screenshots, exception messages,
+or stack traces.
 The Sentry SDK is configured with `sendDefaultPii: false` and a client-side event allowlist.
 Delivery is best-effort: a CLI command gives its operational event a 200ms flush budget, and a
 delivery timeout does not change the command's result. Feedback submissions use a separate, longer
 confirmation flow.
+
+MEK's own repository tests, release checks, and package smoke tests disable operational telemetry
+so development failures do not inflate public usage counts. This does not disable the documented
+default for consumers running MEK in their own CI or other non-interactive environments.
 
 `repo-docs` reads repository documents only on the local machine. Its operational telemetry does
 not include checkout paths, relative paths, filenames, document sizes, document text, evidence IDs,

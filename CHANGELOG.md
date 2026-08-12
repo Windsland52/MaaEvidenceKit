@@ -7,6 +7,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-08-12
+
+### Added
+
+- Add a random, locally stored anonymous installation identity for estimating active installations
+  and command frequency without deriving an identifier from hardware or operating-system accounts.
+- Add queryable telemetry schema, duration/evidence buckets, and deterministic error category/stage
+  tags with versioned Sentry releases.
+
+### Fixed
+
+- Disable operational telemetry in MEK's own tests and release workflows so development failures
+  do not inflate usage or failure counts.
+
 ## [0.3.1] - 2026-08-12
 
 ### Added
@@ -113,7 +127,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Whitelist-only operational telemetry, disabled default PII, and mandatory preview/confirmation for
   feedback attachments.
 
-[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.1.1...v0.2.0

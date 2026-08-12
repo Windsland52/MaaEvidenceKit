@@ -192,8 +192,8 @@ inspection 记录的 artifact 原路径已不可用,只能继续做 `view`/`sear
 
 ## 遥测与反馈
 
-核心检查离线运行。匿名运行遥测(仅聚合计数,不含路径、参数、用户名、日志、源码或截图)
-默认启用,可用 `telemetry disable` 或环境变量 `MAA_EVIDENCE_TELEMETRY=0` 关闭:
+核心检查离线运行。匿名运行遥测(仅聚合计数,不含路径、参数、用户名、硬件标识、日志、源码
+或截图)默认启用,可用 `telemetry disable` 或环境变量 `MAA_EVIDENCE_TELEMETRY=0` 关闭:
 
 ```powershell
 maa-evidence telemetry status
@@ -204,6 +204,10 @@ maa-evidence telemetry disable
 CI 和非交互环境默认发送聚合遥测,但从不弹出交互提示。运行遥测为 best-effort,每次命令使用
 200ms 投递预算,超时不会改变命令结果;原始日志、截图或源代码等附件
 **不会自动发送**,只能通过交互式 `feedback` 命令发送,并且每次都必须预览后输入 `UPLOAD`。
+首次尝试发送时会在本地配置目录创建随机安装种子,并只向 Sentry 发送其单向 SHA-256
+派生值,用于估算活跃安装数、活跃日期和命令频率。它不读取机器码、系统账户或硬件指纹;
+运行 `telemetry disable` 会删除该种子。多设备、重装或清理配置会形成新的安装 ID,因此
+统计结果不等于精确人数。
 反馈按严重程度分为 `blocker`(无法使用/崩溃)、`bug`、`suggestion`、`other` 四类,默认
 `other`。20MB 只是配额警告,不是 MEK 拒绝上限。完整说明见 [`PRIVACY.md`](PRIVACY.md)。
 

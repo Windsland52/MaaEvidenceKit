@@ -126,7 +126,10 @@ geometry.
 ## Respect the telemetry choice
 
 Anonymous aggregate operational telemetry is enabled by default, including in CI and non-TTY use,
-and never prompts. It excludes paths, arguments, logs, source, screenshots, and exception messages.
+and never prompts. It excludes paths, arguments, logs, source, screenshots, exception messages, and
+hardware identifiers. When enabled, it uses a random local installation identity to estimate active
+installations and invocation frequency; it is not derived from a machine identifier, and disabling
+telemetry deletes the local identity.
 Respect `maa-evidence telemetry disable` and `MAA_EVIDENCE_TELEMETRY=0`; never re-enable telemetry
 after the user or environment disables it. Original-material feedback remains separate and always
 requires an interactive preview plus explicit `UPLOAD` confirmation.

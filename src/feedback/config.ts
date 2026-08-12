@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { maaEvidenceConfigDirectory } from "../config.js";
+import { removeInstallationIdentity } from "./installation.js";
 
 export const TELEMETRY_CONFIG_SCHEMA_VERSION = "maa-evidence-telemetry/v1" as const;
 
@@ -48,6 +49,7 @@ export async function setTelemetryEnabled(enabled: boolean, directory?: string):
     encoding: "utf8",
     mode: 0o600,
   });
+  if (!enabled) await removeInstallationIdentity(targetDirectory);
 }
 
 export async function promptForTelemetryConsent(): Promise<TelemetryStatus> {
