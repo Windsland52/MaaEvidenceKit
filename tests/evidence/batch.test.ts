@@ -65,6 +65,56 @@ test("runs search, view, and window requests against one inspection in request o
   expect(batch.results[2]?.result).toMatchObject({ startLine: 1, endLine: 3 });
 });
 
+test("resolves a view from search parameters and reports the match count", async () => {
+  const artifact = {
+    id: artifactId("maafw.log"),
+    path: "/logs/maafw.log",
+    relativePath: "maafw.log",
+    kind: "maa_log" as const,
+    status: "selected" as const,
+  };
+  const source = { artifactId: artifact.id, path: artifact.relativePath, line: 1, node: "Reward" };
+  const inspection: InspectionResult = {
+    schemaVersion: EVIDENCE_SCHEMA_VERSION,
+    kind: "mla",
+    generatedAt: "2026-08-06T00:00:00.000Z",
+    input: { path: "/logs" },
+    artifacts: [artifact],
+    evidence: [
+      { id: "evidence-a", kind: "mla.action_detail", summary: "first", source, data: { order: 1 } },
+      { id: "evidence-b", kind: "mla.action_detail", summary: "second", source, data: { order: 2 } },
+    ],
+    missingEvidence: [],
+    warnings: [],
+    statistics: {},
+    details: {},
+  };
+
+  const batch = await queryEvidenceBatch(inspection, [
+    { id: "fact", operation: "view", query: { kinds: ["mla.action_detail"] } },
+  ]);
+
+  // The first match is rendered and the count shows the choice was not the only one.
+  expect(batch.results[0]).toMatchObject({
+    id: "fact",
+    operation: "view",
+    result: { id: "evidence-a" },
+    matchCount: 2,
+  });
+
+  const byId = await queryEvidenceBatch(inspection, [
+    { operation: "view", evidenceId: "evidence-b" },
+  ]);
+  // An ID lookup is exact, so it reports no match count.
+  expect(byId.results[0]).toMatchObject({ operation: "view", result: { id: "evidence-b" } });
+  expect(byId.results[0]).not.toHaveProperty("matchCount");
+
+  // An empty result is an error rather than a silent empty view.
+  await expect(queryEvidenceBatch(inspection, [
+    { operation: "view", query: { kinds: ["mla.nothing_matches"] } },
+  ])).rejects.toThrow("View query matched no evidence.");
+});
+
 test("rejects empty, oversized, and unresolved batches", async () => {
   const inspection: InspectionResult = {
     schemaVersion: EVIDENCE_SCHEMA_VERSION,

@@ -119,10 +119,15 @@ function parseRequest(value: unknown, index: number): EvidenceBatchRequest {
     return { ...identity, operation, ...(query === undefined ? {} : { query }) };
   }
   if (operation === "view") {
-    knownKeys(record, ["id", "operation", "evidenceId"], label);
+    knownKeys(record, ["id", "operation", "evidenceId", "query"], label);
     const evidenceId = optionalString(record, "evidenceId", label);
-    if (evidenceId === undefined) throw new UsageError(`${label}.evidenceId is required.`);
-    return { ...identity, operation, evidenceId };
+    const query = parseSearchQuery(record["query"], `${label}.query`);
+    if (evidenceId !== undefined && query !== undefined) {
+      throw new UsageError(`${label} must use either evidenceId or query, not both.`);
+    }
+    if (evidenceId !== undefined) return { ...identity, operation, evidenceId };
+    if (query !== undefined) return { ...identity, operation, query };
+    throw new UsageError(`${label}.evidenceId or ${label}.query is required.`);
   }
   if (operation === "window") {
     knownKeys(record, ["id", "operation", "query"], label);

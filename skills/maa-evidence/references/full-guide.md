@@ -461,8 +461,22 @@ maa-evidence batch --input inspection.json --requests queries.json --output answ
 
 Batch output preserves request order and optional IDs. A batch contains 1 through 100 requests and
 fails as a whole on an invalid request or unresolved evidence/artifact ID. A request cannot consume
-IDs returned by another request in the same batch; run search and dependent view/window operations
-as two batches.
+IDs returned by another request in the same batch, so a `view` that depends on a preceding `search`
+result normally costs a second batch.
+
+To avoid that second round trip, `view` also accepts the same `query` object as `search` and renders
+the first matching record; the result then carries `matchCount` so you can tell a unique match from an
+arbitrary first pick. Use `evidenceId` when you already have an exact ID, and `query` when the batch
+would otherwise have to fetch IDs first:
+
+```json
+[
+  { "id": "fact", "operation": "view", "query": { "kinds": ["mla.pipeline_override"], "nodes": ["EatCandyStart"] } }
+]
+```
+
+A `view` request must use either `evidenceId` or `query`, never both. A query that matches nothing
+fails the batch instead of returning an empty view, because the caller asked for a specific fact.
 
 `search` reads the saved inspection only; it does not re-run MLA or MSE. Artifact ID, kind, node,
 and task filters are exact and case-sensitive. A node filter also matches retained
