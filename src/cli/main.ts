@@ -44,6 +44,7 @@ import { flag, integerOption, option, options, parseArguments, type ParsedArgume
 import { runWithAutomaticUpdates } from "./auto-update.js";
 import { readBatchRequests } from "./batch-input.js";
 import { emit, readInspection } from "./io.js";
+import { rejectUnknownOptions } from "./options.js";
 import { withLocalProfile } from "./profile.js";
 
 const HELP = `MaaEvidenceKit — deterministic MaaFramework evidence extraction
@@ -552,6 +553,9 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<numb
       process.stdout.write(HELP);
       return 0;
     }
+    // Reject options the named command does not understand, so a misplaced flag cannot look like it
+    // took effect.
+    rejectUnknownOptions(parsed);
     switch (requirePositional(parsed, 0, "command")) {
       case "mla":
         rejectUnexpectedPositionals(parsed, 3);

@@ -2,6 +2,16 @@
 
 `maa-evidence` 命令行工具的完整命令与行为参考。快速上手与安装见仓库 [`README.md`](../README.md)。
 
+## 选项按命令校验
+
+每个命令只接受自己真正会读取的选项;把别的命令的选项用在这里会被**拒绝并列出该命令接受的选项**,
+而不是被静默忽略。例如 `mla inspect --token t` 会报
+`Unknown option for mla inspect: --token`,而 `--summary` 只被检查类命令接受(`mla inspect`、
+`mse inspect`、`mse resolve`、`repo-docs`、`inspect`)——它只影响这些命令的 stdout,在 `view` /
+`search` 上没有任何效果,因此在那些命令上会被拒绝。`--git-ref` 仅 `mse inspect` 接受。
+
+这条规则的目的很简单:一个看起来生效、实际什么也没做的旗标,比直接报错更危险。
+
 ## 使用前提
 
 调用方负责先解压 ZIP,再将完整文件夹交给 MEK。MEK 自行选择可由 MLA/MSE 处理的材料。
