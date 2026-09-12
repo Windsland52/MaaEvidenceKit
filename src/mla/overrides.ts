@@ -93,9 +93,12 @@ export type MlaPipelineOverrideExtraction = {
  * marker. Two deliberate limits keep it from over-counting:
  *
  * - the line must carry a timestamp, so a bare JSON patch payload is not a candidate;
- * - the token must appear inside brackets, so a line that merely quotes `"pipeline_override"` in
- *   its JSON payload is not a candidate. The token is matched as a substring so a renamed symbol
- *   such as `future_override_pipeline` still counts.
+ * - the token must appear inside brackets. This does not exclude every payload: a patches array
+ *   written as `[{"override_pipeline": ...}]` contains the token in a bracketed position and is
+ *   counted. That direction is safe, because the count is only used to decide whether an empty
+ *   extraction should raise a warning, so over-counting can only make the warning fire more often,
+ *   never suppress a real miss. The token is also matched without a word boundary, so a renamed
+ *   symbol such as `future_override_pipeline` still counts.
  *
  * The count is a lower bound on override-bearing lines and is not a record count: a task submission
  * that carries an override is counted even though it yields no override observation of its own.

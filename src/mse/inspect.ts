@@ -206,6 +206,23 @@ export async function inspectMse(
       message: `Read the project from git ref ${options.gitRef} (commit ${gitSource.commit.slice(0, 12)}), not from the working tree. The content was extracted to ${gitSource.root} (${gitSource.fileCount} tracked files); artifact paths point there, so re-run against the ref to read a window after that directory is gone. Only tracked files exist at a ref, so untracked and ignored working-tree files are absent.`,
     });
   }
+  if (gitSource !== null && gitSource.skippedSymlinks.length > 0) {
+    warnings.push({
+      code: "mse_git_ref_symlinks_skipped",
+      message: `${gitSource.skippedSymlinks.length} tracked symbolic link(s) at ${options.gitRef} were not materialized (${gitSource.skippedSymlinks.join(", ")}). A symlink's blob holds its target path, so writing it as a regular file would misrepresent the ref; read those targets from the ref directly if they matter.`,
+    });
+    missingEvidence.push({
+      code: "mse_git_ref_symlinks_not_materialized",
+      message: `Symbolic links are not part of the materialized tree, so anything they point to may be missing from this inspection.`,
+      path: resolvedPath,
+    });
+  }
+  if (gitSource !== null && gitSource.skippedSubmodules.length > 0) {
+    warnings.push({
+      code: "mse_git_ref_submodules_skipped",
+      message: `${gitSource.skippedSubmodules.length} submodule(s) at ${options.gitRef} were not materialized (${gitSource.skippedSubmodules.join(", ")}); their content is not in this repository's object database.`,
+    });
+  }
   return {
     schemaVersion: EVIDENCE_SCHEMA_VERSION,
     kind: "mse",

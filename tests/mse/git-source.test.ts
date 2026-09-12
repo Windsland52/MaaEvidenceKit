@@ -19,8 +19,13 @@ async function temporary(label: string): Promise<string> {
   return root;
 }
 
-function git(cwd: string, args: readonly string[]): string {
-  return execFileSync("git", args as string[], { cwd, encoding: "utf8", windowsHide: true });
+function git(cwd: string, args: readonly string[], input?: string): string {
+  return execFileSync("git", args as string[], {
+    cwd,
+    encoding: "utf8",
+    windowsHide: true,
+    ...(input === undefined ? {} : { input }),
+  });
 }
 
 async function repository(): Promise<{ root: string; first: string; second: string }> {
@@ -66,6 +71,27 @@ test("resolves a symbolic ref and a subdirectory input", async () => {
   expect(atHead.commit).toBe(second);
   expect(path.basename(atHead.path)).toBe("assets");
   expect(await readFile(path.join(atHead.path, "interface.json"), "utf8")).toBe('{"name":"NEW"}');
+});
+
+test("skips symbolic links instead of materializing their target path as file content", async () => {
+  const { root } = await repository();
+  // Git stores a symlink as a blob holding the target path. Creating one on disk is not portable
+  // (Windows needs a privilege), so write the blob and register it with mode 120000 through the
+  // index, which is exactly how git records a link.
+  const blob = git(root, ["hash-object", "-w", "--stdin"], "interface.json").trim();
+  git(root, ["update-index", "--add", "--cacheinfo", "120000", blob, "assets/link.json"]);
+  git(root, ["commit", "-q", "-m", "add a symbolic link"]);
+
+  const materialized = await materializeGitRef(path.join(root, "assets"), "HEAD");
+  temporaryRoots.push(materialized.root);
+
+  expect(git(root, ["ls-tree", "-r", "HEAD"]).split("\n").find((line) => line.includes("link.json")))
+    .toContain("120000");
+  expect(materialized.skippedSymlinks).toEqual(["assets/link.json"]);
+  // The link is not written at all, so nothing can load it as if it were a real file.
+  await expect(readFile(path.join(materialized.path, "link.json"), "utf8")).rejects.toThrow();
+  // The regular file is still materialized alongside the skipped link.
+  expect(await readFile(path.join(materialized.path, "interface.json"), "utf8")).toBe('{"name":"NEW"}');
 });
 
 test("rejects an unresolvable ref, an option-like ref, and a path absent at the ref", async () => {

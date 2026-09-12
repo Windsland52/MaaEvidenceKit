@@ -7,6 +7,7 @@ export {
   type TelemetryStatus,
 } from "./config.js";
 export {
+  consumeApprovalToken,
   createApprovalToken,
   feedbackPayloadDigest,
   readApprovalToken,

@@ -26,6 +26,10 @@ export type GitSourceMaterialization = {
   path: string;
   fileCount: number;
   bytes: number;
+  /** Repository-relative paths of submodule entries that were not materialized. */
+  skippedSubmodules: string[];
+  /** Repository-relative paths of symlink entries that were not materialized. */
+  skippedSymlinks: string[];
 };
 
 function git(cwd: string, args: readonly string[]): Promise<string> {
@@ -52,28 +56,31 @@ async function optionalGit(cwd: string, args: readonly string[]): Promise<string
 }
 
 /**
- * List the tracked files under `prefix` at `commit`, as `{ mode, objectId, relativePath }`.
+ * List the tracked files under `prefix` at `commit`, as `{ mode, relativePath }`.
  *
- * Submodule entries are skipped: their content is not in this object database, so materializing them
- * would silently produce an empty directory that looks like a project with missing files.
+ * Two entry kinds are reported back rather than materialized:
+ *
+ * - submodules (mode 160000), whose content is not in this object database, so materializing them
+ *   would silently produce an empty directory that looks like a project with missing files;
+ * - symlinks (mode 120000), whose blob holds the link target path. Writing that blob to a regular
+ *   file would replace a link with a text file containing a path, which is not what the ref means,
+ *   and any resource loaded through it would then be wrong rather than absent.
  */
 async function listTree(
   cwd: string,
   commit: string,
   prefix: string,
-): Promise<Array<{ relativePath: string }>> {
+): Promise<Array<{ mode: string; relativePath: string }>> {
   const args = ["ls-tree", "-r", "-z", "--full-tree", commit];
   if (prefix !== "") args.push("--", prefix);
   const output = await git(cwd, args);
-  const entries: Array<{ relativePath: string }> = [];
+  const entries: Array<{ mode: string; relativePath: string }> = [];
   for (const record of output.split("\0")) {
     if (record === "") continue;
     const tab = record.indexOf("\t");
     if (tab < 0) continue;
     const meta = record.slice(0, tab).split(" ");
-    const mode = meta[0] ?? "";
-    if (mode === "160000") continue;
-    entries.push({ relativePath: record.slice(tab + 1) });
+    entries.push({ mode: meta[0] ?? "", relativePath: record.slice(tab + 1) });
   }
   return entries;
 }
@@ -136,9 +143,12 @@ export async function materializeGitRef(
     }
   }
 
-  const entries = await listTree(root, commit, prefix);
+  const allEntries = await listTree(root, commit, prefix);
+  const submodules = allEntries.filter((entry) => entry.mode === "160000");
+  const symlinks = allEntries.filter((entry) => entry.mode === "120000");
+  const entries = allEntries.filter((entry) => entry.mode !== "160000" && entry.mode !== "120000");
   if (entries.length === 0) {
-    throw new UsageError(`No tracked files found at ${prefix === "" ? "/" : prefix} in ${ref}.`);
+    throw new UsageError(`No materializable tracked files found at ${prefix === "" ? "/" : prefix} in ${ref}.`);
   }
 
   const destination = await mkdtemp(path.join(tmpdir(), "mek-git-ref-"));
@@ -164,6 +174,8 @@ export async function materializeGitRef(
     commit,
     path: path.join(destination, ...prefix.split("/").filter((part) => part !== "")),
     fileCount: entries.length,
+    skippedSubmodules: submodules.map((entry) => entry.relativePath),
+    skippedSymlinks: symlinks.map((entry) => entry.relativePath),
     bytes,
   };
 }

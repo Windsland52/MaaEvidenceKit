@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, unlink, writeFile } from "node:fs/promises";
 
 import { UsageError } from "../evidence/index.js";
 
@@ -24,9 +24,13 @@ export type ApprovalTokenFile = {
  * Digest the parts of a preview that a human approving it actually reviews: the message, the
  * category, the component, and each attachment's name and size. Attachment *bytes* are deliberately
  * not covered: the payload digest binds the submission to what the approver read, and every upload
- * still passes the unchanged `beforeSend` scrubbing, so a swapped file cannot smuggle content past
- * redaction. The digest exists to stop an approval being reused for different words or a different
- * attachment set, not to attest file contents.
+ * still passes the unchanged `beforeSend` scrubbing, so a same-size file swapped in after approval
+ * cannot change the message that was approved. The digest exists to stop an approval being reused
+ * for different words or a different attachment set, not to attest file contents.
+ *
+ * The digest is unkeyed. It is not a signature: it makes an approval unforgeable for different
+ * content, but it does not authenticate who approved, so it is a policy gate rather than a
+ * cryptographic boundary. See PRIVACY.md.
  */
 export function feedbackPayloadDigest(input: {
   message: string;
@@ -127,4 +131,34 @@ export async function readApprovalToken(
     );
   }
   return record as ApprovalTokenFile;
+}
+
+/**
+ * Validate an approval token and remove it, so one approval authorizes exactly one submission.
+ *
+ * The token is deleted before the upload is attempted. Consuming first is deliberate: if the
+ * upload fails, the approval is spent and the caller must approve again, which is the safe
+ * direction. Deleting afterwards would leave a window in which a failed or interrupted run still
+ * holds a replayable approval.
+ */
+export async function consumeApprovalToken(
+  path: string,
+  payload: {
+    message: string;
+    category: string;
+    component: string;
+    attachments: readonly { filename: string; sizeBytes: number }[];
+  },
+  now: Date = new Date(),
+): Promise<ApprovalTokenFile> {
+  const token = await readApprovalToken(path, payload, now);
+  try {
+    await unlink(path);
+  } catch (error: unknown) {
+    throw new UsageError(
+      `Approval token could not be consumed at ${path}: ${error instanceof Error ? error.message : String(error)}. `
+      + "Refusing to submit, because the approval must not remain replayable.",
+    );
+  }
+  return token;
 }

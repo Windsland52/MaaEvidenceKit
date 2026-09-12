@@ -12,8 +12,8 @@ import {
   MAA_EVIDENCE_VERSION,
   getTelemetryStatus,
   createApprovalToken,
+  consumeApprovalToken,
   previewFeedback,
-  readApprovalToken,
   writeApprovalToken,
   queryEvidenceBatch,
   UsageError,
@@ -424,8 +424,9 @@ async function runFeedback(parsed: ParsedArguments): Promise<void> {
   const tokenPath = option(parsed, "--token");
   if (tokenPath !== undefined) {
     // A valid approval stands in for the terminal prompt; an invalid or mismatched token is refused
-    // rather than silently falling back to prompting.
-    await readApprovalToken(tokenPath, {
+    // rather than silently falling back to prompting. Consuming the token before uploading keeps one
+    // approval to one submission.
+    await consumeApprovalToken(tokenPath, {
       message: preview.message,
       category: preview.category,
       component: preview.component,

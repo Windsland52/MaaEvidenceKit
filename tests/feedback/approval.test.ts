@@ -1,10 +1,11 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { afterEach, expect, test } from "vitest";
 
 import {
+  consumeApprovalToken,
   createApprovalToken,
   feedbackPayloadDigest,
   readApprovalToken,
@@ -64,6 +65,35 @@ test("binds the approval to the exact payload", async () => {
   }, later)).rejects.toThrow("does not match this feedback payload");
   // Attachment order is not part of the approval identity.
   await expect(readApprovalToken(file, payload, later)).resolves.toBeDefined();
+});
+
+test("consumes an approval so one approval authorizes one submission", async () => {
+  const file = await temporaryFile("consume");
+  const now = new Date("2026-09-12T00:00:00.000Z");
+  const token = createApprovalToken({ ...payload, now });
+  await writeApprovalToken(file, token);
+
+  // First use succeeds and removes the token.
+  const consumed = await consumeApprovalToken(file, payload, new Date("2026-09-12T00:05:00.000Z"));
+  expect(consumed.token).toBe(token.token);
+  await expect(readFile(file, "utf8")).rejects.toThrow();
+
+  // The same approval cannot be replayed.
+  await expect(consumeApprovalToken(file, payload, new Date("2026-09-12T00:06:00.000Z")))
+    .rejects.toThrow("Approval token not found");
+});
+
+test("refuses to submit when the approval cannot be consumed", async () => {
+  // A directory in the token's place cannot be unlinked as a file, so consumption fails and the
+  // caller must approve again rather than submitting against a still-replayable approval.
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-approval-unlinkable-"));
+  temporaryRoots.push(root);
+  const directory = path.join(root, "as-token");
+  await mkdir(directory, { recursive: true });
+  await writeFile(path.join(directory, "not-a-token"), "x", "utf8");
+
+  await expect(consumeApprovalToken(directory, payload, new Date("2026-09-12T00:05:00.000Z")))
+    .rejects.toThrow();
 });
 
 test("refuses an expired approval instead of falling back to prompting", async () => {
