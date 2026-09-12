@@ -1,11 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { afterEach, expect, test } from "vitest";
 
-import { materializeGitRef } from "../../src/mse/git-source.js";
+import { materializeGitRef, pruneGitRefMaterializations } from "../../src/mse/git-source.js";
 
 const temporaryRoots: string[] = [];
 
@@ -92,6 +92,70 @@ test("skips symbolic links instead of materializing their target path as file co
   await expect(readFile(path.join(materialized.path, "link.json"), "utf8")).rejects.toThrow();
   // The regular file is still materialized alongside the skipped link.
   expect(await readFile(path.join(materialized.path, "interface.json"), "utf8")).toBe('{"name":"NEW"}');
+});
+
+test("prunes only old materializations and keeps the newest ones", async () => {
+  const directory = await temporary("prune");
+  const now = Date.now();
+  const stale = ["mek-git-ref-old1", "mek-git-ref-old2"];
+  const fresh = ["mek-git-ref-new1", "mek-git-ref-new2"];
+  for (const name of [...stale, ...fresh]) {
+    await mkdir(path.join(directory, name), { recursive: true });
+  }
+  // Unrelated directories must never be touched, even when they are old.
+  await mkdir(path.join(directory, "someone-elses-data"), { recursive: true });
+  const oldTime = new Date(now - 4 * 60 * 60 * 1000);
+  for (const name of stale) {
+    await utimes(path.join(directory, name), oldTime, oldTime);
+  }
+
+  const result = await pruneGitRefMaterializations({
+    directory,
+    now,
+    maxAgeMs: 60 * 60 * 1000,
+    keepNewest: 4,
+  });
+
+  expect(result.removed.sort()).toEqual(
+    stale.map((name) => path.join(directory, name)).sort(),
+  );
+  expect(result.kept).toBe(2);
+  const remaining = (await readdir(directory, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+  expect(remaining).toEqual([...fresh, "someone-elses-data"].sort());
+});
+
+test("caps how many materializations are retained even when all are recent", async () => {
+  const directory = await temporary("prune-cap");
+  const now = Date.now();
+  for (const [index, name] of ["a", "b", "c"].entries()) {
+    const full = path.join(directory, `mek-git-ref-${name}`);
+    await mkdir(full, { recursive: true });
+    const time = new Date(now - (3 - index) * 1000);
+    await utimes(full, time, time);
+  }
+
+  const result = await pruneGitRefMaterializations({ directory, now, keepNewest: 2 });
+
+  expect(result.kept).toBe(2);
+  expect(result.removed).toEqual([path.join(directory, "mek-git-ref-a")]);
+});
+
+test("disposes a materialized tree on request and leaves nothing behind on failure", async () => {
+  const { root } = await repository();
+
+  const materialized = await materializeGitRef(root, "HEAD");
+  expect(await readdir(materialized.root)).toContain("assets");
+  await materialized.cleanup();
+  await expect(readdir(materialized.root)).rejects.toThrow();
+
+  // A materialization that fails part-way must not leave a partial tree in tmp.
+  const before = (await readdir(os.tmpdir())).filter((name) => name.startsWith("mek-git-ref-"));
+  await expect(materializeGitRef(path.join(root, "absent"), "HEAD")).rejects.toThrow("does not exist");
+  const after = (await readdir(os.tmpdir())).filter((name) => name.startsWith("mek-git-ref-"));
+  expect(after.length).toBe(before.length);
 });
 
 test("rejects an unresolvable ref, an option-like ref, and a path absent at the ref", async () => {

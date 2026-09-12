@@ -1,4 +1,11 @@
 export { discoverMseProjects, type MseProjectCandidate, type MseProjectDiscovery } from "./discovery.js";
+export {
+  MATERIALIZATION_KEEP_NEWEST,
+  MATERIALIZATION_MAX_AGE_MS,
+  materializeGitRef,
+  pruneGitRefMaterializations,
+  type GitSourceMaterialization,
+} from "./git-source.js";
 export type {
   MseCompatibility,
   MseConfigurationSummary,

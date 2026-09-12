@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -10,6 +10,17 @@ const run = promisify(execFile);
 
 /** Cap the total bytes written for one ref so a huge repository cannot exhaust the disk silently. */
 const MAX_MATERIALIZED_BYTES = 512 * 1024 * 1024;
+
+/**
+ * Materialized ref content is inspection output, not scratch: artifact paths point into it and
+ * `window` reads it after the process exits, so it must outlive the run and cannot be deleted on
+ * exit. Retention is therefore bounded rather than immediate: every materialization prunes
+ * directories older than this window, and a caller may also dispose of one explicitly.
+ */
+const MATERIALIZATION_PREFIX = "mek-git-ref-";
+export const MATERIALIZATION_MAX_AGE_MS = 60 * 60 * 1000;
+/** Extra safety net: never keep more than this many materializations even if all are recent. */
+export const MATERIALIZATION_KEEP_NEWEST = 4;
 
 /**
  * A git ref never starts with `-`, so rejecting that keeps a ref from being read as an option by the
@@ -30,7 +41,65 @@ export type GitSourceMaterialization = {
   skippedSubmodules: string[];
   /** Repository-relative paths of symlink entries that were not materialized. */
   skippedSymlinks: string[];
+  /** Remove this materialized tree. Safe to call once the inspection output is no longer needed. */
+  cleanup: () => Promise<void>;
 };
+
+/**
+ * Remove materialized git-ref trees that are no longer worth keeping.
+ *
+ * Retention exists because a materialized tree cannot be deleted when the process exits: the
+ * inspection reports artifact paths inside it and `window` reads them afterwards. Without pruning,
+ * every `--git-ref` run would leave a full copy of the project behind. Pruning only touches
+ * directories MEK created (recognized by prefix) and never reports a failure to the caller, since a
+ * concurrent run may be using one of them.
+ */
+export async function pruneGitRefMaterializations(options: {
+  directory?: string;
+  now?: number;
+  maxAgeMs?: number;
+  keepNewest?: number;
+} = {}): Promise<{ removed: string[]; kept: number }> {
+  const directory = options.directory ?? tmpdir();
+  const now = options.now ?? Date.now();
+  const maxAgeMs = options.maxAgeMs ?? MATERIALIZATION_MAX_AGE_MS;
+  const keepNewest = options.keepNewest ?? MATERIALIZATION_KEEP_NEWEST;
+  let names: string[];
+  try {
+    names = await readdir(directory);
+  } catch {
+    return { removed: [], kept: 0 };
+  }
+  const candidates: Array<{ path: string; mtimeMs: number }> = [];
+  for (const name of names) {
+    if (!name.startsWith(MATERIALIZATION_PREFIX)) continue;
+    const full = path.join(directory, name);
+    try {
+      const metadata = await stat(full);
+      if (metadata.isDirectory()) candidates.push({ path: full, mtimeMs: metadata.mtimeMs });
+    } catch {
+      // A directory that vanished mid-scan needs no action.
+    }
+  }
+  candidates.sort((left, right) => right.mtimeMs - left.mtimeMs);
+  const removed: string[] = [];
+  let kept = 0;
+  for (const [index, candidate] of candidates.entries()) {
+    const tooOld = now - candidate.mtimeMs > maxAgeMs;
+    const beyondNewest = index >= keepNewest;
+    if (!tooOld && !beyondNewest) {
+      kept += 1;
+      continue;
+    }
+    try {
+      await rm(candidate.path, { recursive: true, force: true });
+      removed.push(candidate.path);
+    } catch {
+      // Keep going: one stuck directory must not block pruning the rest.
+    }
+  }
+  return { removed, kept };
+}
 
 function git(cwd: string, args: readonly string[]): Promise<string> {
   return run("git", args, { cwd, maxBuffer: 64 * 1024 * 1024, windowsHide: true })
@@ -118,6 +187,8 @@ export async function materializeGitRef(
   if (!SAFE_REF.test(ref)) {
     throw new UsageError(`Invalid --git-ref value: ${ref}`);
   }
+  // Bounded retention: drop materializations from earlier runs before adding another one.
+  await pruneGitRefMaterializations();
   const resolved = path.resolve(inputPath);
   const probe = await existingAncestor(resolved);
   const repositoryRoot = await optionalGit(probe, ["rev-parse", "--show-toplevel"]);
@@ -151,31 +222,41 @@ export async function materializeGitRef(
     throw new UsageError(`No materializable tracked files found at ${prefix === "" ? "/" : prefix} in ${ref}.`);
   }
 
-  const destination = await mkdtemp(path.join(tmpdir(), "mek-git-ref-"));
-  let bytes = 0;
-  for (const entry of entries) {
-    const buffer = await gitBytes(root, ["show", `${commit}:${entry.relativePath}`]);
-    bytes += buffer.byteLength;
-    if (bytes > MAX_MATERIALIZED_BYTES) {
-      throw new UsageError(
-        `--git-ref refused to materialize more than ${MAX_MATERIALIZED_BYTES} bytes at ${ref}.`,
-      );
-    }
-    // `relativePath` is repository-relative with forward slashes. Keep the full repository-relative
-    // path so the materialized tree mirrors the repository layout; the requested prefix is then just
-    // a path inside it, which keeps `result.path` and the written files consistent.
-    const target = path.join(destination, entry.relativePath.replaceAll("/", path.sep));
-    await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, buffer);
-  }
-
-  return {
-    root: destination,
-    commit,
-    path: path.join(destination, ...prefix.split("/").filter((part) => part !== "")),
-    fileCount: entries.length,
-    skippedSubmodules: submodules.map((entry) => entry.relativePath),
-    skippedSymlinks: symlinks.map((entry) => entry.relativePath),
-    bytes,
+  const destination = await mkdtemp(path.join(tmpdir(), MATERIALIZATION_PREFIX));
+  const cleanup = async (): Promise<void> => {
+    await rm(destination, { recursive: true, force: true });
   };
+  try {
+    let bytes = 0;
+    for (const entry of entries) {
+      const buffer = await gitBytes(root, ["show", `${commit}:${entry.relativePath}`]);
+      bytes += buffer.byteLength;
+      if (bytes > MAX_MATERIALIZED_BYTES) {
+        throw new UsageError(
+          `--git-ref refused to materialize more than ${MAX_MATERIALIZED_BYTES} bytes at ${ref}.`,
+        );
+      }
+      // `relativePath` is repository-relative with forward slashes. Keep the full repository-relative
+      // path so the materialized tree mirrors the repository layout; the requested prefix is then just
+      // a path inside it, which keeps `result.path` and the written files consistent.
+      const target = path.join(destination, entry.relativePath.replaceAll("/", path.sep));
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeFile(target, buffer);
+    }
+
+    return {
+      root: destination,
+      commit,
+      path: path.join(destination, ...prefix.split("/").filter((part) => part !== "")),
+      fileCount: entries.length,
+      skippedSubmodules: submodules.map((entry) => entry.relativePath),
+      skippedSymlinks: symlinks.map((entry) => entry.relativePath),
+      bytes,
+      cleanup,
+    };
+  } catch (error: unknown) {
+    // A failed materialization must not leave a partial tree behind.
+    await cleanup().catch(() => undefined);
+    throw error;
+  }
 }

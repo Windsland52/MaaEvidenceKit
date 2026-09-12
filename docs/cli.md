@@ -82,6 +82,16 @@ maa-evidence mse inspect C:\path\to\project --git-ref v2.28.0 --task StartUp --f
 被忽略的文件不会出现。结果会输出 `mse_git_ref_materialized` warning,其中包含临时目录路径;
 artifact 路径指向该临时目录,因此若临时目录已被清理,`window` 需要重新按该 ref 运行。
 
+物化内容属于**输出而非临时垃圾**:artifact 路径指向它,`window` 在进程结束后仍会读取它,所以它不会
+随进程退出被删除。回收采用**有界保留**:每次物化前清理超过 1 小时的物化目录,并最多保留最新 4 个;
+只清理 MEK 自己创建的目录(按 `mek-git-ref-` 前缀识别),不会碰其他文件。物化失败时**不会留下半成品**。
+SDK 侧可显式释放:`materializeGitRef` 返回的 `cleanup()` 会删除该目录;`pruneGitRefMaterializations()`
+可在需要时主动回收。
+
+被跟踪的**符号链接不会被物化**(symlink 的 blob 存的是目标路径,写成普通文件会误represent)，
+会输出 `mse_git_ref_symlinks_skipped` 与对应 `missingEvidence`;submodule 同样不物化并输出
+`mse_git_ref_submodules_skipped`。
+
 未通过 `--git-ref` 时,`mse inspect` 与 `mse resolve` 的行为不变(`--git-ref` 目前仅 `mse inspect`
 支持)。
 
