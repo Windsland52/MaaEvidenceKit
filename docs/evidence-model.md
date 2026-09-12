@@ -196,8 +196,16 @@ MaaFramework 会按 pipeline 协议和当时已有节点数据解析覆盖，并
 
 对标记为成功但运行期间出现 `next_list_timeout`、`action_failure` 或日志结束仍未停止的
 重复节点序列,MEK 会输出 `mla.task_anomaly` evidence,避免把框架任务成功直接当作业务成功。
+
+异常类别以**结构化代码**给出:`observed` 是 `MlaAnomalyCode` 数组,取值为
+`next_list_timeout`、`action_failure`、`all_evaluations_failed`、
+`still_repeating_at_log_end` 之一。代码是稳定标识符,消费者可以按它匹配而不必解析展示文本,
+项目侧也可以据此维护自己认为良性的类别清单。**MEK 只报告观察到了哪些类别,不判定某个类别
+是否良性**——那属于 harness 的判断。数量字段(`nextListTimeouts`、`actionFailures`、
+`stillRepeatingAtLogEnd`、`allEvaluationsFailed`)与代码并存,便于区分"出现了"与"出现多少次"。
+
 若循环内某个候选节点所有评估都失败(`unsuccessfulAttemptCount === evaluationCount` 且
-`runningAttemptCount === 0`),`mla.task_anomaly` 会额外标记 `all_evaluations_failed`,
+`runningAttemptCount === 0`),`observed` 会额外包含 `all_evaluations_failed`,
 只陈述“全部尝试都失败”这一观测事实,不推断是 max_hit 还是手动 disable 导致。
 
 ## 镜像任务(mirrored tasks)

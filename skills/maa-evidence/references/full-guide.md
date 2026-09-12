@@ -396,8 +396,13 @@ When a task reports `succeeded` but its execution also contains `next_list_timeo
 `action_failure`, or a repeated sequence still running at log end, MEK emits
 `mla.task_anomaly`. Treat framework success as only a partial fact and investigate the anomaly
 before concluding the business task succeeded.
+The anomaly class is carried as a structured code in `observed`, one of `next_list_timeout`,
+`action_failure`, `all_evaluations_failed`, or `still_repeating_at_log_end`, with matching count
+fields alongside. Match on the code rather than parsing summary text, and keep your own list of the
+classes your project treats as benign - MEK reports which classes it observed and never decides that
+one is harmless.
 When a cycle candidate node had every evaluation fail (`unsuccessfulAttemptCount ===
-evaluationCount` and `runningAttemptCount === 0`), `mla.task_anomaly` also marks
+evaluationCount` and `runningAttemptCount === 0`), `observed` also contains
 `all_evaluations_failed`. This states only that all attempts failed; it does not
 infer whether max_hit or a manual disable caused the skip.
 

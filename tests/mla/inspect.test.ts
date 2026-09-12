@@ -2088,6 +2088,90 @@ test("flags cycle candidates whose evaluations all failed in task anomalies", ()
   });
 });
 
+test("pairs every structured anomaly code with its count", () => {
+  // Each structured code has a matching count field, so a consumer can match on the code and still
+  // tell "it happened" from "how often". Anomaly codes are stable identifiers, not display text.
+  const runtime = {
+    schema_version: "mla-runtime-inspection/v1" as const,
+    sessions: [{
+      session_id: "session:1",
+      start_kind: "process_start" as const,
+      framework_status: "unknown" as const,
+      framework_version: null,
+      versions: [],
+      start: { source: "file:a.log", path: "a.log", line: 1, timestamp: null },
+      end: { source: "file:a.log", path: "a.log", line: 9, timestamp: null },
+      tasks: [{
+        execution_id: "execution:1",
+        task_id: 1,
+        name: "Task1",
+        hash: "h",
+        uuid: "u",
+        status: "succeeded" as const,
+        completeness: "complete" as const,
+        started_at: "2026-07-19 10:00:00.000",
+        ended_at: "2026-07-19 10:00:09.000",
+        observed_duration_ms: 9000,
+        first_node: "NodeA",
+        last_node: "NodeB",
+        statistics: {
+          node_executions: 2,
+          succeeded_nodes: 1,
+          failed_nodes: 0,
+          running_nodes: 1,
+          recognition_attempts: 3,
+          unsuccessful_recognition_attempts: 3,
+          node_executions_with_recognition: 1,
+          node_executions_with_mixed_recognition_results: 0,
+          recognition_activity_groups: 1,
+          maximum_recognition_attempts_per_node: 3,
+          maximum_unsuccessful_recognition_attempts_per_node: 3,
+          action_attempts: 1,
+          action_failures: 1,
+          next_list_timeouts: 1,
+          error_image_references: 0,
+          unique_error_images: 0,
+          vision_image_references: 0,
+          unique_vision_images: 0,
+        },
+        direct_failure_ids: [],
+        outcome_ids: [],
+        signal_ids: [],
+        signal_highlights: { recognition_activity: [], repetitions: [] },
+        evidence: {
+          start: { source: "file:a.log", path: "a.log", line: 1, timestamp: "2026-07-19 10:00:00.000" },
+          end: { source: "file:a.log", path: "a.log", line: 9, timestamp: "2026-07-19 10:00:09.000" },
+        },
+      }],
+      summary: {
+        task_executions: 1,
+        succeeded_tasks: 1,
+        failed_tasks: 0,
+        running_tasks: 0,
+        direct_failures: 0,
+        next_list_timeouts: 1,
+        action_failures: 1,
+        signals: 0,
+      },
+    }],
+    unscoped_tasks: [],
+    failures: [],
+    outcomes: [],
+    signals: [],
+    warnings: [],
+  } as unknown as MlaRuntimeInspectionResult;
+
+  const anomalies = summarizeTaskAnomalies(runtime);
+  const [anomaly] = anomalies;
+
+  expect(anomaly?.observed).toEqual(["next_list_timeout", "action_failure"]);
+  expect(anomaly?.nextListTimeouts).toBe(1);
+  expect(anomaly?.actionFailures).toBe(1);
+  // Codes that were not observed keep their count fields at zero rather than being omitted.
+  expect(anomaly?.stillRepeatingAtLogEnd).toBe(0);
+  expect(anomaly?.allEvaluationsFailed).toBe(0);
+});
+
 
 test("identifies cycle candidates that never matched", () => {
   const baseSignal = {

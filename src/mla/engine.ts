@@ -192,12 +192,23 @@ export type MlaActionDetail = {
   };
 };
 
+/**
+ * A machine-readable anomaly class. These are stable identifiers: a consumer can match on them
+ * instead of parsing display text, and a project can maintain its own list of classes it treats as
+ * benign. MEK reports which classes it observed and never decides that one is harmless.
+ */
+export type MlaAnomalyCode =
+  | "next_list_timeout"
+  | "action_failure"
+  | "all_evaluations_failed"
+  | "still_repeating_at_log_end";
+
 export type MlaTaskAnomaly = {
   executionId: string;
   taskId: number;
   taskName: string;
   status: "succeeded";
-  observed: string[];
+  observed: MlaAnomalyCode[];
   nextListTimeouts: number;
   actionFailures: number;
   stillRepeatingAtLogEnd: number;
@@ -1034,7 +1045,7 @@ export function summarizeTaskAnomalies(runtime: MlaRuntimeInspectionResult): Mla
   const anomalies: MlaTaskAnomaly[] = [];
   for (const task of tasks) {
     if (task.status !== "succeeded") continue;
-    const observed: string[] = [];
+    const observed: MlaAnomalyCode[] = [];
     let stillRepeatingAtLogEnd = 0;
     let allEvaluationsFailed = 0;
     if (task.statistics.next_list_timeouts > 0) observed.push("next_list_timeout");
