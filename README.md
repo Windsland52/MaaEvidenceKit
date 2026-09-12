@@ -150,8 +150,18 @@ const matches = searchEvidence(combined, {
 核心输出使用 `maa-evidence/v1`,包含 `artifacts`、`evidence`、`missingEvidence`、
 `warnings`、`statistics` 和 `details`。每条 evidence 都有稳定 ID 与来源定位;截断、缺失和
 上游限制都会作为显式的 warning / missingEvidence 输出,不会静默丢失。
+未选中的文件不会静默消失:artifact 列表最多保留 200 条未支持文件记录,其后的省略项进入
+`details.selection.omittedUnsupportedFiles`(最多 20 条,含相对路径、大小与文件系统修改时间),
+并同时输出 `unsupported_artifact_list_truncated` 警告与 `unsupported_files_not_parsed` 缺失项。
+MEK 只清点这些文件、**不解析内容也不推断语义**——决定是否自己去读它们属于 harness 的职责。
 常见 PNG、JPEG、GIF、WebP 与 BMP 即使附件名没有扩展名,也会通过文件签名确定性地登记为
 `image` artifact；MEK 只登记格式与来源,不解释像素含义。
+被失败引用的图片会额外记录内容摘要(`Artifact.contentDigest` 与 `mla.failure_image` 的
+`contentDigest`,形如 `sha256:<64 位十六进制>`)。摘要只陈述"字节是否相同"这一确定性等值事实,
+不对画面做任何语义判断;它让消费者可以按捕获画面把失败分组——例如两次独立失败写出同一张截图,
+说明画面在两次失败之间没有变化。记录与 evidence ID 始终各自保留,不会合并。
+空文件、不可读文件和超过摘要上限的文件不记录摘要,因此不会被当成"彼此相同";被引用的图片本身
+仍照常登记。
 `repo-docs` 只在显式调用时扫描 checkout:根目录及嵌套 `AGENTS.md` 以受界文本进入
 `repo_docs.agents_document` evidence,三个已知 Skill 根目录中的 `SKILL.md` 只以路径、大小和
 目录深度进入 `repo_docs.skill_file` evidence。MEK 不解析或执行仓库 Skill;固定扫描、深度、
@@ -189,8 +199,23 @@ issue-time 源码并运行聚焦 MSE。已知 task/controller/resource 必须传
 若识别详情标记了截断,空搜索结果不能证明节点不存在。要按“哪个字段被覆盖”检索时,
 用 `--text` 匹配覆盖 evidence 的 `patchPaths`(如 `EatCandyStart.attach.fast`)——
 文本检索按设计不匹配 JSON 字段名,`patchPaths` 把字段路径导出为普通值来弥补这一点。
+`details.selection.pipelineOverrides.activityLines` / `statistics.pipelineOverrideActivityLines` 统计
+**带覆盖痕迹的日志行数**,不依赖任何已知 marker 名称;当它大于 0 而 `pipelineOverridesTotal` 为 0 时
+输出 `mla_pipeline_override_extraction_empty`,表示**提取没识别出记录格式,而不是本次运行没有发生覆盖**
+——此时不能从空结果断言"没有运行时覆盖",应改读被引用 artifact 的原始日志行。
+每条 `mla.failure` 带 `termination`(`reco_timeout` / `action_error`)与 `task_outcome`
+(`failed` / `succeeded` / `succeeded_with_open_end` / `running` / `null`);上游不存在停止信号,
+所以没有 `stop_requested` 取值。节点失败而所属任务仍成功是真实组合,当它出现时输出
+`mla_failures_in_succeeded_tasks` 并给出 `statistics.failuresInSucceededTasks` 等计数;
+这些记录**保留不降权**,按失败记录数直接当成任务损坏数会高估。
 镜像日志(启动器与 agent 各写一份)会把同一次运行事件登记为两条各自带来源的 evidence;
 出现 `mla_cross_artifact_duplicate_observations` 警告时,应先固定单个 `--artifact-id` 再计数。
+当同一份日志或同一张截图在输入里出现多份字节完全相同的副本时,`mla_byte_identical_artifacts`
+警告会列出这些副本,`statistics.artifacts` 给原始记录数、`statistics.byteIdenticalArtifactRecords`
+给其中的副本记录数、`statistics.byteIdenticalArtifactRecordsDeduplicated` 给去掉副本后的差值,
+便于用去重口径复核计数;仅比较已计算摘要的 artifact,未读到的记录按"未知"处理而不当作不同。
+字节相同不等于同一次观测:两次运行完全可能截到同一画面或写出同一段日志,所以该警告只说明计数
+被副本放大了多少,不证明两条记录描述同一事件。
 完整 inspection 的体积由 evidence 账本和 `details` 主导,直接打到 stdout 容易被上游截断;
 优先用 `--summary` 起步;`--output` 恒写完整报告(可与 `--summary` 同用:`--summary` 只影响 stdout,
 全量报告落盘),一次运行即可落盘后钻取,无需重跑。

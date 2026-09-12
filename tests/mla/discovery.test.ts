@@ -63,6 +63,50 @@ test("reports the scanned-file bound instead of relying on an upstream entry-cou
   expect(discovery.warnings.map((warning) => warning.code)).not.toContain("artifact_scan_truncated");
 });
 
+test("describes omitted unsupported files so a harness knows what to read itself", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-discovery-omitted-"));
+  temporaryRoots.push(root);
+  await writeFile(path.join(root, "maafw.log"), [
+    "[2026-04-08 00:01:02.001][INF][Px1][Tx2][test] first",
+    "[2026-04-08 00:01:02.002][DBG][Px1][Tx2][test] second",
+  ].join("\n"), "utf8");
+  // 201 unsupported files plus the reported bound of 200: two files are omitted. Discovery sorts by
+  // full path, so `note-200.bin` and `zz-package.json` are the two dropped, in that order.
+  const names = Array.from({ length: 201 }, (_, index) => `note-${String(index).padStart(3, "0")}.bin`);
+  for (const [index, name] of names.entries()) {
+    await writeFile(path.join(root, name), `payload-${index}`, "utf8");
+  }
+  await writeFile(path.join(root, "zz-package.json"), "{}", "utf8");
+
+  const discovery = await discoverArtifacts(root);
+
+  expect(discovery.omittedOtherFileCount).toBe(2);
+  expect(discovery.omittedUnsupportedFiles.map((item) => item.relativePath))
+    .toEqual(["note-200.bin", "zz-package.json"]);
+  const omitted = discovery.omittedUnsupportedFiles[0];
+  expect(omitted?.sizeBytes).toBe(Buffer.byteLength("payload-200", "utf8"));
+  expect(omitted?.modifiedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u);
+
+  const warning = discovery.warnings.find((item) => item.code === "unsupported_artifact_list_truncated");
+  expect(warning?.message).toContain("2 unsupported files were omitted");
+  expect(warning?.message).toContain("the first 2 are described in omittedUnsupportedFiles");
+  // The reported MaaFramework log is unaffected by the omissions.
+  expect(discovery.artifacts.find((item) => item.relativePath === "maafw.log")?.kind).toBe("maa_log");
+});
+
+test("reports no omitted-file inventory when nothing is omitted", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-discovery-nothing-omitted-"));
+  temporaryRoots.push(root);
+  await writeFile(path.join(root, "notes.md"), "not supported", "utf8");
+
+  const discovery = await discoverArtifacts(root);
+
+  expect(discovery.omittedOtherFileCount).toBe(0);
+  expect(discovery.omittedUnsupportedFiles).toEqual([]);
+  expect(discovery.warnings.some((item) => item.code === "unsupported_artifact_list_truncated"))
+    .toBe(false);
+});
+
 test("bounds how many files a directory may contribute before a combined directory read", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-directory-budget-"));
   temporaryRoots.push(root);

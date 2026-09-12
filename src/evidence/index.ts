@@ -1,7 +1,9 @@
 export {
   EvidenceLedger,
   artifactId,
+  findByteIdenticalArtifacts,
   findCrossArtifactDuplicateObservations,
+  type ByteIdenticalArtifacts,
   type CrossArtifactDuplicateObservations,
 } from "./ledger.js";
 export {

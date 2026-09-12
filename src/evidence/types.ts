@@ -44,6 +44,12 @@ export type Artifact = {
   kind: ArtifactKind;
   status: ArtifactStatus;
   sizeBytes?: number;
+  /**
+   * Streaming digest of the artifact's bytes, present only when the artifact was read for digest
+   * accounting. This is a deterministic equality fact about content and carries no semantic claim;
+   * artifacts larger than the digest cap stay without a value rather than being assumed distinct.
+   */
+  contentDigest?: string;
   reason?: string;
 };
 

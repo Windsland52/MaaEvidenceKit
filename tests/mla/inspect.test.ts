@@ -30,6 +30,80 @@ function event(timestamp: string, message: string, details: Record<string, unkno
   return `[${timestamp}][INF][Px1][Tx2][test] !!!OnEventNotify!!! [handle=1] [msg=${message}] [details=${JSON.stringify(details)}]`;
 }
 
+/**
+ * Emit the event sequence MaaFramework writes for one task whose single node fails on its action.
+ * The image MaaFramework saves is named `<timestamp>_<nodeName>.png` inside the target log's
+ * `on_error` directory, so callers only choose the minute, ids, and node name.
+ */
+function failingNodeEvents(
+  minute: string,
+  taskId: number,
+  taskName: string,
+  nodeName: string,
+  nodeId: number,
+  recoId: number,
+  actionId: number,
+): string[] {
+  const actionDetails = {
+    action: "Click",
+    action_id: actionId,
+    box: [0, 0, 10, 10],
+    detail: {},
+    name: nodeName,
+    success: false,
+  };
+  return [
+    event(`2026-07-19 ${minute}:00.000`, "Tasker.Task.Starting", {
+      task_id: taskId, entry: taskName, hash: `h${taskId}`, uuid: `u${taskId}`,
+    }),
+    event(`2026-07-19 ${minute}:01.000`, "Node.PipelineNode.Starting", {
+      task_id: taskId, node_id: nodeId, name: taskName,
+    }),
+    event(`2026-07-19 ${minute}:01.100`, "Node.NextList.Starting", {
+      focus: null, list: [{ anchor: false, jump_back: false, name: nodeName }],
+      name: taskName, task_id: taskId,
+    }),
+    event(`2026-07-19 ${minute}:01.200`, "Node.Recognition.Starting", {
+      focus: null, name: nodeName, reco_id: recoId, task_id: taskId,
+    }),
+    event(`2026-07-19 ${minute}:01.300`, "Node.Recognition.Succeeded", {
+      focus: null,
+      name: nodeName,
+      reco_details: {
+        algorithm: "DirectHit", box: [0, 0, 10, 10], detail: null, name: nodeName, reco_id: recoId,
+      },
+      reco_id: recoId,
+      task_id: taskId,
+    }),
+    event(`2026-07-19 ${minute}:01.400`, "Node.NextList.Succeeded", {
+      focus: null, list: [{ anchor: false, jump_back: false, name: nodeName }],
+      name: taskName, task_id: taskId,
+    }),
+    event(`2026-07-19 ${minute}:01.500`, "Node.Action.Starting", {
+      action_id: actionId, focus: null, name: nodeName, task_id: taskId,
+    }),
+    event(`2026-07-19 ${minute}:02.000`, "Node.Action.Failed", {
+      action_details: actionDetails, action_id: actionId, focus: null, name: nodeName, task_id: taskId,
+    }),
+    event(`2026-07-19 ${minute}:02.001`, "Node.PipelineNode.Failed", {
+      action_details: actionDetails,
+      focus: null,
+      name: taskName,
+      node_details: {
+        action_id: actionId, completed: false, name: nodeName, node_id: nodeId, reco_id: recoId,
+      },
+      node_id: nodeId,
+      reco_details: {
+        algorithm: "DirectHit", box: [0, 0, 10, 10], detail: null, name: nodeName, reco_id: recoId,
+      },
+      task_id: taskId,
+    }),
+    event(`2026-07-19 ${minute}:03.000`, "Tasker.Task.Failed", {
+      task_id: taskId, entry: taskName, hash: `h${taskId}`, uuid: `u${taskId}`,
+    }),
+  ];
+}
+
 test("reports directory loading failures as fallback warnings without duplicating file failures", () => {
   const directory = {
     path: "C:/logs/debug",
@@ -286,9 +360,110 @@ test("extracts ordered pipeline overrides and maps a context to its task", async
     total: 5,
     selected: 5,
     malformedLines: 0,
+    // Five lines open a bracketed `override_pipeline` symbol. The `MaaContextOverridePipeline`
+    // alias lines are deliberately not counted: activity lines are a lower bound on
+    // override-bearing lines, not a record count.
+    activityLines: 5,
   });
   expect(result.statistics["pipelineOverrides"]).toBe(5);
   expect(result.statistics["pipelineOverridesTotal"]).toBe(5);
+  expect(result.statistics["pipelineOverrideActivityLines"]).toBe(5);
+  expect(result.warnings.some((warning) => warning.code === "mla_pipeline_override_extraction_empty"))
+    .toBe(false);
+});
+
+test("extracts overrides from real C++ signature-form markers", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-override-signature-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    // This is how a real MaaFramework log writes the marker: the C++ signature, not a bare symbol.
+    "[2026-07-19 10:01:00.000][TRC][Px1][Tx1][Context.cpp][L195][virtual bool MaaNS::TaskNS::Context::override_pipeline(const json::value &)] [getptr()=0x79cc000fd8] [pipeline_override=[{\"Target\":{\"enabled\":false}}]]",
+    event("2026-07-19 10:01:01.000", "Tasker.Task.Starting", {
+      task_id: 7, entry: "Combat", hash: "h1", uuid: "u1",
+    }),
+    event("2026-07-19 10:01:02.000", "Node.PipelineNode.Failed", {
+      task_id: 7, node_id: 11, name: "Target",
+    }),
+    event("2026-07-19 10:01:03.000", "Tasker.Task.Failed", {
+      task_id: 7, entry: "Combat", hash: "h1", uuid: "u1",
+    }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const overrides = result.evidence.filter((item) => item.kind === "mla.pipeline_override");
+
+  expect(overrides).toHaveLength(1);
+  expect(overrides[0]?.data).toMatchObject({
+    origin: "context",
+    nodeNames: ["Target"],
+    patchPaths: ["Target.enabled"],
+    patches: [{ Target: { enabled: false } }],
+  });
+  expect(result.statistics["pipelineOverridesTotal"]).toBe(1);
+  // Extraction succeeded, so the empty-extraction warning must stay silent.
+  expect(result.warnings.some((item) => item.code === "mla_pipeline_override_extraction_empty"))
+    .toBe(false);
+});
+
+test("warns when override lines are present but no override was extracted", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-override-miss-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    // A marker name no known parser recognizes, but still an override-bearing log line.
+    "[2026-07-19 10:01:00.000][TRC][Px1][Tx1][Context.cpp][L195][MaaNS::TaskNS::Context::future_override_pipeline] [pipeline_override=[{\"Target\":{\"enabled\":false}}]]",
+    "[2026-07-19 10:01:00.100][TRC][Px1][Tx1][Context.cpp][L196][MaaNS::TaskNS::Context::future_override_pipeline] [pipeline_override=[{\"Other\":{\"enabled\":true}}]]",
+    event("2026-07-19 10:01:01.000", "Tasker.Task.Starting", {
+      task_id: 7, entry: "Combat", hash: "h1", uuid: "u1",
+    }),
+    event("2026-07-19 10:01:02.000", "Node.PipelineNode.Failed", {
+      task_id: 7, node_id: 11, name: "Target",
+    }),
+    event("2026-07-19 10:01:03.000", "Tasker.Task.Failed", {
+      task_id: 7, entry: "Combat", hash: "h1", uuid: "u1",
+    }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+
+  expect(result.statistics["pipelineOverridesTotal"]).toBe(0);
+  expect(result.statistics["pipelineOverrideActivityLines"]).toBe(2);
+  const warning = result.warnings.find((item) => item.code === "mla_pipeline_override_extraction_empty");
+  expect(warning).toBeDefined();
+  expect(warning?.message).toContain("2 override-shaped log lines were seen");
+  expect(warning?.message).toContain("not that the run applied no overrides");
+});
+
+test("does not warn about extraction when no override line is present", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-no-override-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    // A JSON payload may quote the field name; that is not override activity.
+    "[2026-07-19 10:01:00.000][INF][Px1][Tx1][Logger] [note={\"pipeline_override\":\"mentioned only\"}]",
+    event("2026-07-19 10:01:01.000", "Tasker.Task.Starting", {
+      task_id: 7, entry: "Combat", hash: "h1", uuid: "u1",
+    }),
+    event("2026-07-19 10:01:02.000", "Node.PipelineNode.Failed", {
+      task_id: 7, node_id: 11, name: "Target",
+    }),
+    event("2026-07-19 10:01:03.000", "Tasker.Task.Failed", {
+      task_id: 7, entry: "Combat", hash: "h1", uuid: "u1",
+    }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+
+  expect(result.statistics["pipelineOverrideActivityLines"]).toBe(0);
+  expect(result.warnings.some((item) => item.code === "mla_pipeline_override_extraction_empty"))
+    .toBe(false);
 });
 
 test("reports missing framework log as missing evidence", async () => {
@@ -965,6 +1140,166 @@ test("correlates standard MaaFramework error images with failures from rotated l
   expect(image?.status).toBe("selected");
   expect(failureImage?.source.artifactId).toBe(image?.id);
   expect(failureImage?.data).toMatchObject({ imagePath: imagePath.replaceAll("\\", "/"), kind: "error" });
+});
+
+test("digests failure images and folds byte-identical screenshots without merging records", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-identical-image-"));
+  temporaryRoots.push(root);
+  const onError = path.join(root, "on_error");
+  await mkdir(onError);
+  await writeFile(path.join(root, "package.json"), "{}", "utf8");
+  await writeFile(path.join(root, "maafw.log"), [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    ...failingNodeEvents("10:01", 1, "FirstTask", "FirstNode", 11, 21, 12),
+    ...failingNodeEvents("10:02", 2, "SecondTask", "SecondNode", 12, 22, 13),
+  ].join("\n"), "utf8");
+  // Two independent failures captured the same screen; the bytes are identical.
+  const frozenFrame = Buffer.from("identical-screenshot-bytes", "utf8");
+  const firstImage = path.join(onError, "2026.07.19-10.01.02.001_FirstNode.png");
+  const secondImage = path.join(onError, "2026.07.19-10.02.02.001_SecondNode.png");
+  await writeFile(firstImage, frozenFrame);
+  await writeFile(secondImage, frozenFrame);
+
+  const result = await inspectMla(root);
+  const failureImages = result.evidence.filter((item) => item.kind === "mla.failure_image");
+
+  expect(failureImages).toHaveLength(2);
+  const digests = failureImages.map(
+    (item) => (item.data as { contentDigest?: string }).contentDigest,
+  );
+  expect(digests[0]).toBeDefined();
+  expect(digests[0]).toBe(digests[1]);
+  expect(digests[0]).toMatch(/^sha256:[0-9a-f]{64}$/u);
+
+  // Records and evidence IDs stay separate; only the accounting is folded.
+  expect(new Set(failureImages.map((item) => item.id)).size).toBe(2);
+  const digestedArtifacts = result.artifacts.filter((artifact) => artifact.contentDigest !== undefined);
+  expect(digestedArtifacts).toHaveLength(2);
+  expect(new Set(digestedArtifacts.map((artifact) => artifact.contentDigest)).size).toBe(1);
+
+  expect(result.statistics["byteIdenticalArtifactGroups"]).toBe(1);
+  expect(result.statistics["byteIdenticalArtifactRecords"]).toBe(2);
+  expect(result.statistics["byteIdenticalArtifactRecordsDeduplicated"]).toBe(1);
+  expect(result.statistics["artifactContentDigests"]).toBe(2);
+  expect(result.warnings).toContainEqual({
+    code: "mla_byte_identical_artifacts",
+    message: expect.stringContaining("2 artifact records are byte-identical across 1 content digest"),
+  });
+});
+
+test("does not treat empty failure images as byte-identical", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-empty-image-"));
+  temporaryRoots.push(root);
+  const onError = path.join(root, "on_error");
+  await mkdir(onError);
+  await writeFile(path.join(root, "package.json"), "{}", "utf8");
+  await writeFile(path.join(root, "maafw.log"), [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    ...failingNodeEvents("10:01", 1, "FirstTask", "FirstNode", 11, 21, 12),
+  ].join("\n"), "utf8");
+  // A zero-byte placeholder is not evidence that two captures matched.
+  const imagePath = path.join(onError, "2026.07.19-10.01.02.001_FirstNode.png");
+  await writeFile(imagePath, new Uint8Array());
+
+  const result = await inspectMla(root);
+  const failureImage = result.evidence.find((item) => item.kind === "mla.failure_image");
+
+  expect(failureImage).toBeDefined();
+  if (failureImage === undefined) throw new Error("expected a failure image record");
+  expect((failureImage.data as { contentDigest?: string }).contentDigest).toBeUndefined();
+  expect(result.artifacts.filter((artifact) => artifact.contentDigest !== undefined)).toHaveLength(0);
+  expect(result.statistics["byteIdenticalArtifactGroups"]).toBe(0);
+  expect(result.warnings.some((warning) => warning.code === "mla_byte_identical_artifacts")).toBe(false);
+});
+
+test("surfaces omitted unsupported files as an explicit evidence gap", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-omitted-gap-"));
+  temporaryRoots.push(root);
+  await writeFile(path.join(root, "package.json"), "{}", "utf8");
+  await writeFile(path.join(root, "maafw.log"), [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    ...failingNodeEvents("10:01", 1, "Combat", "Target", 11, 21, 12),
+  ].join("\n"), "utf8");
+  // 200 unsupported files fill the reported bound; `package.json` sorts last and is omitted.
+  for (const index of Array.from({ length: 200 }, (_, i) => i)) {
+    await writeFile(path.join(root, `note-${String(index).padStart(3, "0")}.bin`), `x${index}`, "utf8");
+  }
+
+  const result = await inspectMla(root);
+
+  const gap = result.missingEvidence.find((item) => item.code === "unsupported_files_not_parsed");
+  expect(gap).toBeDefined();
+  expect(gap?.message).toContain("1 file(s) were not classified or parsed");
+  expect(gap?.message).toContain("MEK does not infer the meaning of unsupported material");
+
+  expect(result.statistics["omittedUnsupportedFiles"]).toBe(1);
+  expect(result.statistics["reportedOmittedUnsupportedFiles"]).toBe(1);
+  const omitted = result.details.selection.omittedUnsupportedFiles;
+  expect(omitted).toHaveLength(1);
+  expect(omitted?.[0]?.relativePath).toBe("package.json");
+  expect(omitted?.[0]?.modifiedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/u);
+});
+
+test("reports a failure inside a succeeded task without treating it as task breakage", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-failure-in-succeeded-task-"));
+  temporaryRoots.push(root);
+  await writeFile(path.join(root, "package.json"), "{}", "utf8");
+  await writeFile(path.join(root, "maafw.log"), [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    // This reproduces the reported stop chain: a node fails, yet the task still succeeds, because
+    // the task had already reached a terminal state before the action failed.
+    ...failingNodeEvents("10:01", 1, "Combat", "Target", 11, 21, 12).slice(0, -1),
+    event("2026-07-19 10:01:04.000", "Tasker.Task.Succeeded", {
+      task_id: 1, entry: "Combat", hash: "h1", uuid: "u1",
+    }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(root);
+  const failure = result.evidence.find((item) => item.kind === "mla.failure");
+  const data = failure?.data as
+    | { termination?: string; task_outcome?: string | null; kind?: string }
+    | undefined;
+
+  expect(data?.kind).toBe("action_failed");
+  expect(data?.termination).toBe("action_error");
+  expect(data?.task_outcome).toBe("succeeded");
+
+  expect(result.statistics["failures"]).toBe(1);
+  expect(result.statistics["failuresInSucceededTasks"]).toBe(1);
+  expect(result.statistics["failuresInFailedTasks"]).toBe(0);
+
+  const warning = result.warnings.find((item) => item.code === "mla_failures_in_succeeded_tasks");
+  expect(warning).toBeDefined();
+  expect(warning?.message).toContain("1 of 1 failure record belong");
+  expect(warning?.message).toContain("task_outcome before counting them as task breakage");
+
+  // The record is kept, not dropped or reclassified.
+  expect(failure).toBeDefined();
+});
+
+test("reports a failure in a failed task as task breakage", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-failure-in-failed-task-"));
+  temporaryRoots.push(root);
+  await writeFile(path.join(root, "package.json"), "{}", "utf8");
+  await writeFile(path.join(root, "maafw.log"), [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    ...failingNodeEvents("10:01", 1, "Combat", "Target", 11, 21, 12),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(root);
+  const data = result.evidence.find((item) => item.kind === "mla.failure")?.data as
+    | { termination?: string; task_outcome?: string | null }
+    | undefined;
+
+  expect(data?.task_outcome).toBe("failed");
+  expect(result.statistics["failuresInFailedTasks"]).toBe(1);
+  expect(result.statistics["failuresInSucceededTasks"]).toBe(0);
+  expect(result.warnings.some((item) => item.code === "mla_failures_in_succeeded_tasks")).toBe(false);
 });
 
 test("retains failure images from tasks nested inside an active action", async () => {

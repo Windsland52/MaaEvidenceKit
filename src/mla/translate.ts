@@ -45,6 +45,14 @@ type MlaRuntimeScope = {
 type MlaRuntimeFailure = MlaRuntimeScope & {
   failure_id: string;
   kind: "next_list_timeout" | "action_failed";
+  /**
+   * How the node execution ended, as far as the framework recorded it. Stop-induced terminations
+   * are not listed because the upstream parser reports no stop signal: a node that was cut short by
+   * a requested stop is indistinguishable from any other node that ended without succeeding.
+   */
+  termination: MlaFailureTermination;
+  /** Final status of the enclosing task execution, which may differ from the node's own result. */
+  task_outcome: MlaTaskOutcome | null;
   node_id: number;
   node_name: string;
   started_at: string;
@@ -53,6 +61,16 @@ type MlaRuntimeFailure = MlaRuntimeScope & {
   vision_images: string[];
   evidence: MlaRuntimeEvidencePosition;
 };
+
+/** How a failing node execution ended. Derived from upstream data only; no value is inferred. */
+export type MlaFailureTermination = "reco_timeout" | "action_error" | "closed_without_success";
+
+/**
+ * Terminal state of a task execution. `succeeded_with_open_end` marks a task the framework reported
+ * as succeeded whose log window ended before a closing event was observed, so success is the
+ * framework's own verdict rather than an inference from a missing marker.
+ */
+export type MlaTaskOutcome = "failed" | "succeeded" | "succeeded_with_open_end" | "running";
 
 type MlaRuntimeOutcome = MlaRuntimeScope & {
   outcome_id: string;
@@ -282,10 +300,23 @@ const copyScope = (
   task_name: scope.taskName
 });
 
-const copyFailure = (failure: RuntimeFailure): MlaRuntimeFailure => ({
+/** Map a node termination from the upstream failure kind. No stop signal exists upstream. */
+const terminationOf = (kind: RuntimeFailure["kind"]): MlaFailureTermination =>
+  kind === "next_list_timeout" ? "reco_timeout" : "action_error";
+
+/** Map one task execution to its terminal outcome, or `null` when the execution is unknown. */
+const taskOutcomeOf = (task: RuntimeTaskExecution): MlaTaskOutcome => {
+  if (task.status === "running") return "running";
+  if (task.status === "failed") return "failed";
+  return task.completeness === "open_at_log_end" ? "succeeded_with_open_end" : "succeeded";
+};
+
+const copyFailure = (failure: RuntimeFailure, taskOutcome: MlaTaskOutcome | null): MlaRuntimeFailure => ({
   ...copyScope(failure),
   failure_id: failure.failureId,
   kind: failure.kind,
+  termination: terminationOf(failure.kind),
+  task_outcome: taskOutcome,
   node_id: failure.nodeId,
   node_name: failure.nodeName,
   started_at: failure.startedAt,
@@ -499,12 +530,20 @@ const copySession = (session: RuntimeSession): MlaRuntimeSession => ({
 
 export const translateRuntimeInspection = (
   inspection: RuntimeInspection
-): MlaRuntimeInspectionResult => ({
-  schema_version: inspection.schemaVersion,
-  sessions: inspection.sessions.map(copySession),
-  unscoped_tasks: inspection.unscopedTasks.map(copyTask),
-  failures: inspection.failures.map(copyFailure),
-  outcomes: inspection.outcomes.map(copyOutcome),
-  signals: inspection.signals.map(copySignal),
-  warnings: [...inspection.warnings]
-});
+): MlaRuntimeInspectionResult => {
+  const taskOutcomes = new Map<string, MlaTaskOutcome>();
+  for (const session of inspection.sessions) {
+    for (const task of session.tasks) taskOutcomes.set(task.executionId, taskOutcomeOf(task));
+  }
+  for (const task of inspection.unscopedTasks) taskOutcomes.set(task.executionId, taskOutcomeOf(task));
+  return {
+    schema_version: inspection.schemaVersion,
+    sessions: inspection.sessions.map(copySession),
+    unscoped_tasks: inspection.unscopedTasks.map(copyTask),
+    failures: inspection.failures.map((failure) =>
+      copyFailure(failure, taskOutcomes.get(failure.executionId) ?? null)),
+    outcomes: inspection.outcomes.map(copyOutcome),
+    signals: inspection.signals.map(copySignal),
+    warnings: [...inspection.warnings]
+  };
+};

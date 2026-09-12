@@ -84,6 +84,12 @@ the installer a remote source and lets it preserve the selected agent targets. R
   keyword search instead of a parser: prefer `rg` (e.g. `rg -i "err|failed" go-service.log`), fall back to
   `grep` when ripgrep is unavailable (or PowerShell `Select-String` on Windows). Keep these host-side
   findings out of MEK evidence.
+  MEK tells you which files you still need to look at: `details.selection.omittedUnsupportedFiles`
+  lists up to 20 unsupported files it did not parse, with relative path, size, and file-system
+  modification time, alongside the `unsupported_artifact_list_truncated` warning and the
+  `unsupported_files_not_parsed` missing-evidence entry. Compare their `modifiedAt` against the
+  failure window before deciding to read them, and remember MEK makes no claim about their contents -
+  classify them with host tools, not from MEK output.
 - For application telemetry, use Sentry MCP or CLI directly from the host harness. Read
   [references/sentry.md](references/sentry.md) before querying or correlating Sentry. MEK does not
   receive Sentry credentials or query application Sentry projects. Aggregate titles and counts
@@ -316,6 +322,18 @@ The summary names the linked current task and its status and counts other nearby
 surface a succeeded root task beside failed subtasks. Read the structured task and failure references
 before deciding which failure corresponds to the reported symptom.
 
+Each `mla.failure` carries two fields that separate a node result from a task result:
+
+- `termination`: how the node execution ended, either `reco_timeout` or `action_error`. There is no
+  `stop_requested` value: the upstream parser reports no stop signal, so a node cut short by a
+  requested stop cannot be told apart from any other node that ended without succeeding. Never state
+  that a failure was stop-induced unless separate log evidence supports it.
+- `task_outcome`: the final status of the enclosing task execution (`failed`, `succeeded`,
+  `succeeded_with_open_end`, `running`, or `null` when unknown). A node can fail while its task still
+  succeeds, so a count of `mla.failure` records is not a count of broken tasks. Read both fields, plus
+  `statistics.failuresInSucceededTasks`, before reporting breakage. When such records exist,
+  `mla_failures_in_succeeded_tasks` says so; the records are deliberately kept and not down-ranked.
+
 `mla.recognition_detail` aggregates recognition events by node/algorithm/status and extracts
 the detail generically by shape. Top-level `score` and `textCounts` select one representative per
 recognition occurrence (`best`, then the first `filtered`/`all` candidate), so an upstream candidate
@@ -352,6 +370,12 @@ possible context rather than silently assigning them to a run. Check
 `details.selection.pipelineOverrides`, `mla_pipeline_overrides_truncated`, and
 `mla_pipeline_override_parse_incomplete` before treating the patch sequence as complete. A missing
 record can reflect log level or extraction scope and is not proof that no runtime override occurred.
+`details.selection.pipelineOverrides.activityLines` counts log lines that carry an override trace
+regardless of marker name, so a renamed upstream marker still counts. When it is greater than zero
+while `pipelineOverridesTotal` is zero, MEK emits `mla_pipeline_override_extraction_empty`: that means
+the extractor did not recognize the record format, **not** that the run applied no override. Never
+conclude "no runtime override occurred" from an empty result - read the raw log lines in the cited
+artifact instead. The count is a lower bound on override-bearing lines, not a record count.
 
 Recognition `mla.signal` entries include `candidateStatistics` and `terminalMatches`. Use them to
 see which candidate nodes were evaluated, matched, or repeatedly unsuccessful inside a cycle.
@@ -381,6 +405,15 @@ MLA failure facts may reference standard `on_error` or `vision` images by local 
 referenced images needed for the question; MEK does not embed or interpret their pixels.
 Each failure-referenced image is also emitted as `mla.failure_image` evidence with its path and
 associated node, so a visual harness can open the exact screenshot without re-parsing the log.
+Each failure-referenced image additionally carries a `contentDigest` (`sha256:<hex>`) on both the
+`image` artifact and the `mla.failure_image` data. Equal digests prove the two files have identical
+bytes - a deterministic equality fact, not a visual judgement - which is how you establish that the
+screen did not change between two failures. A missing digest means "not determined" (empty,
+unreadable, or above the size cap), never "different"; absence is not evidence of inequality. When
+several byte-identical artifacts exist, `mla_byte_identical_artifacts` reports them and
+`statistics.artifacts` / `statistics.byteIdenticalArtifactRecords` /
+`statistics.byteIdenticalArtifactRecordsDeduplicated` let you recheck a count with copies removed.
+Records and evidence IDs are never merged: identical bytes alone do not prove one observation.
 Use `mla.failure_context.nearbyFailures` to open nearby failures' referenced images in order when a
 leftover dialog or shared screen may span tasks. Compare pixels with the host's visual tool; MEK
 does not perform visual similarity and chronology alone does not prove that images show one screen.

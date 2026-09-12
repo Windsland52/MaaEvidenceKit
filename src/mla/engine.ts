@@ -18,6 +18,7 @@ import {
   EvidenceLedger,
   UsageError,
   artifactId,
+  findByteIdenticalArtifacts,
   findCrossArtifactDuplicateObservations,
   isMissingPathError,
   parseTimestamp,
@@ -31,12 +32,18 @@ import {
   type TimeRange,
 } from "../evidence/index.js";
 import { profileStage, profileStageSync } from "../profiling.js";
+import { contentDigest } from "./content-digest.js";
 import { MAX_DIRECTORY_ENTRIES, discoverArtifacts, measureDirectoryEntries } from "./discovery.js";
+import type { OmittedUnsupportedFile } from "./discovery.js";
 import {
   extractPipelineOverrides,
   type MlaPipelineOverrideObservation,
 } from "./overrides.js";
-import { translateRuntimeInspection, type MlaRuntimeInspectionResult } from "./translate.js";
+import {
+  translateRuntimeInspection,
+  type MlaRuntimeInspectionResult,
+  type MlaTaskOutcome,
+} from "./translate.js";
 
 const MAX_ACTION_DETAILS = 500;
 const MAX_PIPELINE_OVERRIDES = 500;
@@ -427,7 +434,14 @@ export type MlaInspectionDetails = {
       total: number;
       selected: number;
       malformedLines: number;
+      /** Override-bearing log lines seen, independent of any known marker name. */
+      activityLines: number;
     };
+    /**
+     * Bounded description of files discovery saw but did not classify or parse. Present only when
+     * such files were omitted, so a harness knows what to inspect itself.
+     */
+    omittedUnsupportedFiles?: OmittedUnsupportedFile[];
   };
 };
 
@@ -542,6 +556,34 @@ function imageArtifactForReference(
     const absolute = normalizeCandidate(item.path);
     return relative === candidate || absolute === candidate || candidate.endsWith(`/${relative}`);
   });
+}
+
+/**
+ * Digest the image artifacts that failures actually reference.
+ *
+ * Scope is deliberately narrow: only failure-referenced images are read, because those are the
+ * records consumers group by captured screen, and hashing every image in a large archive to answer
+ * a question nobody asked would make inspection cost scale with the artifact tree instead of with
+ * the failures. Empty and unreadable files stay without a digest rather than being reported as
+ * equal - an empty fixture file is not evidence that two screens matched.
+ */
+async function digestReferencedImages(
+  artifacts: readonly Artifact[],
+  references: readonly string[],
+): Promise<Map<string, string>> {
+  const targets = new Map<string, string>();
+  for (const reference of references) {
+    const artifact = imageArtifactForReference(artifacts, reference);
+    if (artifact === undefined) continue;
+    targets.set(pathKey(artifact.path), artifact.path);
+  }
+  const digests = new Map<string, string>();
+  const entries = [...targets.entries()].sort(([left], [right]) => left.localeCompare(right));
+  for (const [key, file] of entries) {
+    const result = await contentDigest(file);
+    if (result.ok) digests.set(key, result.digest);
+  }
+  return digests;
 }
 
 function evidenceSource(
@@ -668,6 +710,9 @@ function addRuntimeEvidence(
           taskId: failure.task_id,
           taskName: failure.task_name,
           timestamp: failure.evidence.timestamp,
+          ...(imageArtifact?.contentDigest === undefined
+            ? {}
+            : { contentDigest: imageArtifact.contentDigest }),
         },
       );
       const imageIds = failureImageEvidenceIds.get(failure.failure_id) ?? [];
@@ -681,7 +726,9 @@ function addRuntimeEvidence(
         task: failure.task_name,
         node: failure.node_name,
       }),
-      failure,
+      {
+        ...failure,
+      },
     );
     failureEvidenceIds.set(failure.failure_id, failureEvidence.id);
   }
@@ -1221,6 +1268,7 @@ type LoadedMlaTarget = {
   pipelineOverrides: MlaPipelineOverrideObservation[];
   pipelineOverridesTotal: number;
   pipelineOverrideMalformedLines: number;
+  pipelineOverrideActivityLines: number;
   sourceSegments: SourceSegment[];
   artifacts: Artifact[];
 };
@@ -2395,6 +2443,7 @@ async function loadMlaTarget(
     pipelineOverrides,
     pipelineOverridesTotal: pipelineOverrideExtraction.observations.length,
     pipelineOverrideMalformedLines: pipelineOverrideExtraction.malformedLines,
+    pipelineOverrideActivityLines: pipelineOverrideExtraction.activityLines,
     sourceSegments,
     artifacts: targetArtifacts(target, artifacts),
   };
@@ -2465,6 +2514,16 @@ export async function inspectMla(
       });
     }
   }
+  const digestByPath = await profileStage("mla.content_digest", () => digestReferencedImages(
+    discovery.artifacts,
+    loadedTargets.flatMap((loaded) =>
+      loaded.runtime.failures.flatMap((failure) => [...failure.error_images, ...failure.vision_images])
+    ),
+  ));
+  const digestedArtifacts = discovery.artifacts.map((artifact) => {
+    const digest = digestByPath.get(pathKey(artifact.path));
+    return digest === undefined ? artifact : { ...artifact, contentDigest: digest };
+  });
   const targetFailureReport = reportMlaTargetFailures(targetFailures, targets);
   return profileStageSync("mla.evidence_materialization", () => {
   const completeRuntime = loadedTargets.length === 0
@@ -2495,7 +2554,7 @@ export async function inspectMla(
     addRuntimeEvidence(
       ledger,
       projectRuntimeSignals(loaded.runtime, selectedSignalIds),
-      [...loaded.artifacts, ...discovery.artifacts],
+      [...loaded.artifacts, ...digestedArtifacts],
       loaded.target.path,
     );
     for (const detail of loaded.recognitionDetails) {
@@ -2552,12 +2611,12 @@ export async function inspectMla(
     ...failure.error_images,
     ...failure.vision_images,
   ]).flatMap((reference) => reference.startsWith("file:") ? [pathKey(reference.slice(5))] : []));
-  for (const artifact of discovery.artifacts) {
+  for (const artifact of digestedArtifacts) {
     if (artifact.kind === "image" && referencedImagePaths.has(pathKey(artifact.path))) {
       selectedArtifactIds.add(artifact.id);
     }
   }
-  const artifacts = discovery.artifacts.map((artifact) =>
+  const artifacts = digestedArtifacts.map((artifact) =>
     selectedArtifactIds.has(artifact.id)
       ? { ...artifact, status: "selected" as const, reason: undefined }
       : artifact,
@@ -2574,11 +2633,37 @@ export async function inspectMla(
     (total, target) => total + target.pipelineOverrideMalformedLines,
     0,
   );
+  const pipelineOverrideActivityLines = loadedTargets.reduce(
+    (total, target) => total + target.pipelineOverrideActivityLines,
+    0,
+  );
+  const failureTaskOutcomes = new Map<MlaTaskOutcome, number>();
+  let failuresWithoutTaskOutcome = 0;
+  for (const failure of runtime.failures) {
+    if (failure.task_outcome === null) {
+      failuresWithoutTaskOutcome += 1;
+      continue;
+    }
+    failureTaskOutcomes.set(failure.task_outcome, (failureTaskOutcomes.get(failure.task_outcome) ?? 0) + 1);
+  }
+  const failuresInSucceededTasks = (failureTaskOutcomes.get("succeeded") ?? 0)
+    + (failureTaskOutcomes.get("succeeded_with_open_end") ?? 0);
+  const byteIdenticalArtifacts = findByteIdenticalArtifacts(artifacts);
   const missingEvidence = [
     ...discovery.missingEvidence,
     ...targetEmptyEvidence,
     ...targetFailureReport.missingEvidence,
   ];
+  if (discovery.omittedOtherFileCount > 0) {
+    missingEvidence.push({
+      code: "unsupported_files_not_parsed",
+      message: `${discovery.omittedOtherFileCount} file(s) were not classified or parsed`
+        + `${discovery.omittedUnsupportedFiles.length === 0
+          ? "."
+          : `; details.selection.omittedUnsupportedFiles names the first ${discovery.omittedUnsupportedFiles.length} with size and modification time. MEK does not infer the meaning of unsupported material: read these files directly if the question may depend on them.`}`,
+      path: resolvedPath,
+    });
+  }
   if (!discovery.artifacts.some((artifact) => artifact.kind === "maa_log")) {
     missingEvidence.push({
       code: "maa_framework_log_missing",
@@ -2639,6 +2724,24 @@ export async function inspectMla(
         code: "mla_pipeline_override_parse_incomplete",
         message: `${pipelineOverrideMalformedLines} MaaFramework override log lines could not be parsed as complete JSON; runtime override evidence is incomplete.`,
       }]),
+    ...(pipelineOverrideActivityLines === 0 || pipelineOverridesTotal > 0
+      ? []
+      : [{
+        code: "mla_pipeline_override_extraction_empty",
+        message: `${pipelineOverrideActivityLines} override-shaped log ${pipelineOverrideActivityLines === 1 ? "line" : "lines"} were seen but no pipeline override was extracted. This means the extraction did not recognize the record format, not that the run applied no overrides: do not report "no runtime override occurred" from an empty result here. Read the raw lines in the cited artifact instead.`,
+      }]),
+    ...(failuresInSucceededTasks === 0
+      ? []
+      : [{
+        code: "mla_failures_in_succeeded_tasks",
+        message: `${failuresInSucceededTasks} of ${runtime.failures.length} failure ${runtime.failures.length === 1 ? "record" : "records"} belong to task executions the framework reported as succeeded. Those records are kept: a node can fail while its task still succeeds, so the node result alone does not show whether the run was broken. Read each record's termination and task_outcome before counting them as task breakage.`,
+      }]),
+    ...(byteIdenticalArtifacts.groups.length === 0
+      ? []
+      : [{
+        code: "mla_byte_identical_artifacts",
+        message: `${byteIdenticalArtifacts.artifactRecords} artifact records are byte-identical across ${byteIdenticalArtifacts.groups.length} content ${byteIdenticalArtifacts.groups.length === 1 ? "digest" : "digests"} (${byteIdenticalArtifacts.groups.map((group) => group.relativePaths.join(" == ")).join("; ")}). statistics.artifacts reports ${artifacts.length} raw records; statistics.byteIdenticalArtifactRecordsDeduplicated reports ${byteIdenticalArtifacts.deduplicatedRecords} redundant ${byteIdenticalArtifacts.deduplicatedRecords === 1 ? "copy" : "copies"}. Records and evidence IDs stay separate. Identical bytes are not proof of one observation: two runs can capture the same screen or write the same log segment.`,
+      }]),
     ...(duplicateObservations.observationGroups === 0
       ? []
       : [{
@@ -2660,7 +2763,18 @@ export async function inspectMla(
     warnings,
     statistics: {
       scannedFiles: discovery.scannedFileCount,
+      omittedUnsupportedFiles: discovery.omittedOtherFileCount,
+      reportedOmittedUnsupportedFiles: discovery.omittedUnsupportedFiles.length,
       selectedArtifacts: artifacts.filter((artifact) => artifact.status === "selected").length,
+      artifacts: artifacts.length,
+      artifactContentDigests: artifacts.filter((artifact) => artifact.contentDigest !== undefined).length,
+      byteIdenticalArtifactGroups: byteIdenticalArtifacts.groups.length,
+      byteIdenticalArtifactRecords: byteIdenticalArtifacts.artifactRecords,
+      byteIdenticalArtifactRecordsDeduplicated: byteIdenticalArtifacts.deduplicatedRecords,
+      failuresInSucceededTasks,
+      failuresInFailedTasks: failureTaskOutcomes.get("failed") ?? 0,
+      failuresInRunningTasks: failureTaskOutcomes.get("running") ?? 0,
+      failuresWithoutTaskOutcome,
       sessions: runtime.sessions.length,
       tasks: runtime.sessions.reduce((total, session) => total + session.tasks.length, 0)
         + runtime.unscoped_tasks.length,
@@ -2677,6 +2791,7 @@ export async function inspectMla(
       actionDetailsTotal: loadedTargets.reduce((total, target) => total + target.actionDetailsTotal, 0),
       pipelineOverrides: pipelineOverridesSelected,
       pipelineOverridesTotal,
+      pipelineOverrideActivityLines,
       crossArtifactDuplicateObservations: duplicateObservations.observationGroups,
       repeatedNodeSegments: completeSignalCounts.repeatedNodeSegments,
       repeatedNodeSegmentsFocused: focusedSignalCounts.repeatedNodeSegments,
@@ -2697,7 +2812,11 @@ export async function inspectMla(
           total: pipelineOverridesTotal,
           selected: pipelineOverridesSelected,
           malformedLines: pipelineOverrideMalformedLines,
+          activityLines: pipelineOverrideActivityLines,
         },
+        ...(discovery.omittedUnsupportedFiles.length === 0
+          ? {}
+          : { omittedUnsupportedFiles: discovery.omittedUnsupportedFiles }),
       },
     },
   };

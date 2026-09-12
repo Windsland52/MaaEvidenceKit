@@ -1,5 +1,11 @@
 export { discoverArtifacts, type ArtifactDiscovery } from "./discovery.js";
 export {
+  CONTENT_DIGEST_ALGORITHM,
+  MAX_CONTENT_DIGEST_BYTES,
+  contentDigest,
+  type ContentDigestResult,
+} from "./content-digest.js";
+export {
   inspectMla,
   findPossibleMirroredTaskGroups,
   type MlaPossibleMirroredTaskGroup,

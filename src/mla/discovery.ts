@@ -7,6 +7,12 @@ import type { Artifact, InspectionWarning, MissingEvidence } from "../evidence/i
 const SAMPLE_BYTES = 64 * 1024;
 const MAX_SCANNED_FILES = 10_000;
 const MAX_REPORTED_OTHER_FILES = 200;
+/**
+ * How many omitted unsupported files to describe. Omitted files are never classified, so this list
+ * is what tells a harness which files to look at itself; a small bound keeps the output readable
+ * while still naming the first omissions in discovery order.
+ */
+export const MAX_REPORTED_OMITTED_FILES = 20;
 export const MAX_DIRECTORY_ENTRIES = 10_000;
 const IGNORED_DIRECTORIES = new Set([
   ".git",
@@ -29,6 +35,18 @@ export type DirectoryEntryBudget = {
   exceeded: boolean;
 };
 
+/**
+ * A file that discovery saw but did not classify or parse. MEK states what it omitted so a harness
+ * can decide to inspect the file itself; it deliberately makes no claim about the file's contents
+ * or meaning, which is what keeps unsupported material inside the harness's responsibility.
+ */
+export type OmittedUnsupportedFile = {
+  relativePath: string;
+  sizeBytes: number;
+  /** Last modification time in ISO 8601. A deterministic file-system fact, not a parsed event time. */
+  modifiedAt: string;
+};
+
 export type ArtifactDiscovery = {
   root: string;
   artifacts: Artifact[];
@@ -36,6 +54,8 @@ export type ArtifactDiscovery = {
   warnings: InspectionWarning[];
   scannedFileCount: number;
   omittedOtherFileCount: number;
+  /** Bounded description of the omitted files, in discovery order. */
+  omittedUnsupportedFiles: OmittedUnsupportedFile[];
 };
 
 async function boundedSample(file: string): Promise<string> {
@@ -243,6 +263,7 @@ export async function discoverArtifacts(inputPath: string): Promise<ArtifactDisc
   const artifacts: Artifact[] = [];
   let omittedOtherFileCount = 0;
   let reportedOtherFiles = 0;
+  const omittedUnsupportedFiles: OmittedUnsupportedFile[] = [];
   for (const file of collected.files) {
     let fileMetadata;
     let kind: Artifact["kind"];
@@ -263,6 +284,14 @@ export async function discoverArtifacts(inputPath: string): Promise<ArtifactDisc
     }
     if (kind === "other" && reportedOtherFiles >= MAX_REPORTED_OTHER_FILES) {
       omittedOtherFileCount += 1;
+      if (omittedUnsupportedFiles.length < MAX_REPORTED_OMITTED_FILES) {
+        // Metadata only: the file is not sampled, so this costs one stat and makes no content claim.
+        omittedUnsupportedFiles.push({
+          relativePath: relativePortablePath(root, file),
+          sizeBytes: fileMetadata.size,
+          modifiedAt: fileMetadata.mtime.toISOString(),
+        });
+      }
       continue;
     }
     if (kind === "other") reportedOtherFiles += 1;
@@ -289,7 +318,10 @@ export async function discoverArtifacts(inputPath: string): Promise<ArtifactDisc
   if (omittedOtherFileCount > 0) {
     warnings.push({
       code: "unsupported_artifact_list_truncated",
-      message: `${omittedOtherFileCount} unsupported files were omitted from the artifact list.`,
+      message: `${omittedOtherFileCount} unsupported files were omitted from the artifact list`
+        + `${omittedUnsupportedFiles.length === 0
+          ? "."
+          : `; the first ${omittedUnsupportedFiles.length} are described in omittedUnsupportedFiles with path, size, and modification time. MEK did not classify or parse them, so inspect them directly if an issue may depend on their contents.`}`,
     });
   }
   return {
@@ -299,5 +331,6 @@ export async function discoverArtifacts(inputPath: string): Promise<ArtifactDisc
     warnings,
     scannedFileCount: collected.files.length,
     omittedOtherFileCount,
+    omittedUnsupportedFiles,
   };
 }

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { Evidence, EvidenceSource } from "./types.js";
+import type { Artifact, Evidence, EvidenceSource } from "./types.js";
 
 type EvidenceDraft<T> = Omit<Evidence<T>, "id">;
 
@@ -76,6 +76,58 @@ export function findCrossArtifactDuplicateObservations(
     observationGroups,
     duplicateRecords,
     artifactIds: [...artifactIds].sort((left, right) => left.localeCompare(right)),
+  };
+}
+
+export type ByteIdenticalArtifacts = {
+  /** Groups of two or more artifacts whose bytes are identical. */
+  groups: { contentDigest: string; artifactIds: string[]; relativePaths: string[] }[];
+  /** Number of artifact records in those groups. */
+  artifactRecords: number;
+  /** artifactRecords minus one representative per group. */
+  deduplicatedRecords: number;
+};
+
+/**
+ * Group artifacts whose bytes are identical.
+ *
+ * This is a deterministic equality fact about file content. It exists because mirrored log copies
+ * and duplicate error screenshots each earn their own artifact record, so any count taken from the
+ * ledger can be inflated by copies that carry no independent information. The records themselves
+ * stay separate - provenance and evidence IDs are not merged - and this only states how much a
+ * count is inflated by byte-identical copies. A byte-identical copy is not automatically the same
+ * observation: two runs can capture an identical frame or write an identical log segment.
+ *
+ * Only artifacts that actually carry a digest participate; artifacts skipped by the digest cap, or
+ * never read for digesting, are excluded rather than assumed distinct.
+ */
+export function findByteIdenticalArtifacts(
+  artifacts: readonly Artifact[],
+): ByteIdenticalArtifacts {
+  const byDigest = new Map<string, Artifact[]>();
+  for (const artifact of artifacts) {
+    if (artifact.contentDigest === undefined) continue;
+    const group = byDigest.get(artifact.contentDigest) ?? [];
+    group.push(artifact);
+    byDigest.set(artifact.contentDigest, group);
+  }
+  const groups: ByteIdenticalArtifacts["groups"] = [];
+  let artifactRecords = 0;
+  for (const [contentDigest, entries] of byDigest) {
+    if (entries.length < 2) continue;
+    const sorted = [...entries].sort((left, right) => left.id.localeCompare(right.id));
+    groups.push({
+      contentDigest,
+      artifactIds: sorted.map((artifact) => artifact.id),
+      relativePaths: sorted.map((artifact) => artifact.relativePath),
+    });
+    artifactRecords += sorted.length;
+  }
+  groups.sort((left, right) => (left.artifactIds[0] ?? "").localeCompare(right.artifactIds[0] ?? ""));
+  return {
+    groups,
+    artifactRecords,
+    deduplicatedRecords: artifactRecords - groups.length,
   };
 }
 

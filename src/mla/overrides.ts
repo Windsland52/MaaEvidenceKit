@@ -6,6 +6,32 @@ const CONTEXT_OVERRIDE_MARKER = "][MaaNS::TaskNS::Context::override_pipeline]";
 const TASK_SUBMISSION_MARKER = "][MaaNS::Tasker::post_task]";
 const TASK_UPDATE_MARKER = "][MaaNS::Tasker::override_pipeline]";
 const RESOURCE_OVERRIDE_MARKER = "][MaaNS::ResourceNS::ResourceMgr::override_pipeline]";
+const CONTEXT_OVERRIDE_SYMBOL = "MaaNS::TaskNS::Context::override_pipeline";
+
+/**
+ * Match a log marker the way MaaFramework actually writes it.
+ *
+ * MaaFramework records the same override under more than one marker form across builds and log
+ * levels, and both forms appear in real material:
+ *
+ * - `][MaaNS::TaskNS::Context::override_pipeline]` (bare symbol), and
+ * - `][virtual bool MaaNS::TaskNS::Context::override_pipeline(const json::value &)]` (C++ signature).
+ *
+ * Matching only the bare form extracted nothing from a log that contained 159 signature-form lines,
+ * which is the failure this tolerance fixes.
+ *
+ * A third form is deliberately not extracted: the agent reverse-request path logs
+ * `AgentClient::handle_context_override_pipeline` with a `_ContextOverridePipelineReverseRequest`
+ * payload. That payload does carry real patches, but extracting it would add no information: every
+ * patch it carries is already extracted verbatim from the corresponding Context-marker lines. On
+ * three real logs every reverse payload was byte-identical to an already-extracted patch
+ * (31/31, 26/26, 66/66 bodies; 18/18, 13/13, 17/17 node names covered), so parsing it would only
+ * duplicate records. Those lines are still counted by the activity detector, so they stay visible
+ * as an explicit extraction gap rather than disappearing.
+ */
+function hasMarker(line: string, bareMarker: string, symbol: string): boolean {
+  return line.includes(bareMarker) || line.includes(`][virtual bool ${symbol}(`);
+}
 
 type JsonRecord = Record<string, unknown>;
 
@@ -48,7 +74,42 @@ export type MlaPipelineOverrideObservation = {
 export type MlaPipelineOverrideExtraction = {
   observations: MlaPipelineOverrideObservation[];
   malformedLines: number;
+  /**
+   * Override-shaped lines seen, including the ones every marker parser above missed. A newer or
+   * differently named MaaFramework override log line still lands here, which is what makes a
+   * complete extraction miss detectable instead of silent.
+   */
+  activityLines: number;
 };
+
+/**
+ * Count log lines that look like they carry a pipeline override, without depending on any known
+ * marker name or format.
+ *
+ * This exists to make a complete extraction miss detectable. The marker in a real log line is a
+ * source symbol (`][MaaNS::TaskNS::Context::override_pipeline]`) or an API name
+ * (`][MaaContextOverridePipeline]`), and a newer MaaFramework build is free to rename either, so
+ * the detector matches the `override_pipeline` token in a bracketed position instead of an exact
+ * marker. Two deliberate limits keep it from over-counting:
+ *
+ * - the line must carry a timestamp, so a bare JSON patch payload is not a candidate;
+ * - the token must appear inside brackets, so a line that merely quotes `"pipeline_override"` in
+ *   its JSON payload is not a candidate. The token is matched as a substring so a renamed symbol
+ *   such as `future_override_pipeline` still counts.
+ *
+ * The count is a lower bound on override-bearing lines and is not a record count: a task submission
+ * that carries an override is counted even though it yields no override observation of its own.
+ */
+function overrideActivityLines(lines: readonly string[]): number {
+  let count = 0;
+  for (const line of lines) {
+    if (timestampOf(line) === null) continue;
+    // No word boundary before the token: an upstream rename such as `future_override_pipeline`
+    // still counts, which is exactly the case this detector exists to catch.
+    if (/\[[^\]]*override_pipeline/u.test(line)) count += 1;
+  }
+  return count;
+}
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -237,6 +298,7 @@ export function extractPipelineOverrides(
   timeRange?: TimeRange,
 ): MlaPipelineOverrideExtraction {
   const lines = content.split(/\r?\n/);
+  const activityLines = overrideActivityLines(lines);
   const { contextTaskIds, taskNames } = taskMetadata(lines);
   const origins: OverrideOriginCandidate[] = [];
   const contexts: ContextOverrideCandidate[] = [];
@@ -275,7 +337,7 @@ export function extractPipelineOverrides(
       });
       continue;
     }
-    if (line.includes(CONTEXT_OVERRIDE_MARKER)) {
+    if (hasMarker(line, CONTEXT_OVERRIDE_MARKER, CONTEXT_OVERRIDE_SYMBOL)) {
       const parsed = parsePipelineOverride(line);
       const contextId = bracketValue(line, "getptr()");
       if (parsed === null || contextId === null) {
@@ -407,5 +469,5 @@ export function extractPipelineOverrides(
     });
   }
   observations.sort((left, right) => left.mergedLine - right.mergedLine);
-  return { observations, malformedLines };
+  return { observations, malformedLines, activityLines };
 }

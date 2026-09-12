@@ -57,6 +57,10 @@ Put new implementation into the narrowest existing domain. Do not introduce `uti
   only observed facts.
 - A framework task success does not prove business success.
 - An unsuccessful recognition attempt is not automatically a failure.
+- A content digest is a deterministic equality fact about bytes, not a semantic claim: equal digests
+  may mean two captures of one unchanged screen or two runs that happened to write the same bytes.
+  Never promote a digest match into "the same observation", and never merge records or evidence IDs
+  because their artifacts are byte-identical.
 - MSE diagnostics and static configuration do not prove runtime causality.
 - Preserve missing multipart archives, empty time windows, truncation, unreadable files, and
   unsupported formats as explicit missing evidence or warnings.

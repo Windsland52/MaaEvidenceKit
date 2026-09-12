@@ -51,6 +51,23 @@ MLA 默认输出其优先级为 `high` 的信号和每个任务的高亮信号,�
 `mla.recognition_detail` 的快照(算法、状态、best 分数/文本,或 Or 类子识别摘要),
 让 harness 能直接看到“退出阻塞候选最近一次识别的观测事实”。
 
+## 未支持文件的有界清点
+
+发现阶段会看到未选中的文件。它们既不进入 evidence，也不由 MEK 解析，但"被静默丢弃"会让 harness
+不知道自己该去看什么，所以输出把它们显式化：
+
+- artifact 列表中最多保留 200 条未支持文件记录（`kind: "other"`，状态 `skipped`）。超过上限后
+  被省略的文件进入 `details.selection.omittedUnsupportedFiles`，最多 20 条，按发现顺序（完整路径
+  排序）给出 `relativePath`、`sizeBytes` 与 `modifiedAt`（ISO 8601 的文件系统修改时间）。
+- 同时输出 warning `unsupported_artifact_list_truncated` 与 `missingEvidence`
+  `unsupported_files_not_parsed`，并在 `statistics.omittedUnsupportedFiles` /
+  `statistics.reportedOmittedUnsupportedFiles` 给出总数与已描述数。
+
+清点**只给文件元数据，不给内容，也不做语义判断**：这一点由 `AGENTS.md` 明确要求——core discovery
+可以清点未支持文件，但不得推断其语义。因此判断"这些文件是否包含决定性证据"是 harness 的职责，
+MEK 只保证它知道**哪些文件存在、多大、何时修改**。`modifiedAt` 是文件系统事实，不是解析出的事件
+时间；是否落在故障时间窗内需要 harness 自行比对。
+
 ## 失败上下文
 
 每条 `mla.failure` 都会产生一条 `mla.failure_context`,在同一已选运行时作用域内关联当前任务、
@@ -62,6 +79,22 @@ MLA 默认输出其优先级为 `high` 的信号和每个任务的高亮信号,�
 摘要会直接写出当前关联任务及其状态,并在有界窗口内存在其他失败时给出数量;因此根任务
 `succeeded` 与附近子任务失败可以同时出现在一条摘要中,但这仍只是运行事实和时序关联。
 
+每条 `mla.failure` 还携带两个由上游事实直接映射的字段,用于区分"节点失败"与"任务失败":
+
+- `termination`:节点执行如何结束,取 `reco_timeout`(`next_list_timeout`)或
+  `action_error`(`action_failed`)。**没有 `stop_requested` 之类的取值**——上游解析不产生停止
+  信号,被用户停止打断的节点与其他未成功结束的节点无法区分,因此 MEK 不推断"这次失败是被停止
+  导致的"。
+- `task_outcome`:该失败所属任务执行的最终状态,取 `failed`、`succeeded`、
+  `succeeded_with_open_end`(框架判成功,但日志在闭合事件之前结束)或 `running`;无法解析时
+  为 `null`。`task_outcome` 与节点结果可以不一致:节点失败而任务仍成功是真实存在的组合。
+
+当存在"所属任务最终成功"的失败记录时,输出警告 `mla_failures_in_succeeded_tasks`,并给出
+`statistics.failuresInSucceededTasks`、`statistics.failuresInFailedTasks`、
+`statistics.failuresInRunningTasks` 与 `statistics.failuresWithoutTaskOutcome`。**这些记录不会被
+删除、降权或改写**——框架层的节点失败是事实,而它是否代表本次运行损坏需要结合 `task_outcome`
+判断,这属于 harness 的解释范围。按失败记录数直接声称任务损坏数量会高估。
+
 `nearbyFailures` 还会按同一作用域的失败顺序保留最多 5 个失败,并引用各自的 `mla.failure`
 及 `mla.failure_image` evidence ID。这为 harness 连续打开相邻失败截图提供确定性索引；MEK
 不比较图片像素,也不因时间接近而宣称截图属于同一界面。
@@ -72,6 +105,19 @@ MLA 默认输出其优先级为 `high` 的信号和每个任务的高亮信号,�
 实际引用的图片才标为 `selected`,图片字节不会嵌入结果。
 被失败事实引用的图片会额外输出为 `mla.failure_image` evidence,直接携带图片路径和关联节点,
 便于 harness 按需打开截图或调用视觉工具。
+
+被失败引用的图片还会记录内容摘要(`Artifact.contentDigest`,以及 `mla.failure_image.data` 的
+`contentDigest`),格式为 `sha256:<64 位十六进制>`。摘要只回答"这两个文件的字节是否相同"这一
+确定性等值问题,不做像素比较、不做画面相似性判断,也不声称两张截图属于同一界面——它把该判断
+所需的事实交给 harness。典型用途是按捕获画面聚类失败:两次独立失败写出同一张截图时,画面在两次
+失败之间没有变化。
+摘要只对确实被读取到的文件记录。空文件、不可读文件和超过 `MAX_CONTENT_DIGEST_BYTES` 的文件
+不记录摘要,这些记录按"摘要未知"处理,不会与任何其他记录被判为相同;摘要缺失本身不新增
+warning,消费者看到 `contentDigest` 不存在时应理解为"未判定"而不是"与其他都不同"。
+当输入里出现多份字节完全相同的 artifact 时,输出 `mla_byte_identical_artifacts` 警告,并给出
+`statistics.artifacts`(原始记录数)、`statistics.byteIdenticalArtifactRecords`(其中的副本记录数)
+与 `statistics.byteIdenticalArtifactRecordsDeduplicated`(去掉副本后的差值),便于用去重口径复核
+计数。artifact 记录与 evidence ID 仍然各自保留,不做合并:字节相同不等于同一次观测。
 
 ## `mla.recognition_detail` 聚合规则
 
@@ -120,6 +166,26 @@ task ID 关联的记录，再对其余记录做时间轴取样；完整数量在
 `statistics.pipelineOverridesTotal`，入选数量在 `statistics.pipelineOverrides` 和
 `details.selection.pipelineOverrides`。发生截断或覆盖日志行 JSON 不完整时分别输出
 `mla_pipeline_overrides_truncated`、`mla_pipeline_override_parse_incomplete`。
+
+`details.selection.pipelineOverrides.activityLines` 与
+`statistics.pipelineOverrideActivityLines` 给出**带覆盖痕迹的日志行数**，它不依赖任何已知 marker
+名称或格式，因此上游更换 marker 写法后仍然计数。当它大于 0 而 `pipelineOverridesTotal` 为 0 时，
+输出 `mla_pipeline_override_extraction_empty`：这表示**提取没有识别出记录格式，而不是本次运行没有
+发生覆盖**。此时不得从空结果得出"没有运行时覆盖"的结论，应改为读取被引用 artifact 的原始日志行。
+该计数是"带覆盖痕迹的行数"下界，不是记录数，也不与 `pipelineOverridesTotal` 一一对应：
+携带覆盖的任务提交会被计入而不产生独立的覆盖 evidence，镜像日志的重复行同样各计一次，
+而提取结果会按 Context 来源去重。
+
+提取本身接受多种 marker 写法，因为真实材料里同时存在它们：
+`][MaaNS::TaskNS::Context::override_pipeline]`（裸符号）与
+`][virtual bool MaaNS::TaskNS::Context::override_pipeline(const json::value &)]`（C++ 签名）。
+只匹配裸符号会在含有 159 行签名写法的真实日志上提取出 0 条记录。
+
+agent 反向请求路径（`AgentClient::handle_context_override_pipeline` 携带
+`_ContextOverridePipelineReverseRequest`）**不做提取**，因为它的信息完全冗余：它携带的每条 patch
+都已从对应的 Context marker 行按原文提取。三份真实日志上，全部反向请求 payload 都能在已提取的
+patch 中逐字节找到（31/31、26/26、66/66 条 patch；18/18、13/13、17/17 个节点名被覆盖），
+因此解析它只会产生重复记录。这些行仍被活动行计数覆盖，所以它们是**可见的已知缺口**而非静默丢失。
 
 该 evidence 只证明日志记录了覆盖输入，不是覆盖成功或最终运行配置的序列化结果。
 MaaFramework 会按 pipeline 协议和当时已有节点数据解析覆盖，并非普通 JSON 深合并；日志级别

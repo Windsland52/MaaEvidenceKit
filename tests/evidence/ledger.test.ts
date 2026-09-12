@@ -8,6 +8,7 @@ import {
   EVIDENCE_SCHEMA_VERSION,
   EvidenceLedger,
   artifactId,
+  findByteIdenticalArtifacts,
   findCrossArtifactDuplicateObservations,
   queryEvidenceWindow,
   type InspectionResult,
@@ -59,6 +60,46 @@ describe("evidence ledger", () => {
     ]);
     expect(single.observationGroups).toBe(0);
     expect(single.artifactIds).toEqual([]);
+  });
+
+  test("groups artifacts whose bytes are identical and excludes undigested records", () => {
+    const artifact = (
+      id: string,
+      relativePath: string,
+      contentDigest?: string,
+    ) => ({
+      id,
+      path: `/root/${relativePath}`,
+      relativePath,
+      kind: "image" as const,
+      status: "selected" as const,
+      ...(contentDigest === undefined ? {} : { contentDigest }),
+    });
+
+    const identical = findByteIdenticalArtifacts([
+      artifact("artifact-a", "on_error/first.png", "sha256:aa"),
+      artifact("artifact-b", "on_error/second.png", "sha256:aa"),
+      artifact("artifact-c", "on_error/third.png", "sha256:bb"),
+      // No digest: never read, so it is not assumed to be distinct or identical.
+      artifact("artifact-d", "on_error/unread.png"),
+    ]);
+
+    expect(identical.groups).toEqual([{
+      contentDigest: "sha256:aa",
+      artifactIds: ["artifact-a", "artifact-b"],
+      relativePaths: ["on_error/first.png", "on_error/second.png"],
+    }]);
+    expect(identical.artifactRecords).toBe(2);
+    expect(identical.deduplicatedRecords).toBe(1);
+
+    const distinct = findByteIdenticalArtifacts([
+      artifact("artifact-a", "on_error/first.png", "sha256:aa"),
+      artifact("artifact-c", "on_error/third.png", "sha256:bb"),
+      artifact("artifact-d", "on_error/unread.png"),
+    ]);
+    expect(distinct.groups).toEqual([]);
+    expect(distinct.artifactRecords).toBe(0);
+    expect(distinct.deduplicatedRecords).toBe(0);
   });
 
   test("reads a bounded source window only from an inventoried artifact", async () => {
