@@ -47,7 +47,7 @@ const HELP = `MaaEvidenceKit — deterministic MaaFramework evidence extraction
 
 Usage:
   maa-evidence mla inspect <path> [--from ISO] [--to ISO] [--keyword TEXT] [--all-signals] [--summary] [--format json|text|mermaid]
-  maa-evidence mse inspect <path> [--task NAME] [--depth N] [--controller NAME] [--resource NAME] [--no-referencers] [--syntax-mode maafw|maa] [--summary] [--format json|text|mermaid]
+  maa-evidence mse inspect <path> [--task NAME] [--depth N] [--controller NAME] [--resource NAME] [--no-referencers] [--syntax-mode maafw|maa] [--git-ref REF] [--summary] [--format json|text|mermaid]
   maa-evidence mse resolve <path> --task NAME [--depth N] [--controller NAME] [--resource NAME] [--no-referencers] [--syntax-mode maafw|maa] [--summary] [--format json|text|mermaid]
   maa-evidence repo-docs <checkout> [--summary] [--format json|text]
   maa-evidence inspect <path> [--from ISO] [--to ISO] [--task NAME] [--controller NAME] [--resource NAME] [--referencers|--no-referencers] [--no-mla] [--no-mse] [--summary]
@@ -171,7 +171,12 @@ async function runMse(parsed: ParsedArguments): Promise<InspectionResult> {
       : { depth: integerOption(parsed, "--depth") as number }),
   };
   const result = command === "inspect"
-    ? await inspectMse(inputPath, commonOptions)
+    ? await inspectMse(inputPath, {
+      ...commonOptions,
+      ...(option(parsed, "--git-ref") === undefined
+        ? {}
+        : { gitRef: option(parsed, "--git-ref") as string }),
+    })
     : await resolveMse(inputPath, commonOptions);
   await emitInspection(result, parsed);
   return result;

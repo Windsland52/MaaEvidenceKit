@@ -279,6 +279,13 @@ maa-evidence mse resolve C:\path\to\project --task StartUp --no-referencers --fo
 maa-evidence inspect C:\path\to\materials --format json --output inspection.json
 ```
 
+To read project source as it was at the issue, pass `--git-ref REF` to `mse inspect`. The ref content
+is resolved and extracted to a temporary directory, so nothing is checked out or reset in your worktree,
+and `details.gitSource.commit` records the exact commit to cite. Only tracked files exist at a ref, so
+untracked or ignored working-tree files are absent; if you need them, that checkout is not issue-time
+source. The result warns with `mse_git_ref_materialized` and names the temporary directory, so `window`
+requests against it need a re-run once that directory is gone. `mse resolve` does not accept `--git-ref`.
+
 When another source identifies the relevant interval, pass its wall-clock timestamps:
 
 ```powershell

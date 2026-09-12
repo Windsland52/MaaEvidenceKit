@@ -11,6 +11,7 @@ import {
 import { discoverArtifacts } from "../mla/discovery.js";
 import { profileStage, profileStageSync } from "../profiling.js";
 import { discoverMseProjects } from "./discovery.js";
+import { materializeGitRef } from "./git-source.js";
 import {
   runMseProjectPreflight,
   runMseTaskResolution,
@@ -30,6 +31,12 @@ export type MseInspectOptions = {
   resource?: string;
   depth?: number;
   includeReferencers?: boolean;
+  /**
+   * Read the project from this git ref instead of the working tree. The ref is materialized into a
+   * temporary directory, so an issue-time source can be inspected without touching the caller's
+   * checkout, and the resolved commit is reported in `details.gitSource`.
+   */
+  gitRef?: string;
 };
 
 export type MseProjectInspection = {
@@ -116,7 +123,10 @@ export async function inspectMse(
   inputPath: string,
   options: MseInspectOptions = {},
 ): Promise<MseInspectionResult> {
-  const resolvedPath = path.resolve(inputPath);
+  const gitSource = options.gitRef === undefined
+    ? null
+    : await profileStage("mse.git_ref", () => materializeGitRef(inputPath, options.gitRef as string));
+  const resolvedPath = path.resolve(gitSource === null ? inputPath : gitSource.path);
   const inputRoot = resolvedPath;
   const syntaxMode = options.syntaxMode ?? "maafw";
   const requestedTasks = normalizeMseTasks(options.tasks);
@@ -190,6 +200,12 @@ export async function inspectMse(
       ? { ...artifact, status: "selected" as const, reason: undefined }
       : artifact,
   ).map(({ reason, ...artifact }) => reason === undefined ? artifact : { ...artifact, reason });
+  if (gitSource !== null) {
+    warnings.push({
+      code: "mse_git_ref_materialized",
+      message: `Read the project from git ref ${options.gitRef} (commit ${gitSource.commit.slice(0, 12)}), not from the working tree. The content was extracted to ${gitSource.root} (${gitSource.fileCount} tracked files); artifact paths point there, so re-run against the ref to read a window after that directory is gone. Only tracked files exist at a ref, so untracked and ignored working-tree files are absent.`,
+    });
+  }
   return {
     schemaVersion: EVIDENCE_SCHEMA_VERSION,
     kind: "mse",
@@ -215,6 +231,17 @@ export async function inspectMse(
         includeReferencers: options.includeReferencers ?? true,
         ...(options.depth === undefined ? {} : { depth: options.depth }),
       },
+      ...(gitSource === null
+        ? {}
+        : {
+          gitSource: {
+            ref: options.gitRef as string,
+            commit: gitSource.commit,
+            materializedRoot: gitSource.root,
+            fileCount: gitSource.fileCount,
+            bytes: gitSource.bytes,
+          },
+        }),
     },
   };
 }

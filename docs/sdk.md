@@ -66,6 +66,8 @@ const answers = await queryEvidenceBatch(runtime, [
 - `inspectMse` / `resolveMse`:`tasks`、`controller`、`resource`、`includeReferencers`。
   `includeReferencers: false` 对应 CLI `--no-referencers`,用于公共节点只取定义及前向路径时
   关闭反向引用展开;展开深度由 `depth` 控制(默认两层)。
+  `inspectMse` 还接受 `gitRef`:按该 git ref 的提交内容检查,内容物化到临时目录而不触碰工作树,
+  解析出的 commit 在 `details.gitSource`。`resolveMse` 目前不支持该选项。
 - `inspect`(组合检查):`InspectOptions.mse.depth` / `includeReferencers` 可覆盖 SDK 默认;
   CLI 需要展开反向引用时使用 `inspect --referencers --depth N`。
 - `inspectRepositoryDocs`:显式清点 checkout 中受界的 `AGENTS.md` 文本和三个已知 Skill 根目录

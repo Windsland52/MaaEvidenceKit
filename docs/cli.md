@@ -71,7 +71,19 @@ maa-evidence mse inspect C:\path\to\project `
   --task __ScenePrivateWorldEnterMenuList `
   --depth 1 `
   --no-referencers
+
+# 读 issue 时点源码:按 git ref 检查,不动当前工作树
+maa-evidence mse inspect C:\path\to\project --git-ref v2.28.0 --task StartUp --format json --output mse-at-ref.json
 ```
+
+`mse inspect --git-ref REF` 按该 ref 的提交内容检查,而不是当前工作树。该 ref 会被解析并**物化到临时
+目录**,因此不会在调用方的 checkout 里做任何 checkout/reset;解析出的 commit 记录在
+`details.gitSource.commit`,便于引用。只有**被跟踪的文件**存在于某个 ref,所以工作树里未跟踪、
+被忽略的文件不会出现。结果会输出 `mse_git_ref_materialized` warning,其中包含临时目录路径;
+artifact 路径指向该临时目录,因此若临时目录已被清理,`window` 需要重新按该 ref 运行。
+
+未通过 `--git-ref` 时,`mse inspect` 与 `mse resolve` 的行为不变(`--git-ref` 目前仅 `mse inspect`
+支持)。
 
 ### `repo-docs`:清点 issue-time 仓库上下文
 
