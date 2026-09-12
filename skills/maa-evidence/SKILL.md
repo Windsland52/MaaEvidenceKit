@@ -138,4 +138,7 @@ Read additional material only when the investigation reaches that branch:
 Core inspection is offline. Operational telemetry is aggregate and whitelist-only; when enabled,
 it uses a random local installation identity only to estimate active installations and invocation
 frequency, never a hardware-derived identity. Original material feedback always requires a preview
-and explicit `UPLOAD`; never submit it automatically.
+and explicit `UPLOAD`; never submit it automatically. To submit on behalf of a human who already
+approved, have the human run `feedback approve --out token.json` in a real terminal, then submit with
+`--token token.json`; a token expires after 15 minutes and only matches the exact approved payload.
+`--preview` prints the payload without submitting and needs no terminal.

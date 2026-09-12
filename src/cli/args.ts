@@ -13,6 +13,7 @@ const VALUE_OPTIONS = new Set([
   "--evidence-id",
   "--format",
   "--from",
+  "--git-ref",
   "--input",
   "--keyword",
   "--kind",
@@ -22,6 +23,7 @@ const VALUE_OPTIONS = new Set([
   "--max-lines",
   "--message",
   "--node",
+  "--out",
   "--output",
   "--profile",
   "--category",
@@ -34,6 +36,7 @@ const VALUE_OPTIONS = new Set([
   "--task",
   "--text",
   "--to",
+  "--token",
 ]);
 
 const BOOLEAN_OPTIONS = new Set([
@@ -43,6 +46,7 @@ const BOOLEAN_OPTIONS = new Set([
   "--no-mla",
   "--no-mse",
   "--no-referencers",
+  "--preview",
   "--summary",
   "--version",
 ]);

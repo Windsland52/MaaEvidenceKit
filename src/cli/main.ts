@@ -11,7 +11,10 @@ import {
   inspectRepositoryDocs,
   MAA_EVIDENCE_VERSION,
   getTelemetryStatus,
+  createApprovalToken,
   previewFeedback,
+  readApprovalToken,
+  writeApprovalToken,
   queryEvidenceBatch,
   UsageError,
   type FeedbackCategory,
@@ -57,7 +60,8 @@ Usage:
   maa-evidence batch --input result.json --requests queries.json
   maa-evidence timeline --input result.json [--task NAME] [--format json|text]
   maa-evidence telemetry status|enable|disable
-  maa-evidence feedback --message TEXT [--category blocker|bug|suggestion|other] [--component mla|mse|discovery|views|other] [--attachment FILE]
+  maa-evidence feedback --message TEXT [--category blocker|bug|suggestion|other] [--component mla|mse|discovery|views|other] [--attachment FILE] [--preview]
+  maa-evidence feedback approve --message TEXT [--category ...] [--component ...] [--attachment FILE] --out token.json
 
 Common options:
   --output FILE       Write output to a file
@@ -340,17 +344,103 @@ function feedbackCategory(parsed: ParsedArguments): FeedbackCategory {
   return value as FeedbackCategory;
 }
 
-async function runFeedback(parsed: ParsedArguments): Promise<void> {
+async function runFeedbackApprove(parsed: ParsedArguments): Promise<void> {
   const message = option(parsed, "--message");
-  if (message === undefined) throw new UsageError("feedback requires --message.");
+  if (message === undefined) throw new UsageError("feedback approve requires --message.");
+  const out = option(parsed, "--out");
+  if (out === undefined) throw new UsageError("feedback approve requires --out.");
   const preview = await previewFeedback({
     message,
     category: feedbackCategory(parsed),
     component: feedbackComponent(parsed),
     attachmentPaths: options(parsed, "--attachment"),
   });
+  // Approval is the human step: it writes a token instead of submitting, so an agent can later
+  // submit exactly this payload without answering a prompt on the human's behalf.
   if (!process.stdin.isTTY || !process.stderr.isTTY) {
-    throw new UsageError("Feedback submission requires an interactive terminal for per-submission confirmation.");
+    throw new UsageError(
+      "feedback approve must run in an interactive terminal; it records the human approval that a later --token submission relies on.",
+    );
+  }
+  process.stderr.write("\nFeedback approval\n");
+  process.stderr.write(`Category: ${preview.category}\n`);
+  process.stderr.write(`Message: ${preview.message}\n`);
+  process.stderr.write(`Attachments: ${preview.attachments.length} (${preview.totalAttachmentBytes} bytes)\n`);
+  for (const attachment of preview.attachments) {
+    process.stderr.write(`- ${attachment.path} (${attachment.sizeBytes} bytes)\n`);
+  }
+  for (const warning of preview.warnings) process.stderr.write(`WARNING: ${warning}\n`);
+  const reader = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    const answer = await reader.question(
+      "Type UPLOAD to approve exactly this feedback for later submission, or anything else to cancel: ",
+    );
+    if (answer.trim() !== "UPLOAD") throw new UsageError("Feedback approval cancelled.");
+  } finally {
+    reader.close();
+  }
+  const token = createApprovalToken({
+    message: preview.message,
+    category: preview.category,
+    component: preview.component,
+    attachments: preview.attachments,
+  });
+  await writeApprovalToken(out, token);
+  process.stderr.write(
+    `Approved until ${token.expiresAt}. Submit with: maa-evidence feedback --message ... --token ${out}\n`,
+  );
+}
+
+async function runFeedback(parsed: ParsedArguments): Promise<void> {
+  const message = option(parsed, "--message");
+  if (message === undefined) throw new UsageError("feedback requires --message.");
+  const attachments = options(parsed, "--attachment");
+  const preview = await previewFeedback({
+    message,
+    category: feedbackCategory(parsed),
+    component: feedbackComponent(parsed),
+    attachmentPaths: attachments,
+  });
+
+  // Printing the exact payload is the cheapest way to let a human or an agent review what would be
+  // sent. It never submits, and it works without a terminal so an agent can show a human.
+  if (flag(parsed, "--preview")) {
+    await emit(JSON.stringify({
+      previewOnly: true,
+      category: preview.category,
+      component: preview.component,
+      message: preview.message,
+      attachments: preview.attachments.map((attachment) => ({
+        filename: attachment.filename,
+        sizeBytes: attachment.sizeBytes,
+        large: attachment.large,
+      })),
+      totalAttachmentBytes: preview.totalAttachmentBytes,
+      warnings: preview.warnings,
+    }, null, 2), option(parsed, "--output"));
+    return;
+  }
+
+  const tokenPath = option(parsed, "--token");
+  if (tokenPath !== undefined) {
+    // A valid approval stands in for the terminal prompt; an invalid or mismatched token is refused
+    // rather than silently falling back to prompting.
+    await readApprovalToken(tokenPath, {
+      message: preview.message,
+      category: preview.category,
+      component: preview.component,
+      attachments: preview.attachments,
+    });
+    const eventId = await submitFeedback(preview);
+    await emit(JSON.stringify({ sent: true, eventId, approvedBy: tokenPath }, null, 2), option(parsed, "--output"));
+    return;
+  }
+
+  if (!process.stdin.isTTY || !process.stderr.isTTY) {
+    throw new UsageError(
+      "Feedback submission requires an interactive terminal for per-submission confirmation. "
+      + "Run \"feedback approve --message ... --out token.json\" in a real terminal first, then submit with --token token.json.",
+    );
   }
   process.stderr.write("\nFeedback preview\n");
   process.stderr.write(`Category: ${preview.category}\n`);
@@ -508,6 +598,11 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<numb
         await runTelemetry(parsed);
         return 0;
       case "feedback":
+        if (parsed.positionals[1] === "approve") {
+          rejectUnexpectedPositionals(parsed, 2);
+          await runFeedbackApprove(parsed);
+          return 0;
+        }
         rejectUnexpectedPositionals(parsed, 1);
         await runFeedback(parsed);
         return 0;

@@ -138,6 +138,25 @@ maa-evidence telemetry enable
 maa-evidence telemetry disable
 ```
 
+### `feedback`:可选的产品反馈
+
+```powershell
+# 只打印将要发送的确切 payload,不提交(无需终端)
+maa-evidence feedback --message TEXT --category bug --component mla --preview
+
+# 人类在真实终端里批准一次,写出 token
+maa-evidence feedback approve --message TEXT --category bug --component mla --out token.json
+
+# 提交时用该 token 代替交互确认;token 过期或不匹配会被拒绝
+maa-evidence feedback --message TEXT --category bug --component mla --token token.json
+```
+
+`feedback approve` 是交互步骤:它打印与提交相同的预览并要求输入 `UPLOAD`,然后**写 token 而不是
+提交**。token 有效期 15 分钟,并绑定到"被批准的消息、类别、组件、附件名与附件大小"的摘要,因此
+无法被复用于不同内容;token 文件只包含摘要、一个不可读的随机值和时间戳,**不含消息正文或原始素材**。
+不匹配或过期的 token 一律拒绝,不会静默退回交互提示。`--preview` 可让 agent 把确切 payload 展示给
+人类审阅。
+
 ## MSE 行为
 
 MSE 未提供 `--task` 时只执行 Interface、资源组合和静态诊断预检,不自动展开项目中的
