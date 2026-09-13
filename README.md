@@ -33,7 +33,7 @@ MaaEvidenceKit(MEK)从 MaaFramework 日志和 Maa 项目中提取可定位的运
 
 ## 安装
 
-需要 Node.js 24+。发布版用户先安装 CLI:
+需要 Node.js 22+。发布版用户先安装 CLI:
 
 ```powershell
 npm install --global maa-evidence-kit@latest

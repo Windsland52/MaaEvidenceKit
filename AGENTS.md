@@ -93,7 +93,8 @@ Put new implementation into the narrowest existing domain. Do not introduce `uti
 
 ## TypeScript Conventions
 
-- Node.js 24 or newer is required.
+- Node.js 22 or newer is required. The suite runs on the oldest supported major in CI, so an API
+  newer than that fails there rather than in a user's install.
 - TypeScript strict mode, `exactOptionalPropertyTypes`, and `noUncheckedIndexedAccess` stay enabled.
 - Fix unknown third-party types at integration boundaries rather than weakening compiler settings.
 - Prefer discriminated unions and small explicit public types.

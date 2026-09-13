@@ -13,15 +13,22 @@ jobs:
     timeout-minutes: 20
     env:
       MAA_EVIDENCE_TELEMETRY: "0"
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22 is the oldest supported major: running it here is what stops a Node 22-incompatible
+        # API from reaching a user's install. 24 keeps coverage on the current major.
+        node: ["22", "24"]
 
+    name: Node.js ${{ matrix.node }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up Node.js 24
+      - name: Set up Node.js ${{ matrix.node }}
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "24"
+          node-version: ${{ matrix.node }}
 
       - name: Install locked dependencies
         run: |
