@@ -162,6 +162,13 @@ type RecognitionPipelineReferenceEvidenceData = {
   pipelineControllers: string[];
   pipelineResources: string[];
   staticConfigurations: RecognitionPipelineConfiguration[];
+  /**
+   * Flat union of every `staticConfigurations[].definitionEvidenceIds` entry, sorted and
+   * de-duplicated. The failure relation exposes the same flat field, so a consumer that reads only
+   * `staticResolutionStatus` can link a `found` recognition node to its definitions without
+   * walking the nested configurations.
+   */
+  pipelineDefinitionEvidenceIds: string[];
   staticResolutionStatus: StaticResolutionStatus;
   incompleteReasons: string[];
 };
@@ -215,6 +222,25 @@ function mseStaticResolutionIncompleteReasons(mse: MseInspectionResult): string[
 function staticResolutionStatus(found: boolean, incompleteReasons: readonly string[]): StaticResolutionStatus {
   if (found) return incompleteReasons.length === 0 ? "found" : "found_partial";
   return incompleteReasons.length === 0 ? "not_found" : "incomplete";
+}
+
+/**
+ * Merge warning lists without repeating an identical warning. The combined inspection walks the
+ * input before it dispatches the adapters, and an adapter walks the same input again, so both can
+ * report the same directory condition with the same code and message; a caller that counts warnings
+ * would otherwise read one condition as two. Warnings that share a code but describe different
+ * conditions are kept.
+ */
+function mergeWarnings(groups: readonly (readonly InspectionWarning[])[]): InspectionWarning[] {
+  const seen = new Set<string>();
+  const merged: InspectionWarning[] = [];
+  for (const warning of groups.flat()) {
+    const key = `${warning.code}\u0000${warning.message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(warning);
+  }
+  return merged;
 }
 
 function definitionEvidenceIdsForNode(mse: MseInspectionResult, node: string): string[] {
@@ -636,6 +662,9 @@ function addRecognitionPipelineReferences(
       pipelineResources: [...new Set(configurations.map((item) => item.task.resource)
         .filter((item): item is string => item !== null))].sort(),
       staticConfigurations,
+      pipelineDefinitionEvidenceIds: [...new Set(
+        staticConfigurations.flatMap((configuration) => configuration.definitionEvidenceIds),
+      )].sort(),
       staticResolutionStatus: resolutionStatus,
       incompleteReasons,
     };
@@ -804,11 +833,11 @@ export async function inspect(
     artifacts,
     evidence,
     missingEvidence,
-    warnings: [
-      ...artifactDiscovery.warnings,
-      ...componentResults.flatMap((item) => item.warnings),
-      ...combinedWarnings,
-    ],
+    warnings: mergeWarnings([
+      artifactDiscovery.warnings,
+      componentResults.flatMap((item) => item.warnings),
+      combinedWarnings,
+    ]),
     statistics: {
       scannedFiles: artifactDiscovery.scannedFileCount,
       adapters: componentResults.length,

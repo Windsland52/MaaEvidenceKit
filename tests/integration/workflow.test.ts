@@ -142,6 +142,26 @@ test("combined inspection reports missing log and project as missing evidence", 
   expect(result.evidence).toHaveLength(0);
 });
 
+// The combined inspection walks the input once on its own and once inside the MLA adapter, so the
+// same directory condition could be reported twice. A caller that counts warnings must read one
+// condition as one warning, and two conditions with the same code must both survive.
+test("combined inspection reports an identical discovery warning once", async () => {
+  const root = await createCombinedFixture();
+  // 200 unsupported files are reported and the rest are omitted, which is what raises
+  // `unsupported_artifact_list_truncated` in both the combined walk and the MLA adapter walk.
+  const names = Array.from({ length: 201 }, (_, index) => `note-${String(index).padStart(3, "0")}.bin`);
+  for (const [index, name] of names.entries()) {
+    await writeFile(path.join(root, name), `payload-${index}`, "utf8");
+  }
+  await writeFile(path.join(root, "zz-package.json"), "{}", "utf8");
+
+  const result = await inspect(root);
+
+  expect(result.warnings.filter((item) => item.code === "unsupported_artifact_list_truncated")).toHaveLength(1);
+  const keys = result.warnings.map((item) => `${item.code}\u0000${item.message}`);
+  expect(new Set(keys).size).toBe(keys.length);
+});
+
 test("combined inspection links runtime failures to MSE pipeline nodes", async () => {
   const root = await createCombinedFixture();
   await writeFile(path.join(root, "maafw.log"), failingNodeLog("Start").join("\n"), "utf8");
@@ -499,6 +519,7 @@ test("combined inspection links runtime recognition evidence to static MSE confi
     pipelineResources?: string[];
     staticResolutionStatus?: string;
     incompleteReasons?: string[];
+    pipelineDefinitionEvidenceIds?: string[];
     staticConfigurations?: Array<{
       recognition?: unknown;
       customRecognition?: unknown;
@@ -560,6 +581,9 @@ test("combined inspection links runtime recognition evidence to static MSE confi
   const definitionEvidenceId = data?.staticConfigurations?.[0]?.definitionEvidenceIds?.[0];
   const definitionEvidence = result.evidence.find((item) => item.id === definitionEvidenceId);
   expect(definitionEvidence).toMatchObject({ kind: "mse.task_definition" });
+  // A `found` relation must expose the same flat definition IDs it reports nested, so a consumer
+  // that never walks staticConfigurations can still cite the definition it resolved.
+  expect(data?.pipelineDefinitionEvidenceIds).toEqual([definitionEvidenceId]);
   expect((definitionEvidence?.data as { effectiveConfig?: Record<string, unknown> } | undefined)?.effectiveConfig)
     .toMatchObject({ recognition: "OCR", threshold: 0.95, template: "start.png" });
   expect(result.warnings.some((item) => item.code === "combined.recognition_pipeline_reference_missing"))
