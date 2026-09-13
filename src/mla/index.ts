@@ -8,6 +8,8 @@ export {
 export {
   inspectMla,
   findPossibleMirroredTaskGroups,
+  type MlaAnomalyCode,
+  type MlaTaskAnomaly,
   type MlaPossibleMirroredTaskGroup,
   type MlaPossibleMirroredTaskMember,
   type MlaActionDetail,

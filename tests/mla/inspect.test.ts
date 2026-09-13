@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, expect, test } from "vitest";
 
-import { inspectMla, queryEvidenceWindow, renderText } from "../../src/index.js";
+import { inspectMla, queryEvidenceWindow, renderText, type MlaAnomalyCode } from "../../src/index.js";
 import {
   correlateCycleBlockers,
   countPossibleMirroredTaskGroups,
@@ -2164,7 +2164,9 @@ test("pairs every structured anomaly code with its count", () => {
   const anomalies = summarizeTaskAnomalies(runtime);
   const [anomaly] = anomalies;
 
-  expect(anomaly?.observed).toEqual(["next_list_timeout", "action_failure"]);
+  // The union is part of the SDK facade, so a consumer can name the codes it matches on.
+  const observed: MlaAnomalyCode[] = anomaly?.observed ?? [];
+  expect(observed).toEqual(["next_list_timeout", "action_failure"]);
   expect(anomaly?.nextListTimeouts).toBe(1);
   expect(anomaly?.actionFailures).toBe(1);
   // Codes that were not observed keep their count fields at zero rather than being omitted.

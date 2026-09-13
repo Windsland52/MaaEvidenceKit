@@ -83,3 +83,7 @@ const answers = await queryEvidenceBatch(runtime, [
 
 SDK 返回与 CLI 输出相同的 `maa-evidence/v1` 结构;各 evidence 种类、统计字段和截断语义见
 [`docs/evidence-model.md`](evidence-model.md)。
+
+SDK 根入口同时导出可命名的公开类型:`MlaAnomalyCode` 与 `MlaTaskAnomaly` 对应
+`mla.task_anomaly` 的稳定异常代码及其记录结构,`MlaRuntimeInspectionResult` 对应译码后的运行时
+结果。使用者可以直接引用这些类型名,而不必自行重抄字面量。
