@@ -1,5 +1,9 @@
 # MaaEvidenceKit
 
+[![npm](https://img.shields.io/npm/v/maa-evidence-kit)](https://www.npmjs.com/package/maa-evidence-kit)
+[![license](https://img.shields.io/github/license/Windsland52/MaaEvidenceKit)](./LICENSE)
+![node](https://img.shields.io/badge/node-%3E%3D22-green)
+
 面向 MaaFramework 的确定性证据提取与诊断辅助工具包。
 
 A deterministic evidence extraction and diagnostic toolkit for MaaFramework.
