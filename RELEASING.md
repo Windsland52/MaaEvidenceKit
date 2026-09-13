@@ -52,13 +52,13 @@ in local release notes. Do not commit user material or absolute local paths.
 
 1. Commit the release metadata with `chore(release): <version>`.
 2. Create an annotated `v<version>` tag from the reviewed release commit and push the tag. The
-   `Publish npm package` workflow publishes that exact tag automatically.
-3. Configure the repository `NPM_TOKEN` secret with publish permission before the first release.
-   The workflow authenticates with npm, checks that `v<version>` matches `package.json`, and skips a
-   version that is already published so a manual rerun is safe.
-4. Install the published version in a clean directory and verify SDK import and `maa-evidence
+   `Publish npm package` workflow publishes that exact tag automatically: `pack` checks the tag
+   against `package.json`, runs the release checks on Node 22, and uploads the release tarball;
+   `publish` publishes that tarball unchanged on Node 24 (trusted publishing needs npm >= 11.5.1)
+   and skips a version that is already on npm, so a rerun is safe.
+3. Install the published version in a clean directory and verify SDK import and `maa-evidence
    --version` once more.
-5. For the first updater-enabled release, publish migration notes requiring `0.1.x` users to
+4. For the first updater-enabled release, publish migration notes requiring `0.1.x` users to
    reinstall the CLI and reinstall the Skill from the GitHub URL with `--global`. Confirm the npm
    `latest` dist-tag and the repository Skill both point at the reviewed release contents before
    announcing automatic updates.
@@ -66,3 +66,13 @@ in local release notes. Do not commit user material or absolute local paths.
 Do not publish from a dirty worktree, move an existing tag, or replace a published npm version. A
 manual workflow dispatch must select a `v<version>` tag; dispatching it from a branch intentionally
 fails the version validation.
+
+Prerelease tags are not supported yet: without `--tag`, npm aborts the publish, so add a `--tag next`
+branch to the publish step before tagging one.
+
+### Credentials
+
+Publishing uses npm trusted publishing (OIDC), configured in the package settings on npmjs.com for
+repository `Windsland52/MaaEvidenceKit` and workflow file `publish-npm.yml`; no npm token is stored
+in the repository or in CI. A mismatch, for example after renaming the workflow file, is reported by
+npm as a masked `E404` on `PUT`, and `npm trust github` recreates the relationship.

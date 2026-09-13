@@ -287,7 +287,7 @@ src/
 
 发布前统一运行 `pnpm release:check`;该命令除完整检查外,还会打包 tarball,在临时消费项目中
 安装并验证 SDK import 和 CLI 入口。推送与包版本一致的 `v<version>` tag 后,GitHub Actions
-会使用仓库配置的 `NPM_TOKEN` 自动发布到 npm。
+通过 npm trusted publishing(OIDC)自动发布到 npm,不需要长期 token。
 
 ```powershell
 pnpm install

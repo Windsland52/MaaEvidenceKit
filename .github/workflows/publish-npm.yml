@@ -8,14 +8,13 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: npm-publish-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  publish:
+  pack:
     if: github.repository == 'Windsland52/MaaEvidenceKit'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -29,7 +28,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v6.0.10
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
         with:
           version: 11.5.0
           run_install: false
@@ -38,10 +37,10 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           # Build the published artifact on the oldest supported major, so the released files are
-          # produced by the runtime the package claims to support.
+          # produced by the runtime the package claims to support. The publish job runs on Node 24
+          # instead: trusted publishing needs npm >= 11.5.1, and Node 22 still bundles npm 10.
           node-version: 22
           cache: pnpm
-          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -50,6 +49,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Trusted publishing authorizes this workflow file, not a ref, so the ref has to be pinned
+          # to a tag here: a branch that happens to be named v<version> must not publish.
+          if [[ "${GITHUB_REF}" != refs/tags/* ]]; then
+            echo "Publishing requires a tag ref; received ${GITHUB_REF}." >&2
+            exit 1
+          fi
           if [[ "${GITHUB_REF_NAME}" != v* ]]; then
             echo "Publishing requires a v<version> tag; received ${GITHUB_REF_NAME}." >&2
             exit 1
@@ -64,38 +69,13 @@ jobs:
       - name: Run release checks
         run: pnpm release:check
 
-      - name: Check npm authentication and package state
-        id: npm-state
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "${NODE_AUTH_TOKEN}" ]]; then
-            echo "NPM_TOKEN is not configured." >&2
-            exit 1
-          fi
-          npm whoami >/dev/null
-          package_name="$(node -p "require('./package.json').name")"
-          package_version="$(node -p "require('./package.json').version")"
-          package_ref="${package_name}@${package_version}"
-          if npm_view_output=$(npm view "${package_ref}" version 2>&1); then
-            echo "already_published=true" >> "${GITHUB_OUTPUT}"
-            echo "${package_ref} already exists on npm; publish will be skipped."
-          elif grep -q 'E404' <<< "${npm_view_output}"; then
-            echo "already_published=false" >> "${GITHUB_OUTPUT}"
-          else
-            echo "Unable to query ${package_ref} on npm:" >&2
-            echo "${npm_view_output}" >&2
-            exit 1
-          fi
-
       - name: Pack release tarball
-        if: steps.npm-state.outputs.already_published != 'true'
+        id: pack
         shell: bash
         run: |
           set -euo pipefail
           pack_root="${RUNNER_TEMP}/maa-evidence-kit-package"
+          rm -rf "${pack_root}"
           mkdir -p "${pack_root}"
           pnpm pack --pack-destination "${pack_root}"
           mapfile -t tarballs < <(find "${pack_root}" -maxdepth 1 -type f -name '*.tgz' -print)
@@ -103,10 +83,86 @@ jobs:
             echo "Expected one release tarball, found ${#tarballs[@]}." >&2
             exit 1
           fi
-          printf 'TARBALL=%s\n' "${tarballs[0]}" >> "${GITHUB_ENV}"
+          printf 'pack_dir=%s\n' "${pack_root}" >> "${GITHUB_OUTPUT}"
+
+      # The pack directory is uploaded through a wildcard on purpose: a wildcard makes the artifact
+      # root the directory itself, so the tarball lands at the artifact root instead of nested under
+      # its parent directory name.
+      - name: Upload release tarball
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-package
+          path: ${{ steps.pack.outputs.pack_dir }}/*.tgz
+          if-no-files-found: error
+
+  publish:
+    needs: pack
+    if: github.repository == 'Windsland52/MaaEvidenceKit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Download release tarball
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-package
+          path: dist/npm
+
+      # No registry-url and no NODE_AUTH_TOKEN on purpose: publishing authenticates through npm
+      # trusted publishing (OIDC), and setup-node's registry-url writes an .npmrc whose placeholder
+      # token can shadow the OIDC exchange, which npm then reports as a masked E404 on PUT.
+      # The tarball is published as-is, so no install and no build happen in this job.
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
 
       - name: Publish release tarball
-        if: steps.npm-state.outputs.already_published != 'true'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish "${TARBALL}" --access public --provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm_version="$(npm --version)"
+          echo "npm ${npm_version}"
+          # Trusted publishing requires npm >= 11.5.1. Fail loudly here rather than letting it
+          # surface later as the masked E404 that npm returns for any authentication failure.
+          node -e '
+            const [major, minor, patch] = process.argv[1].split(".").map(Number);
+            const supported = major > 11 || (major === 11 && (minor > 5 || (minor === 5 && patch >= 1)));
+            if (!supported) {
+              console.error(`npm ${process.argv[1]} does not support trusted publishing (need >= 11.5.1)`);
+              process.exit(1);
+            }
+          ' "$npm_version"
+          mapfile -t tarballs < <(find dist/npm -maxdepth 1 -type f -name '*.tgz' -print)
+          if [[ "${#tarballs[@]}" -ne 1 ]]; then
+            echo "Expected one release tarball in the artifact, found ${#tarballs[@]}." >&2
+            exit 1
+          fi
+          tarball="${tarballs[0]}"
+          # Read the identity from the artifact itself: the already-published check must describe
+          # what would actually be uploaded, not what the checked-out tree claims.
+          metadata_root="${RUNNER_TEMP}/maa-evidence-kit-package-metadata"
+          rm -rf "${metadata_root}"
+          mkdir -p "${metadata_root}"
+          tar -xzf "${tarball}" -C "${metadata_root}" package/package.json
+          package_name="$(node -e 'const value = require(process.argv[1]); process.stdout.write(value.name)' "${metadata_root}/package/package.json")"
+          package_version="$(node -e 'const value = require(process.argv[1]); process.stdout.write(value.version)' "${metadata_root}/package/package.json")"
+          package_ref="${package_name}@${package_version}"
+          if npm_view_output=$(npm view "${package_ref}" version 2>&1); then
+            echo "${package_ref} already exists on npm; publish will be skipped."
+            exit 0
+          elif grep -q 'E404' <<< "${npm_view_output}"; then
+            echo "${package_ref} is not published yet."
+          else
+            echo "Unable to query ${package_ref} on npm:" >&2
+            echo "${npm_view_output}" >&2
+            exit 1
+          fi
+          # A stale token in any npmrc would shadow the OIDC exchange, so drop it explicitly.
+          npm config delete "//registry.npmjs.org/:_authToken" >/dev/null 2>&1 || true
+          # Provenance is kept explicit: it is generated from the same OIDC identity, and losing it
+          # silently would be a supply-chain regression.
+          npm publish "${tarball}" --access public --provenance
