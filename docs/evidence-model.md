@@ -70,6 +70,10 @@ MLA 默认输出其优先级为 `high` 的信号和每个任务的高亮信号,�
 MEK 只保证它知道**哪些文件存在、多大、何时修改**。`modifiedAt` 是文件系统事实，不是解析出的事件
 时间；是否落在故障时间窗内需要 harness 自行比对。
 
+一个例外：常见图片格式（PNG、JPEG、GIF、WebP、BMP）即使附件名没有扩展名，发现阶段也会读取文件头，
+按签名把这类文件确定性登记为 `kind: "image"` 的 artifact。登记只陈述格式与来源，不读取也不解释
+像素含义；是否有决定性证据仍由 harness 打开文件自行判断。
+
 符号链接与 Windows junction **一律不被跟随**，但被跳过的条目不再是无声的：发现阶段输出 warning
 `artifact_links_skipped`（MSE 工程发现为 `mse_project_links_skipped`），给出总数和前 10 条按相对
 路径排序的条目（超出部分以 `(+N more)` 表示）。链接目标既不进入 `artifacts`，也不被解析，因此

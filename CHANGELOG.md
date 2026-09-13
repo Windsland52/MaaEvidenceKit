@@ -330,6 +330,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Expand the harness Skill's configuration workflow to distinguish static declarations, runtime
   override inputs, framework execution facts, and observed application state.
 
+### Upgrade notes
+
+- `0.1.x` carries no use-time updater, so publishing a newer package cannot upgrade it in place.
+  Move such an install by hand once: rerun the CLI install and the global Skill install. After that
+  the updater maintains both. Install the Skill from its GitHub URL, because a local-path install is
+  a development setup that `skills update` does not track.
+
 ## [0.1.1] - 2026-08-08
 
 ### Fixed
