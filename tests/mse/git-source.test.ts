@@ -158,6 +158,34 @@ test("disposes a materialized tree on request and leaves nothing behind on failu
   expect(after.length).toBe(before.length);
 });
 
+test("reads many files in one batch stream without corrupting binary content", async () => {
+  const { root } = await repository();
+  // Binary bytes exercise the framing: a frame length must be respected exactly, and content must
+  // not be decoded as text. A zero byte and a trailing newline are the cases that break naive parsing.
+  const binary = Buffer.from([0x00, 0x01, 0xfe, 0xff, 0x0a, 0x00, 0x7f, 0x0a]);
+  await mkdir(path.join(root, "assets", "nested"), { recursive: true });
+  const expected = new Map<string, Buffer>();
+  for (const [name, body] of [
+    ["assets/one.bin", binary],
+    ["assets/nested/two.bin", Buffer.from("no trailing newline", "utf8")],
+    ["assets/nested/three.txt", Buffer.from("has\nnewlines\n", "utf8")],
+  ] as const) {
+    await writeFile(path.join(root, name), body);
+    expected.set(name, body);
+  }
+  git(root, ["add", "-A"]);
+  git(root, ["commit", "-q", "-m", "add mixed content"]);
+
+  const materialized = await materializeGitRef(root, "HEAD");
+  temporaryRoots.push(materialized.root);
+
+  expect(materialized.fileCount).toBe(expected.size + 1);
+  for (const [name, body] of expected) {
+    const written = await readFile(path.join(materialized.root, name));
+    expect(written.equals(body)).toBe(true);
+  }
+});
+
 test("rejects an unresolvable ref, an option-like ref, and a path absent at the ref", async () => {
   const { root } = await repository();
 

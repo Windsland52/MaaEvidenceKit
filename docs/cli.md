@@ -98,6 +98,11 @@ artifact 路径指向该临时目录,因此若临时目录已被清理,`window` 
 SDK 侧可显式释放:`materializeGitRef` 返回的 `cleanup()` 会删除该目录;`pruneGitRefMaterializations()`
 可在需要时主动回收。
 
+读取使用单个 `git cat-file --batch` 流而不是每个文件一次 `git show`。这不是微优化:实测 MaaEnd 项目
+(1604 个文件、约 49MB)按文件起进程会超时,改用批量流后物化耗时约 **2.3 秒**,整个
+`mse inspect --git-ref` 为 42 秒(同项目不带 `--git-ref` 的普通检查为 37 秒)。字节按帧长精确切分,
+二进制内容不会被按文本解码。
+
 被跟踪的**符号链接不会被物化**(symlink 的 blob 存的是目标路径,写成普通文件会误represent)，
 会输出 `mse_git_ref_symlinks_skipped` 与对应 `missingEvidence`;submodule 同样不物化并输出
 `mse_git_ref_submodules_skipped`。

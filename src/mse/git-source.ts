@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -106,14 +106,69 @@ function git(cwd: string, args: readonly string[]): Promise<string> {
     .then((result) => result.stdout);
 }
 
-/** Read one git object as raw bytes so binary files are not corrupted by text decoding. */
-function gitBytes(cwd: string, args: readonly string[]): Promise<Buffer> {
-  return run("git", args, {
-    cwd,
-    maxBuffer: MAX_MATERIALIZED_BYTES,
-    windowsHide: true,
-    encoding: "buffer",
-  }).then((result) => result.stdout);
+/**
+ * Read several git objects in one `git cat-file --batch` stream.
+ *
+ * `--batch` frames each object as `<oid> <type> <size>\n<content>\n`, in request order, so responses
+ * are matched by position rather than parsed as text. Using one stream instead of one `git show`
+ * process per file matters: a real project holds thousands of files, and a process per file makes
+ * materialization take minutes.
+ */
+function readObjects(cwd: string, specs: readonly string[]): Promise<Buffer[]> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", ["cat-file", "--batch"], { cwd, windowsHide: true });
+    const chunks: Buffer[] = [];
+    let settled = false;
+    const fail = (error: Error): void => {
+      if (settled) return;
+      settled = true;
+      child.kill();
+      reject(error);
+    };
+    child.on("error", fail);
+    child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      if (code !== 0) {
+        reject(new Error(`git cat-file --batch exited with ${String(code)}`));
+        return;
+      }
+      try {
+        resolve(splitBatchFrames(Buffer.concat(chunks), specs.length));
+      } catch (error: unknown) {
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+    child.stdin.on("error", fail);
+    child.stdin.end(`${specs.join("\n")}\n`);
+  });
+}
+
+/** Split `git cat-file --batch` output into exactly `expected` contents, matched by position. */
+function splitBatchFrames(output: Buffer, expected: number): Buffer[] {
+  const contents: Buffer[] = [];
+  let offset = 0;
+  for (let index = 0; index < expected; index += 1) {
+    const newline = output.indexOf(0x0a, offset);
+    if (newline < 0) throw new Error("git cat-file output ended before the header of an object.");
+    const header = output.subarray(offset, newline).toString("utf8").trim();
+    // A missing object is reported as `<spec> missing` rather than as a frame with a size.
+    if (header.endsWith(" missing")) {
+      throw new UsageError(`Object not found in the repository: ${header.slice(0, -" missing".length)}`);
+    }
+    const size = Number(header.split(" ")[2]);
+    if (!Number.isSafeInteger(size) || size < 0) {
+      throw new Error(`git cat-file returned an unreadable header: ${header}`);
+    }
+    const start = newline + 1;
+    const end = start + size;
+    if (end > output.length) throw new Error("git cat-file output ended before an object's content.");
+    contents.push(output.subarray(start, end));
+    // Each frame's content is followed by a single newline that is not part of the object.
+    offset = end + 1;
+  }
+  return contents;
 }
 
 async function optionalGit(cwd: string, args: readonly string[]): Promise<string | null> {
@@ -227,9 +282,15 @@ export async function materializeGitRef(
     await rm(destination, { recursive: true, force: true });
   };
   try {
+    // One `git cat-file --batch` stream instead of one `git show` process per file: a real project
+    // holds thousands of files, and a process per file makes materialization take minutes.
+    const contents = await readObjects(root, entries.map((entry) => `${commit}:${entry.relativePath}`));
     let bytes = 0;
-    for (const entry of entries) {
-      const buffer = await gitBytes(root, ["show", `${commit}:${entry.relativePath}`]);
+    for (const [index, entry] of entries.entries()) {
+      const buffer = contents[index];
+      if (buffer === undefined) {
+        throw new UsageError(`git cat-file returned no content for ${entry.relativePath} at ${ref}.`);
+      }
       bytes += buffer.byteLength;
       if (bytes > MAX_MATERIALIZED_BYTES) {
         throw new UsageError(
