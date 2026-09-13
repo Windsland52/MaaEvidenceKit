@@ -138,7 +138,10 @@ installations and invocation frequency; it is not derived from a machine identif
 telemetry deletes the local identity.
 Respect `maa-evidence telemetry disable` and `MAA_EVIDENCE_TELEMETRY=0`; never re-enable telemetry
 after the user or environment disables it. Original-material feedback remains separate and always
-requires an interactive preview plus explicit `UPLOAD` confirmation.
+requires a preview plus explicit `UPLOAD` confirmation: either interactively at submission, or once
+in a real terminal through `feedback approve --out token.json`, whose token then authorizes exactly
+that approved payload for one submission within 15 minutes. `--preview` prints the payload without
+submitting and needs no terminal.
 
 Eligible inspection and follow-up commands attempt operational telemetry automatically. Do not
 rerun work merely to manufacture telemetry, and do not treat telemetry controls as a diagnostic
@@ -562,8 +565,9 @@ When a product-gap candidate remains:
    cannot contain the problem description, paths, arguments, logs, source, or screenshots.
 3. Proactively offer a minimal feedback draft with a category, component, message, and whether an
    attachment is actually needed. Prefer message-only feedback when the cited facts are sufficient.
-4. Wait for permission before invoking `feedback`; then preserve its interactive preview and
-   explicit `UPLOAD` confirmation. Enabled operational telemetry is not feedback consent.
+4. Wait for permission before invoking `feedback`; then preserve its preview and explicit `UPLOAD`
+   confirmation, either interactively or through the one-time `feedback approve --out token.json`
+   approval described in the privacy rules. Enabled operational telemetry is not feedback consent.
 
 Use `blocker` for unusable commands or crashes, `bug` for incorrect or missing supported evidence,
 `suggestion` for useful unsupported coverage or performance improvements, and `other` only when the
@@ -577,8 +581,9 @@ maa-evidence feedback `
   --attachment C:\path\to\maafw.log
 ```
 
-The command displays a preview and requires the user to type `UPLOAD`. Never send original material
-automatically or treat general telemetry consent as feedback or attachment consent. Even when the
-gap is fixed in the MEK repository during the same task, state that aggregate telemetry did not
-record the gap details and surface the separate feedback choice instead of silently assuming the
-code change replaced consent.
+The command displays a preview and requires the user to type `UPLOAD`, or to record that approval
+once with `feedback approve --out token.json` and submit it later with `--token token.json`. Never
+send original material automatically or treat general telemetry consent as feedback or attachment
+consent. Even when the gap is fixed in the MEK repository during the same task, state that aggregate
+telemetry did not record the gap details and surface the separate feedback choice instead of silently
+assuming the code change replaced consent.

@@ -10,7 +10,9 @@ CLI 与 SDK 共用该模型;命令用法见 [`docs/cli.md`](cli.md),SDK 用法�
 - `artifacts`:发现、选择、跳过或无法读取的材料;
 - `evidence`:带稳定 ID 与来源定位的确定性事实;
 - `missingEvidence`:缺失分卷、空时间窗或缺失项目等;
-- `warnings`:上游限制、截断和兼容性信息;
+- `warnings`:上游限制、截断和兼容性信息;同一 `code` 与 `message` 的组合在一个结果里只出现一次,
+  组合检查不会因为自身与适配器各扫描一次输入就把同一个条件报成两条;`code` 相同但描述不同条件的
+  警告都会保留。
 - `statistics`:确定性计数;
 - `details`:MLA/MSE 的项目自有结构化结果,或 `repo_docs` 的 evidence ID 索引、固定上限与
   扫描截断状态。
@@ -67,6 +69,12 @@ MLA 默认输出其优先级为 `high` 的信号和每个任务的高亮信号,�
 可以清点未支持文件，但不得推断其语义。因此判断"这些文件是否包含决定性证据"是 harness 的职责，
 MEK 只保证它知道**哪些文件存在、多大、何时修改**。`modifiedAt` 是文件系统事实，不是解析出的事件
 时间；是否落在故障时间窗内需要 harness 自行比对。
+
+符号链接与 Windows junction **一律不被跟随**，但被跳过的条目不再是无声的：发现阶段输出 warning
+`artifact_links_skipped`（MSE 工程发现为 `mse_project_links_skipped`），给出总数和前 10 条按相对
+路径排序的条目（超出部分以 `(+N more)` 表示）。链接目标既不进入 `artifacts`，也不被解析，因此
+"扫描到 0 个文件"永远带着这条说明，而不是一个无法解释的零结果；需要链接后面的材料时，由 harness
+直接读取目标位置。
 
 ## 失败上下文
 
@@ -239,7 +247,10 @@ Combined relation 故意不生成一个新的“最终 effectiveConfig”：MSE 
 
 每条 `mla.recognition_detail` 还会产生 `combined.recognition_pipeline_reference`:它关联
 运行时算法、状态、聚合次数与同名 pipeline 节点的 controller/resource、recognition 摘要、
-定义位置和 `definitionEvidenceIds`。完整 `effectiveConfig` 不会在 relation 中重复复制;harness
+定义位置和 `definitionEvidenceIds`。与失败关系一致,它也输出扁平的
+`pipelineDefinitionEvidenceIds`(各 `staticConfigurations[].definitionEvidenceIds` 的排序去重
+并集),因此只读该字段的 harness 在 `staticResolutionStatus` 为 `found` 时也能直接引用定义,无需
+遍历嵌套配置。完整 `effectiveConfig` 不会在 relation 中重复复制;harness
 可直接 `view` 被引用的 `mse.task_definition` evidence,对照 OCR 文本或模板分数与静态
 `threshold`、`template` 等实际存在的配置字段。该关系只表示运行时名称与提供的静态快照匹配,
 不表示配置导致了本次识别结果;若节点不在该快照中,会以 `pipelineFound: false` 及

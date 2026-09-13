@@ -119,8 +119,9 @@ For common follow-ups, prefer a single batch:
 ]
 ```
 
-Search and dependent view/window requests require two batches because a batch request cannot consume
-an ID returned by another request in the same batch.
+Search and dependent window requests require two batches because a batch request cannot consume an ID
+returned by another request in the same batch; a dependent `view` no longer does, because it also
+accepts the same `query` object as `search` and reports `matchCount`.
 
 ## Progressive references
 

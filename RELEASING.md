@@ -1,19 +1,24 @@
 # Releasing MaaEvidenceKit
 
-Releases are prepared from a clean release branch with Node.js 24+ and the pinned pnpm version from
+Releases are prepared from a clean release branch with Node.js 22+ and the pinned pnpm version from
 `package.json`. Real issue logs, extracted archives, local inspections, profiles, and source clones
 must remain outside Git.
 
 ## Prepare
 
-1. Move completed entries from `Unreleased` in `CHANGELOG.md` into the target version and date.
+1. Add a `## [<version>] - <date>` section to `CHANGELOG.md` describing the commits since the last
+   release, and refresh the `[Unreleased]` comparison link plus the new version's link at the bottom
+   of the file. A released version must never leave `[Unreleased]` pointing at the previous tag.
 2. Keep `package.json` and `src/version.ts` versions identical. Update version assertions in tests.
    Release every Skill behavior change with a new package version because automatic Skill sync is
    keyed by the executing MEK version.
-3. Run `pnpm install --frozen-lockfile`.
+3. Run `pnpm install --frozen-lockfile`. Resolve a lockfile conflict by regenerating
+   `pnpm-lock.yaml`, never by picking one side; `tests/deps/lockfile.test.ts` compares every lockfile
+   specifier with `package.json`.
 4. Run `pnpm release:check`.
-5. Review `pnpm pack --dry-run` and confirm only `dist`, Skill files, package metadata, license,
-   privacy notice, README, and changelog are included.
+5. Review `pnpm pack --dry-run` and confirm only `dist`, the published `docs` (CLI, SDK, and
+   evidence-model references), Skill files, package metadata, license, privacy notice, README, and
+   changelog are included.
 
 `release:check` runs lint, type checking, tests, build, and a tarball smoke test. The smoke test packs
 the current tree, installs the tarball into a temporary consumer project, imports the public SDK,

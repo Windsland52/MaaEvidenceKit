@@ -74,6 +74,8 @@ const answers = await queryEvidenceBatch(runtime, [
   下的 `SKILL.md` 路径结构。它不解析或执行 Skill,也不会由组合 `inspect` 自动调用。
 - `searchEvidence` / `queryEvidenceBatch` / `queryEvidenceWindow`:与 CLI `search` / `batch` /
   `window` 命令同语义,包括精确/模糊匹配规则、结果上限与批量严格校验,见 [CLI 参考](cli.md)。
+  `queryEvidenceBatch` 的 `view` 请求除 `evidenceId` 外也接受与 `search` 相同的 `query`
+  (两者不能同时使用),按 `query` 解析时结果带 `matchCount`,查询无匹配会让整批失败。
 - MLA 信号穷举:设置 `includeAllSignals: true`(对应 CLI `--all-signals`),见
   [输出模型](evidence-model.md)。
 

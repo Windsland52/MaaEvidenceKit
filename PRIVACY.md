@@ -40,8 +40,9 @@ be disabled at any time.
 - Setting `MAA_EVIDENCE_TELEMETRY=0` also disables operational telemetry for the process.
 - Update behavior uses the separate `MAA_EVIDENCE_AUTO_UPDATE` setting above.
 - CI and non-interactive use send aggregate operational telemetry by default and never prompt.
-- Original-material feedback (logs, screenshots, source) is never sent automatically; it always
-  requires an interactive preview and an explicit `UPLOAD` confirmation.
+- Original-material feedback (logs, screenshots, source) is never sent automatically; every
+  submission is gated by a preview and an explicit `UPLOAD` confirmation, either interactively at
+  submission time or through the one-time `feedback approve` token described below.
 
 When operational telemetry first attempts to send, MEK creates a random installation seed in the
 local configuration directory. It is not derived from hardware, operating-system accounts, usernames,
@@ -118,10 +119,12 @@ maa-evidence feedback --message TEXT --category bug --token token.json
 
 `feedback approve` is the interactive step: it prints the same preview and requires `UPLOAD`, then
 writes a token instead of submitting. The token is valid for 15 minutes, is bound to a digest of the
-approved message, category, component, and attachment names and sizes, and is **deleted as soon as a
-submission consumes it**, so one approval authorizes one upload. A mismatched, expired, or
-already-consumed token is refused and never falls back to prompting. The token file holds no original
-material and no message text, only the digest, an opaque random value, and the expiry.
+approved message, category, component, and attachment names and sizes, and is **consumed before the
+upload is attempted**, so one approval authorizes one upload: an interrupted or failed submission
+spends the approval instead of leaving a replayable token, and a token that cannot be removed refuses
+the submission. A mismatched, expired, or already-consumed token is refused and never falls back to
+prompting. The token file holds no original material and no message text, only the digest, an opaque
+random value, and the expiry.
 
 What this mechanism is and is not:
 

@@ -109,7 +109,8 @@ SDK 侧可显式释放:`materializeGitRef` 返回的 `cleanup()` 会删除该目
 可在需要时主动回收。
 
 字节上限通过 `git ls-tree -l` 的元数据**在读取内容之前**预检,因此超限会在分配内存之前就被拒绝,
-而不是先把内容读进内存再报错。
+而不是先把内容读进内存再报错。单次 `--git-ref` 的物化总量上限为 **512 MiB**;以 `-` 开头的 ref 会在
+交给 git 之前就被拒绝,因此 ref 不可能被当成 git 选项传入。
 
 **已知未覆盖**:包含换行符的跟踪路径会被拒绝(`cat-file --batch` 是行协议,无法无歧义寻址),
 但这条防护**没有测试**——git 允许这类路径,而 `git update-index --cacheinfo` 会拒绝、Windows 也不允许
@@ -262,6 +263,9 @@ maa-evidence mla inspect C:\path\to\materials --format json --output inspection.
 
 `view --evidence-id` 支持 JSON 和 text;`window` 默认保持 JSON,也支持 `--format text`。
 未知 evidence ID 会明确报错,不会静默返回空结果。
+`window` 的行数与字符预算同时受上界约束;当 `--max-characters` 连第一条候选行都放不下时,窗口返回
+该行按预算截断后的前缀并标记 `truncated: true`,因此有内容的窗口不会退化成 `startLine` 大于
+`endLine` 的空范围。
 
 `search` 只读取已有 inspection JSON,不重新解析原日志。`--kind`、`--node`、`--task`
 和 `--artifact-id` 执行区分大小写的精确匹配;可重复传入同一选项表示任一值均可。
@@ -284,13 +288,17 @@ maa-evidence mla inspect C:\path\to\materials --format json --output inspection.
 [
   { "id": "find", "operation": "search", "query": { "kinds": ["mla.task"], "limit": 20 } },
   { "id": "fact", "operation": "view", "evidenceId": "evidence-abc123" },
+  { "id": "fact-by-query", "operation": "view", "query": { "kinds": ["mla.failure"], "limit": 1 } },
   { "id": "context", "operation": "window", "query": { "evidenceId": "evidence-abc123", "before": 5, "after": 5 } }
 ]
 ```
 
 输出使用 `maa-evidence-batch/v1`,保持请求顺序和可选 `id`。每批限制 1 到 100 项;输入字段会
 严格校验,任一项非法、ID 未知或窗口读取失败时整批明确失败,不返回容易误用的部分结果。
-批次不支持引用同批 `search` 动态返回的 ID;这种依赖关系应先批量搜索,再用第二批读取事实和窗口。
+`view` 请求要么给 `evidenceId`,要么给与 `search` 相同的 `query`,**不能同时给**;按 `query` 解析时
+结果额外带 `matchCount`,用于区分唯一命中与“任意第一条”,而 `query` 匹配为空会让整批失败,不会返回
+空 view。批次仍不支持引用同批 `search` 动态返回的 ID;这类依赖用 `view` 的 `query` 形式表达,或先
+批量搜索、再用第二批读取事实和窗口。
 
 ## `--profile`:本地阶段计时
 

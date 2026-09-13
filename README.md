@@ -192,7 +192,8 @@ Issue/本地日志与 Sentry 没有共享 `event_id` 或隐私安全的 `run_id`
 
 Issue 调查采用分阶段快路径:harness 并发获取独立附件并提取 issue 中的版本/时间提示,日志
 完整后立即先运行聚焦 MLA;只有剩余问题确实需要节点定义、配置阈值或静态执行关系时,才获取
-issue-time 源码并运行聚焦 MSE。已知 task/controller/resource 必须传给 MSE,共享节点只需定义
+issue-time 源码并运行聚焦 MSE;重新获取源码时用 `mse inspect --git-ref REF` 按 issue 时点的 commit
+检查,而不是当前工作树。已知 task/controller/resource 必须传给 MSE,共享节点只需定义
 和前向路径时使用 `--no-referencers`。多个后续证据查询使用 `batch`,不重复启动 CLI 和解析结果。
 `search --node` 会精确匹配顶层节点、inspection 中已保留的 And/Or 子识别节点,以及
 `mla.pipeline_override` 覆盖到的节点,并通过 `nodeMatches` 返回匹配关系和嵌套路径;
@@ -222,6 +223,9 @@ issue-time 源码并运行聚焦 MSE。已知 task/controller/resource 必须传
 当 MLA 无法把日志目录作为一个组合目标加载、但仍能逐文件回退时,输出会用
 `mla_directory_fallback_used` 警告说明跨文件聚合可能不完整;只有实际逐文件失败继续进入
 `missingEvidence`,避免同一大文件同时产生目录级和文件级缺失记录。
+发现阶段不跟随符号链接与 junction:被跳过的条目会以 `artifact_links_skipped`(MSE 侧为
+`mse_project_links_skipped`)警告列出前 10 条相对路径与总数,因此"扫描到 0 个文件"不是无解释的
+静默结果,链接后面的材料需要 harness 自行去目标位置读取。
 
 Skill 同时定义由 harness 管理的三层本地缓存:附件按内容 SHA-256,源码按仓库与不可变 commit,
 inspection 按完整材料清单、规范化选项、MEK 版本及可选源码 commit。CLI 可用
@@ -244,7 +248,10 @@ maa-evidence telemetry disable
 
 CI 和非交互环境默认发送聚合遥测,但从不弹出交互提示。运行遥测为 best-effort,每次命令使用
 200ms 投递预算,超时不会改变命令结果;原始日志、截图或源代码等附件
-**不会自动发送**,只能通过交互式 `feedback` 命令发送,并且每次都必须预览后输入 `UPLOAD`。
+**不会自动发送**:交互式 `feedback` 每次都必须预览后输入 `UPLOAD`;非交互场景先在真实终端用
+`feedback approve --out token.json` 记录一次批准,再用 `feedback --token token.json` 提交同一份
+内容一次(令牌 15 分钟内有效,不匹配、过期或已用完都会被拒绝,不会退回交互提示),
+`feedback --preview` 只打印将要发送的内容、从不提交。
 首次尝试发送时会在本地配置目录创建随机安装种子,并只向 Sentry 发送其单向 SHA-256
 派生值,用于估算活跃安装数、活跃日期和命令频率。它不读取机器码、系统账户或硬件指纹;
 运行 `telemetry disable` 会删除该种子。多设备、重装或清理配置会形成新的安装 ID,因此
