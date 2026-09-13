@@ -53,6 +53,10 @@ export type GitSourceMaterialization = {
  * every `--git-ref` run would leave a full copy of the project behind. Pruning only touches
  * directories MEK created (recognized by prefix) and never reports a failure to the caller, since a
  * concurrent run may be using one of them.
+ *
+ * A directory is removed only when it is both older than `maxAgeMs` and beyond the `keepNewest`
+ * count, so a concurrent run is never pruned out from under itself simply because several
+ * materializations exist.
  */
 export async function pruneGitRefMaterializations(options: {
   directory?: string;
@@ -87,7 +91,10 @@ export async function pruneGitRefMaterializations(options: {
   for (const [index, candidate] of candidates.entries()) {
     const tooOld = now - candidate.mtimeMs > maxAgeMs;
     const beyondNewest = index >= keepNewest;
-    if (!tooOld && !beyondNewest) {
+    // Both conditions must hold. Deleting on `beyondNewest` alone would remove a recent tree that a
+    // concurrent run is still inspecting, which its own artifact paths depend on; age alone bounds
+    // disk use, so the count is only an extra guard against a burst of same-age materializations.
+    if (!tooOld || !beyondNewest) {
       kept += 1;
       continue;
     }
@@ -180,7 +187,10 @@ async function optionalGit(cwd: string, args: readonly string[]): Promise<string
 }
 
 /**
- * List the tracked files under `prefix` at `commit`, as `{ mode, relativePath }`.
+ * List the tracked files under `prefix` at `commit`, as `{ mode, sizeBytes, relativePath }`.
+ *
+ * `ls-tree -l` reports each blob's size, which lets the caller enforce the byte cap from metadata
+ * instead of after the content is already in memory.
  *
  * Two entry kinds are reported back rather than materialized:
  *
@@ -194,17 +204,32 @@ async function listTree(
   cwd: string,
   commit: string,
   prefix: string,
-): Promise<Array<{ mode: string; relativePath: string }>> {
-  const args = ["ls-tree", "-r", "-z", "--full-tree", commit];
+): Promise<Array<{ mode: string; sizeBytes: number; relativePath: string }>> {
+  const args = ["ls-tree", "-r", "-l", "-z", "--full-tree", commit];
   if (prefix !== "") args.push("--", prefix);
   const output = await git(cwd, args);
-  const entries: Array<{ mode: string; relativePath: string }> = [];
+  const entries: Array<{ mode: string; sizeBytes: number; relativePath: string }> = [];
   for (const record of output.split("\0")) {
     if (record === "") continue;
     const tab = record.indexOf("\t");
     if (tab < 0) continue;
-    const meta = record.slice(0, tab).split(" ");
-    entries.push({ mode: meta[0] ?? "", relativePath: record.slice(tab + 1) });
+    // `<mode> <type> <oid> <size>\t<path>`; committed entries always report a size.
+    const meta = record.slice(0, tab).split(/\s+/u);
+    const relativePath = record.slice(tab + 1);
+    // A newline in a path cannot be sent over the `cat-file --batch` line protocol unambiguously,
+    // so refuse it rather than risk reading the wrong object. Git permits such paths, but they cannot
+    // be reproduced in a portable test fixture (`git update-index --cacheinfo` rejects them and
+    // Windows forbids the filename), so this guard is defensive and intentionally untested.
+    if (relativePath.includes("\n") || relativePath.includes("\r")) {
+      throw new UsageError(
+        `Refusing to materialize ${relativePath.split(/[\r\n]/u)[0]}: a tracked path contains a line break, which the git batch protocol cannot address unambiguously.`,
+      );
+    }
+    entries.push({
+      mode: meta[0] ?? "",
+      sizeBytes: Number(meta[3] ?? "0"),
+      relativePath,
+    });
   }
   return entries;
 }
@@ -276,6 +301,21 @@ export async function materializeGitRef(
   if (entries.length === 0) {
     throw new UsageError(`No materializable tracked files found at ${prefix === "" ? "/" : prefix} in ${ref}.`);
   }
+  // Enforce the byte cap from `ls-tree -l` metadata, before any content is buffered. Reading the
+  // stream first would let a large ref exhaust memory before the cap could reject it, which is the
+  // opposite of what the cap is for.
+  let plannedBytes = 0;
+  for (const entry of entries) {
+    if (!Number.isSafeInteger(entry.sizeBytes) || entry.sizeBytes < 0) {
+      throw new UsageError(`git ls-tree reported an unreadable size for ${entry.relativePath} at ${ref}.`);
+    }
+    plannedBytes += entry.sizeBytes;
+    if (plannedBytes > MAX_MATERIALIZED_BYTES) {
+      throw new UsageError(
+        `--git-ref refused to materialize more than ${MAX_MATERIALIZED_BYTES} bytes at ${ref}`,
+      );
+    }
+  }
 
   const destination = await mkdtemp(path.join(tmpdir(), MATERIALIZATION_PREFIX));
   const cleanup = async (): Promise<void> => {
@@ -292,17 +332,19 @@ export async function materializeGitRef(
         throw new UsageError(`git cat-file returned no content for ${entry.relativePath} at ${ref}.`);
       }
       bytes += buffer.byteLength;
-      if (bytes > MAX_MATERIALIZED_BYTES) {
-        throw new UsageError(
-          `--git-ref refused to materialize more than ${MAX_MATERIALIZED_BYTES} bytes at ${ref}.`,
-        );
-      }
       // `relativePath` is repository-relative with forward slashes. Keep the full repository-relative
       // path so the materialized tree mirrors the repository layout; the requested prefix is then just
       // a path inside it, which keeps `result.path` and the written files consistent.
       const target = path.join(destination, entry.relativePath.replaceAll("/", path.sep));
       await mkdir(path.dirname(target), { recursive: true });
       await writeFile(target, buffer);
+    }
+    if (bytes > MAX_MATERIALIZED_BYTES) {
+      // The metadata pre-check should have caught this; keep the guard in case a blob changed between
+      // the two git commands rather than writing an over-cap tree.
+      throw new UsageError(
+        `--git-ref refused to materialize more than ${MAX_MATERIALIZED_BYTES} bytes at ${ref}`,
+      );
     }
 
     return {

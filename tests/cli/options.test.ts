@@ -111,4 +111,26 @@ describe("per-command option validation", () => {
     expect(() => rejectUnknownOptions(parsed(["view"], { "--nonsense": "x" })))
       .toThrow(/- --nonsense: not supported by this command/u);
   });
+
+  test("rejects --format where the output is always JSON", () => {
+    // feedback, feedback approve, and telemetry print JSON unconditionally.
+    for (const key of [["telemetry"], ["feedback"], ["feedback", "approve"]]) {
+      expect(() => rejectUnknownOptions(parsed(key, { "--format": "text" })))
+        .toThrow(/- --format: this command always prints JSON/u);
+    }
+    // Commands that really do select a format keep accepting it.
+    for (const key of [
+      ["mla", "inspect", "p"],
+      ["mse", "inspect", "p"],
+      ["mse", "resolve", "p"],
+      ["repo-docs", "p"],
+      ["inspect", "p"],
+      ["view"],
+      ["window"],
+      ["search"],
+      ["timeline"],
+    ]) {
+      expect(() => rejectUnknownOptions(parsed(key, { "--format": "text" }))).not.toThrow();
+    }
+  });
 });

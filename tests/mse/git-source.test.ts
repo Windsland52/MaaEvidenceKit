@@ -113,7 +113,8 @@ test("prunes only old materializations and keeps the newest ones", async () => {
     directory,
     now,
     maxAgeMs: 60 * 60 * 1000,
-    keepNewest: 4,
+    // Both stale trees are beyond the newest two, so age and count agree they are disposable.
+    keepNewest: 2,
   });
 
   expect(result.removed.sort()).toEqual(
@@ -130,17 +131,30 @@ test("prunes only old materializations and keeps the newest ones", async () => {
 test("caps how many materializations are retained even when all are recent", async () => {
   const directory = await temporary("prune-cap");
   const now = Date.now();
-  for (const [index, name] of ["a", "b", "c"].entries()) {
+  const oneHour = 60 * 60 * 1000;
+  // `old` is beyond the newest two AND stale; `recent` is beyond them but fresh.
+  for (const [name, ageMs] of [["old", oneHour * 3], ["recent", 60 * 1000]] as const) {
     const full = path.join(directory, `mek-git-ref-${name}`);
     await mkdir(full, { recursive: true });
-    const time = new Date(now - (3 - index) * 1000);
+    const time = new Date(now - ageMs);
     await utimes(full, time, time);
   }
 
-  const result = await pruneGitRefMaterializations({ directory, now, keepNewest: 2 });
+  const result = await pruneGitRefMaterializations({
+    directory,
+    now,
+    maxAgeMs: oneHour,
+    keepNewest: 1,
+  });
 
-  expect(result.kept).toBe(2);
-  expect(result.removed).toEqual([path.join(directory, "mek-git-ref-a")]);
+  // The fresh tree stays even though it is beyond the newest-one count: a concurrent run may be
+  // inspecting it, and its artifact paths depend on it existing.
+  expect(result.kept).toBe(1);
+  expect(result.removed).toEqual([path.join(directory, "mek-git-ref-old")]);
+  const remaining = (await readdir(directory, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
+  expect(remaining).toEqual(["mek-git-ref-recent"]);
 });
 
 test("disposes a materialized tree on request and leaves nothing behind on failure", async () => {

@@ -2,13 +2,32 @@ import { UsageError } from "../evidence/index.js";
 
 import type { ParsedArguments } from "./args.js";
 
-/** Options accepted by every command. `--summary` is deliberately not here: it changes only the
+/**
+ * Options accepted by every command. `--summary` is deliberately not here: it changes only the
  * inspection commands' stdout, so accepting it on `view` or `search` would let it look like it did
- * something. */
-const COMMON = ["--format", "--help", "-h", "--output", "--profile", "--version"];
+ * something.
+ */
+const COMMON = ["--help", "-h", "--output", "--profile", "--version"];
 
 /** Commands that print a bounded `--summary` to stdout instead of a full document. */
 const SUMMARY_COMMANDS = new Set(["mla inspect", "mse inspect", "mse resolve", "repo-docs", "inspect"]);
+
+/**
+ * Commands whose output format is selectable. `feedback`, `feedback approve`, and `telemetry` always
+ * print JSON, so accepting `--format` there would be the same silent no-op this table exists to
+ * prevent.
+ */
+const FORMAT_COMMANDS = new Set([
+  "mla inspect",
+  "mse inspect",
+  "mse resolve",
+  "repo-docs",
+  "inspect",
+  "view",
+  "window",
+  "search",
+  "timeline",
+]);
 
 /** Options that belong to exactly one command family, so a rejection can name the right command. */
 const SOLE_COMMAND_OPTIONS: Record<string, string> = {
@@ -39,6 +58,9 @@ function rejectionReason(name: string, key: string): string {
   if (name === "--summary" && !SUMMARY_COMMANDS.has(key)) {
     return "only the inspection commands print a bounded summary"
       + " (mla inspect, mse inspect, mse resolve, repo-docs, inspect), so it would have no effect here";
+  }
+  if (name === "--format" && !FORMAT_COMMANDS.has(key)) {
+    return "this command always prints JSON, so a format would have no effect here";
   }
   if (owner !== undefined && !owner.split(", ").includes(key)) {
     return `this option belongs to ${owner}`;
@@ -130,6 +152,7 @@ export function rejectUnknownOptions(parsed: ParsedArguments): void {
   // An unrecognized command is reported by the dispatcher; do not mask it with an option error.
   if (accepted === undefined) return;
   const allowed = new Set([...COMMON, ...accepted]);
+  if (FORMAT_COMMANDS.has(key)) allowed.add("--format");
   const unknown = [...parsed.options.keys()].filter((name) => !allowed.has(name)).sort();
   if (unknown.length === 0) return;
   const reasons = unknown.map((name) => `- ${name}: ${rejectionReason(name, key)}`);
