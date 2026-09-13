@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -205,4 +205,72 @@ test("exposes node summaries including custom recognition and custom action", as
     action: "Custom",
     customAction: "EntryAction",
   });
+});
+
+test("states that a project behind a linked directory was not selected", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mse-links-"));
+  temporaryRoots.push(root);
+  const outside = await mkdtemp(path.join(os.tmpdir(), "mek-mse-links-target-"));
+  temporaryRoots.push(outside);
+  const outsideAssets = path.join(outside, "assets");
+  await mkdir(path.join(outsideAssets, "resource", "base", "pipeline"), { recursive: true });
+  await writeFile(path.join(outsideAssets, "interface.json"), JSON.stringify({
+    controller: [{ name: "Adb" }],
+    resource: [{ name: "Official", path: ["resource/base"], controller: ["Adb"] }],
+    task: [{ name: "Combat", entry: "Start" }],
+  }), "utf8");
+  await writeFile(path.join(outsideAssets, "resource", "base", "pipeline", "combat.json"), JSON.stringify({
+    Start: { recognition: "DirectHit", next: ["Done"] },
+    Done: { recognition: "DirectHit" },
+  }, null, 2), "utf8");
+  // The type argument is ignored on POSIX, where this is a real symlink.
+  await symlink(outside, path.join(root, "source"), "junction");
+
+  const result = await inspectMse(root, { tasks: ["Start"] });
+  const warning = result.warnings.find((item) => item.code === "mse_project_links_skipped");
+
+  expect(warning?.message).toBe(
+    "Skipped 1 symbolic link or junction entry during MSE project discovery;"
+    + " MEK does not follow links, so their targets were not scanned: source.",
+  );
+  expect(result.warnings.filter((item) => item.code === "mse_project_links_skipped")).toHaveLength(1);
+  expect(result.details.projects).toEqual([]);
+  // The input path itself is not a link, so the existing missing-evidence behavior is unchanged.
+  expect(result.missingEvidence).toEqual(expect.arrayContaining([
+    expect.objectContaining({ code: "mse_project_missing" }),
+  ]));
+});
+
+test("reports no skipped-link warning for a project selected directly at the root", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mse-no-links-"));
+  temporaryRoots.push(root);
+  await writeFile(path.join(root, "interface.json"), JSON.stringify({
+    controller: [{ name: "Adb" }],
+    resource: [{ name: "Official", path: ["resource/base"], controller: ["Adb"] }],
+  }), "utf8");
+
+  const result = await inspectMse(root);
+
+  expect(result.warnings.map((item) => item.code)).not.toContain("mse_project_links_skipped");
+});
+
+test("keeps the MSE skipped-link warning byte-stable across repeated inspections", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mse-links-stable-"));
+  temporaryRoots.push(root);
+  const outside = await mkdtemp(path.join(os.tmpdir(), "mek-mse-links-stable-target-"));
+  temporaryRoots.push(outside);
+  await writeFile(path.join(outside, "interface.json"), "{}", "utf8");
+  await symlink(outside, path.join(root, "zeta"), "junction");
+  await symlink(outside, path.join(root, "alpha"), "junction");
+
+  const first = await inspectMse(root);
+  const second = await inspectMse(root);
+  const firstMessage = first.warnings.find((item) => item.code === "mse_project_links_skipped")?.message;
+
+  expect(firstMessage).toBe(
+    "Skipped 2 symbolic link or junction entries during MSE project discovery;"
+    + " MEK does not follow links, so their targets were not scanned: alpha, zeta.",
+  );
+  expect(second.warnings.find((item) => item.code === "mse_project_links_skipped")?.message)
+    .toBe(firstMessage);
 });

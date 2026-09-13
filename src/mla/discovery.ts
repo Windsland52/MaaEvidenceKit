@@ -13,6 +13,12 @@ const MAX_REPORTED_OTHER_FILES = 200;
  * while still naming the first omissions in discovery order.
  */
 export const MAX_REPORTED_OMITTED_FILES = 20;
+/**
+ * How many skipped link entries to name in a warning. MEK never follows a link, so the warning is
+ * the only record that material behind one was left out; a small bound keeps the message readable
+ * while still naming the omissions in a deterministic, sorted order.
+ */
+const MAX_REPORTED_SKIPPED_LINKS = 10;
 export const MAX_DIRECTORY_ENTRIES = 10_000;
 const IGNORED_DIRECTORIES = new Set([
   ".git",
@@ -124,9 +130,12 @@ async function classifyFile(file: string): Promise<Artifact["kind"]> {
   return "log";
 }
 
-async function collectFiles(root: string): Promise<{ files: string[]; truncated: boolean }> {
+async function collectFiles(
+  root: string,
+): Promise<{ files: string[]; skippedLinks: string[]; truncated: boolean }> {
   const rootReal = await realpath(root);
   const files: string[] = [];
+  const skippedLinks: string[] = [];
   const queue = [root];
   let truncated = false;
   while (queue.length > 0 && !truncated) {
@@ -134,8 +143,12 @@ async function collectFiles(root: string): Promise<{ files: string[]; truncated:
     if (current === undefined) break;
     const directory = await opendir(current);
     for await (const entry of directory) {
-      if (entry.isSymbolicLink()) continue;
       const target = path.join(current, entry.name);
+      if (entry.isSymbolicLink()) {
+        // A link is never followed, so this path is recorded rather than traversed.
+        skippedLinks.push(relativePortablePath(rootReal, target));
+        continue;
+      }
       if (entry.isDirectory()) {
         if (!IGNORED_DIRECTORIES.has(entry.name.toLowerCase())) queue.push(target);
         continue;
@@ -151,7 +164,28 @@ async function collectFiles(root: string): Promise<{ files: string[]; truncated:
       }
     }
   }
-  return { files: files.sort((left, right) => left.localeCompare(right)), truncated };
+  return {
+    files: files.sort((left, right) => left.localeCompare(right)),
+    skippedLinks,
+    truncated,
+  };
+}
+
+/**
+ * Describe the link entries discovery refused to follow. Paths are sorted so the message does not
+ * depend on traversal order, and the list is bounded so a directory full of links stays readable.
+ */
+function skippedLinksWarning(skippedLinks: readonly string[]): InspectionWarning {
+  const sorted = [...skippedLinks].sort((left, right) => left.localeCompare(right));
+  const listed = sorted.slice(0, MAX_REPORTED_SKIPPED_LINKS);
+  const remaining = sorted.length - listed.length;
+  const more = remaining > 0 ? ` (+${remaining} more)` : "";
+  return {
+    code: "artifact_links_skipped",
+    message: `Skipped ${sorted.length} symbolic link or junction ${sorted.length === 1 ? "entry" : "entries"}`
+      + " during artifact discovery; MEK does not follow links, so their targets were not scanned: "
+      + `${listed.join(", ")}${more}.`,
+  };
 }
 
 /**
@@ -259,7 +293,7 @@ export async function discoverArtifacts(inputPath: string): Promise<ArtifactDisc
   const root = metadata.isDirectory() ? resolved : path.dirname(resolved);
   const collected = metadata.isDirectory()
     ? await collectFiles(resolved)
-    : { files: [resolved], truncated: false };
+    : { files: [resolved], skippedLinks: [], truncated: false };
   const artifacts: Artifact[] = [];
   let omittedOtherFileCount = 0;
   let reportedOtherFiles = 0;
@@ -324,6 +358,7 @@ export async function discoverArtifacts(inputPath: string): Promise<ArtifactDisc
           : `; the first ${omittedUnsupportedFiles.length} are described in omittedUnsupportedFiles with path, size, and modification time. MEK did not classify or parse them, so inspect them directly if an issue may depend on their contents.`}`,
     });
   }
+  if (collected.skippedLinks.length > 0) warnings.push(skippedLinksWarning(collected.skippedLinks));
   return {
     root,
     artifacts,

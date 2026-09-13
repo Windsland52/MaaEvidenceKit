@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -117,4 +117,74 @@ test("bounds how many files a directory may contribute before a combined directo
 
   await expect(measureDirectoryEntries(root, 3)).resolves.toEqual({ countedFiles: 3, exceeded: false });
   await expect(measureDirectoryEntries(root, 2)).resolves.toEqual({ countedFiles: 3, exceeded: true });
+});
+
+test("states that linked directory targets were not scanned instead of reporting an empty run", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-discovery-links-"));
+  temporaryRoots.push(root);
+  const outside = await mkdtemp(path.join(os.tmpdir(), "mek-discovery-links-target-"));
+  temporaryRoots.push(outside);
+  await mkdir(path.join(outside, "nested"), { recursive: true });
+  await writeFile(path.join(outside, "nested", "maafw.log"), [
+    "[2026-04-08 00:01:02.001][INF][Px1][Tx2][test] first",
+    "[2026-04-08 00:01:02.002][DBG][Px1][Tx2][test] second",
+  ].join("\n"), "utf8");
+  await writeFile(path.join(root, "maafw.log"), [
+    "[2026-04-08 00:01:03.001][INF][Px1][Tx2][test] first",
+    "[2026-04-08 00:01:03.002][DBG][Px1][Tx2][test] second",
+  ].join("\n"), "utf8");
+  // The type argument is ignored on POSIX, where this is a real symlink.
+  await symlink(outside, path.join(root, "logs"), "junction");
+
+  const discovery = await discoverArtifacts(root);
+  const warning = discovery.warnings.find((item) => item.code === "artifact_links_skipped");
+
+  // The link is not followed, but the material behind it is named rather than silently dropped.
+  expect(warning?.message).toBe(
+    "Skipped 1 symbolic link or junction entry during artifact discovery;"
+    + " MEK does not follow links, so their targets were not scanned: logs.",
+  );
+  expect(discovery.warnings.filter((item) => item.code === "artifact_links_skipped")).toHaveLength(1);
+  expect(discovery.artifacts.some((item) => item.relativePath === "nested/maafw.log")).toBe(false);
+  expect(discovery.artifacts.some((item) => item.path.startsWith(outside))).toBe(false);
+  // The real file is still discovered.
+  expect(discovery.scannedFileCount).toBe(1);
+  expect(discovery.artifacts.find((item) => item.relativePath === "maafw.log")?.kind).toBe("maa_log");
+});
+
+test("reports no skipped-link warning when a root holds no links", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-discovery-no-links-"));
+  temporaryRoots.push(root);
+  await mkdir(path.join(root, "nested"), { recursive: true });
+  await writeFile(path.join(root, "maafw.log"), [
+    "[2026-04-08 00:01:02.001][INF][Px1][Tx2][test] first",
+    "[2026-04-08 00:01:02.002][DBG][Px1][Tx2][test] second",
+  ].join("\n"), "utf8");
+  await writeFile(path.join(root, "nested", "runtime.txt"), "not supported", "utf8");
+
+  const discovery = await discoverArtifacts(root);
+
+  expect(discovery.warnings.map((item) => item.code)).not.toContain("artifact_links_skipped");
+});
+
+test("keeps the skipped-link warning byte-stable across repeated discovery runs", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-discovery-links-stable-"));
+  temporaryRoots.push(root);
+  const outside = await mkdtemp(path.join(os.tmpdir(), "mek-discovery-links-stable-target-"));
+  temporaryRoots.push(outside);
+  await writeFile(path.join(root, "maafw.log"), "not a framework log", "utf8");
+  // Traversal order is file-system order, so the sorted message must not depend on it.
+  await symlink(outside, path.join(root, "zeta"), "junction");
+  await symlink(outside, path.join(root, "alpha"), "junction");
+
+  const first = await discoverArtifacts(root);
+  const second = await discoverArtifacts(root);
+  const firstMessage = first.warnings.find((item) => item.code === "artifact_links_skipped")?.message;
+
+  expect(firstMessage).toBe(
+    "Skipped 2 symbolic link or junction entries during artifact discovery;"
+    + " MEK does not follow links, so their targets were not scanned: alpha, zeta.",
+  );
+  expect(second.warnings.find((item) => item.code === "artifact_links_skipped")?.message)
+    .toBe(firstMessage);
 });
