@@ -133,8 +133,17 @@ export async function queryEvidenceWindow(
       if (currentLine < requestedStart) continue;
       if (currentLine > requestedEnd) break;
       const rendered = `${currentLine}: ${line}`;
-      if (characters + rendered.length + 1 > maxCharacters) {
+      const remainingCharacters = maxCharacters - characters;
+      if (rendered.length + 1 > remainingCharacters) {
         truncated = true;
+        // A bounded window still has to say where it looked: when the first candidate line
+        // alone exceeds the remaining budget, cut that line to the budget instead of dropping
+        // it, which would report an inverted, empty range. Later lines keep the
+        // all-or-nothing behavior, so a window never ends on a line it did not include.
+        if (output.length === 0 && remainingCharacters >= 1) {
+          output.push(rendered.slice(0, remainingCharacters));
+          endLine = currentLine;
+        }
         break;
       }
       output.push(rendered);
