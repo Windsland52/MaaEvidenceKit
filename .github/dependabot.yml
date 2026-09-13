@@ -6,3 +6,11 @@ updates:
       interval: weekly
     cooldown:
       default-days: 1
+    ignore:
+      # @types/node must stay on the oldest supported Node major. It is what makes
+      # `pnpm typecheck` reject APIs newer than the floor, so a major bump would silently
+      # stop enforcing that rule on every machine. Raise this together with `engines.node`
+      # in package.json, never before it.
+      - dependency-name: "@types/node"
+        update-types:
+          - version-update:semver-major
