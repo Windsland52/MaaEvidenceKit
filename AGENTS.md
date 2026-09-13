@@ -115,6 +115,11 @@ pnpm test
 pnpm build
 ```
 
+`pnpm install --frozen-lockfile` resolves specifiers from `package.json` first and only checks the
+lockfile against the installed tree, so a stale `pnpm-lock.yaml` can pass locally and still fail a
+clean CI checkout. Resolve a lockfile conflict by regenerating it, never by picking one side:
+`tests/deps/lockfile.test.ts` fails when any lockfile specifier disagrees with the manifest.
+
 Use small synthetic fixtures for deterministic behavior. Real logs may be used for local manual
 verification but must never be committed.
 
