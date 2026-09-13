@@ -1,6 +1,7 @@
 # MaaEvidenceKit
 
 [![npm](https://img.shields.io/npm/v/maa-evidence-kit)](https://www.npmjs.com/package/maa-evidence-kit)
+[![CI](https://github.com/Windsland52/MaaEvidenceKit/actions/workflows/ci.yml/badge.svg)](https://github.com/Windsland52/MaaEvidenceKit/actions/workflows/ci.yml)
 [![license](https://img.shields.io/github/license/Windsland52/MaaEvidenceKit)](./LICENSE)
 ![node](https://img.shields.io/badge/node-%3E%3D22-green)
 
