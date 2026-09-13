@@ -58,7 +58,7 @@
   "dependencies": {
     "@nekosu/maa-pipeline-manager": "1.0.14",
     "@nekosu/maa-tasker": "1.0.0",
-    "@sentry/node": "10.72.0",
+    "@sentry/node": "10.74.0",
     "@windsland52/maa-log-tools": "2.0.0",
     "cross-spawn": "7.0.6",
     "semver": "7.8.5"
