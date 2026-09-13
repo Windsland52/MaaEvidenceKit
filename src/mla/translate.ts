@@ -63,7 +63,11 @@ type MlaRuntimeFailure = MlaRuntimeScope & {
 };
 
 /** How a failing node execution ended. Derived from upstream data only; no value is inferred. */
-export type MlaFailureTermination = "reco_timeout" | "action_error" | "closed_without_success";
+/**
+ * How a node execution ended. Only the two values the upstream parser can produce are part of the
+ * union: there is no stop signal upstream, so no `closed_without_success`-style value is invented.
+ */
+export type MlaFailureTermination = "reco_timeout" | "action_error";
 
 /**
  * Terminal state of a task execution. `succeeded_with_open_end` marks a task the framework reported
