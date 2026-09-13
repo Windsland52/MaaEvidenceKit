@@ -87,7 +87,7 @@ test("operational telemetry uses a bounded flush budget", async () => {
   }));
   expect(sentry.init).toHaveBeenCalledWith(expect.objectContaining({
     environment: "production",
-    release: "maa-evidence-kit@0.6.0",
+    release: "maa-evidence-kit@0.7.0",
     skipOpenTelemetrySetup: true,
   }));
 

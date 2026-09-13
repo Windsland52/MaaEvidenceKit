@@ -41,7 +41,7 @@ test("prints a stable CLI version without running inspection or telemetry", asyn
   });
 
   await expect(main(["--version"])).resolves.toBe(0);
-  expect(output).toBe("0.6.0\n");
+  expect(output).toBe("0.7.0\n");
 });
 
 test("rejects mistyped options instead of silently treating them as positional arguments", async () => {
