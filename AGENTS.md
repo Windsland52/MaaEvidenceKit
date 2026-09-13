@@ -93,8 +93,10 @@ Put new implementation into the narrowest existing domain. Do not introduce `uti
 
 ## TypeScript Conventions
 
-- Node.js 22 or newer is required. The suite runs on the oldest supported major in CI, so an API
-  newer than that fails there rather than in a user's install.
+- Node.js 22 or newer is required. The floor is enforced from both sides: `@types/node` is pinned to
+  the oldest supported major, so an API newer than the floor fails `pnpm typecheck` on every machine,
+  and CI runs the suite on that major so a runtime-only incompatibility fails there too. Do not raise
+  `@types/node` above the floor, or the compiler stops rejecting the newer APIs this rule forbids.
 - TypeScript strict mode, `exactOptionalPropertyTypes`, and `noUncheckedIndexedAccess` stay enabled.
 - Fix unknown third-party types at integration boundaries rather than weakening compiler settings.
 - Prefer discriminated unions and small explicit public types.
