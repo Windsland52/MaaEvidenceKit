@@ -4,11 +4,20 @@
 
 ## 选项按命令校验
 
-每个命令只接受自己真正会读取的选项;把别的命令的选项用在这里会被**拒绝并列出该命令接受的选项**,
-而不是被静默忽略。例如 `mla inspect --token t` 会报
-`Unknown option for mla inspect: --token`,而 `--summary` 只被检查类命令接受(`mla inspect`、
-`mse inspect`、`mse resolve`、`repo-docs`、`inspect`)——它只影响这些命令的 stdout,在 `view` /
-`search` 上没有任何效果,因此在那些命令上会被拒绝。`--git-ref` 仅 `mse inspect` 接受。
+每个命令只接受自己真正会读取的选项;把别的命令的选项用在这里会被**拒绝**,报错会**逐个选项给出原因**
+并列出该命令接受的选项,而不是被静默忽略。例如:
+
+```
+Unknown option for mla inspect:
+- --syntax-mode: this option belongs to mse inspect, mse resolve, or inspect
+- --token: this option belongs to feedback
+mla inspect accepts: --all-signals, --format, --from, --help, --keyword, --output, --profile, --summary, --to, --version, -h.
+```
+
+`--summary` 只被检查类命令接受(`mla inspect`、`mse inspect`、`mse resolve`、`repo-docs`、`inspect`)
+——它只影响这些命令的 stdout,在 `view` / `search` 上没有任何效果,因此在那些命令上会被拒绝并说明原因。
+`--git-ref` 仅 `mse inspect` 接受。完全不认识的选项(多半是拼写错误)仍由参数解析层报出,并给出
+`Did you mean --output?` 这类建议。
 
 这条规则的目的很简单:一个看起来生效、实际什么也没做的旗标,比直接报错更危险。
 

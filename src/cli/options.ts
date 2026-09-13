@@ -2,12 +2,55 @@ import { UsageError } from "../evidence/index.js";
 
 import type { ParsedArguments } from "./args.js";
 
-/**
- * Options accepted by every command. `--summary` is deliberately not here: it changes only the
+/** Options accepted by every command. `--summary` is deliberately not here: it changes only the
  * inspection commands' stdout, so accepting it on `view` or `search` would let it look like it did
- * something.
- */
+ * something. */
 const COMMON = ["--format", "--help", "-h", "--output", "--profile", "--version"];
+
+/** Commands that print a bounded `--summary` to stdout instead of a full document. */
+const SUMMARY_COMMANDS = new Set(["mla inspect", "mse inspect", "mse resolve", "repo-docs", "inspect"]);
+
+/** Options that belong to exactly one command family, so a rejection can name the right command. */
+const SOLE_COMMAND_OPTIONS: Record<string, string> = {
+  "--all-signals": "mla inspect",
+  "--attachment": "feedback",
+  "--category": "feedback",
+  "--component": "feedback",
+  "--git-ref": "mse inspect",
+  "--keyword": "mla inspect",
+  "--message": "feedback",
+  "--out": "feedback approve",
+  "--preview": "feedback",
+  "--referencers": "inspect",
+  "--requests": "batch",
+  "--syntax-mode": "mse inspect, mse resolve, or inspect",
+  "--token": "feedback",
+  "--no-mla": "inspect",
+  "--no-mse": "inspect",
+};
+
+/**
+ * Explain why one option is not valid here, so the caller can fix the invocation without guessing.
+ * A bare "unknown option" leaves the reader to work out whether the option is misspelled, belongs to
+ * another command, or is simply not supported by this one.
+ */
+function rejectionReason(name: string, key: string): string {
+  const owner = SOLE_COMMAND_OPTIONS[name];
+  if (name === "--summary" && !SUMMARY_COMMANDS.has(key)) {
+    return "only the inspection commands print a bounded summary"
+      + " (mla inspect, mse inspect, mse resolve, repo-docs, inspect), so it would have no effect here";
+  }
+  if (owner !== undefined && !owner.split(", ").includes(key)) {
+    return `this option belongs to ${owner}`;
+  }
+  if (name === "--evidence-id" && key === "search") {
+    return "search returns matching IDs; use view or window to read one of them";
+  }
+  if (name === "--artifact-id" && key === "timeline") {
+    return "timeline renders a saved inspection; filter it with --task";
+  }
+  return "not supported by this command";
+}
 
 /** Options for commands that read a saved inspection and issue a bounded query against it. */
 const INSPECTION_INPUT = ["--input"];
@@ -89,8 +132,9 @@ export function rejectUnknownOptions(parsed: ParsedArguments): void {
   const allowed = new Set([...COMMON, ...accepted]);
   const unknown = [...parsed.options.keys()].filter((name) => !allowed.has(name)).sort();
   if (unknown.length === 0) return;
-  const known = [...allowed].sort().join(", ");
+  const reasons = unknown.map((name) => `- ${name}: ${rejectionReason(name, key)}`);
   throw new UsageError(
-    `Unknown option for ${key}: ${unknown.join(", ")}. ${key} accepts: ${known}.`,
+    `Unknown option for ${key}:\n${reasons.join("\n")}\n`
+    + `${key} accepts: ${[...allowed].sort().join(", ")}.`,
   );
 }
