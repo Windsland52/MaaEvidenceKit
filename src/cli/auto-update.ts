@@ -14,11 +14,27 @@ const UPDATE_LOCK_STALE_MS = 10 * 60 * 1000;
 const UPDATE_SUBPROCESS_TIMEOUT_MS = 2 * 60 * 1000;
 const CAPTURE_LIMIT_CHARACTERS = 64 * 1024;
 const REGISTRY_LATEST_URL = "https://registry.npmjs.org/maa-evidence-kit/latest";
+const REGISTRY_PACKUMENT_URL = "https://registry.npmjs.org/maa-evidence-kit";
+const PACKUMENT_ACCEPT = "application/vnd.npm.install-v1+json";
 const SKILLS_CLI_VERSION = "1.5.22";
 const HANDOFF_ENVIRONMENT_KEY = "MAA_EVIDENCE_UPDATE_HANDOFF";
 const PROBE_ENVIRONMENT_KEY = "MAA_EVIDENCE_UPDATE_PROBE";
 const DEBUG_ENVIRONMENT_KEY = "MAA_EVIDENCE_DEBUG";
 const AUTO_UPDATE_ENVIRONMENT_KEY = "MAA_EVIDENCE_AUTO_UPDATE";
+
+/**
+ * The bin name the update probe and the version handoff run under.
+ *
+ * `npm exec` resolves the command name before it reaches the pinned `--package` copy, so probing
+ * under the `maa-evidence` name ran whichever global shim came first on the machine. Measured on a
+ * host with a global 0.6.0 installed: `npm exec --package=maa-evidence-kit@<newer> -- maa-evidence
+ * --version` printed 0.6.0 twice, so on exactly the machines that need an update the probe could
+ * never succeed and every attempt was paid in full. No release older than the alias ships a
+ * `maa-evidence-probe` bin, so this name can only resolve to the pinned copy - for the probe and
+ * for the handed-off command alike, because a handoff under the old name would run the shadowing
+ * install while looking successful.
+ */
+const PROBE_BIN = "maa-evidence-probe";
 
 /** Commands whose whole purpose is local, version-exact behavior: never worth an update detour. */
 const UPDATE_EXEMPT_COMMANDS = new Set(["telemetry", "feedback", "skill"]);
@@ -34,6 +50,13 @@ type UpdateState = {
    */
   probeAttemptedVersion?: string;
   probeAttemptedAt?: string;
+  /**
+   * The last time the behind hint was printed. The hint is the caller's one clear way out when the
+   * running install cannot be replaced this round, so it is throttled on its own clock: it can
+   * also fire from the handoff path, which a successful probe does not put behind the probe
+   * failure cache.
+   */
+  behindHintAt?: string;
   skillSyncVersion?: string;
   skillSyncAttemptedAt?: string;
   skillSyncAttemptedVersion?: string;
@@ -65,6 +88,14 @@ type CommandResult = {
 type AutoUpdateDependencies = {
   configDirectory?: string;
   currentVersion?: string;
+  /**
+   * Count the stable releases between the running version and the published latest, for the
+   * behind hint. Defaults to the registry packument fetch; any failure returns undefined.
+   */
+  countReleasesBehind?: (
+    currentVersion: string,
+    latestVersion: string,
+  ) => Promise<number | undefined>;
   environment?: NodeJS.ProcessEnv;
   fetchLatestVersion?: () => Promise<string | undefined>;
   /**
@@ -138,6 +169,9 @@ async function readUpdateState(directory: string): Promise<UpdateState> {
       ...(typeof record["probeAttemptedAt"] === "string"
         ? { probeAttemptedAt: record["probeAttemptedAt"] }
         : {}),
+      ...(typeof record["behindHintAt"] === "string"
+        ? { behindHintAt: record["behindHintAt"] }
+        : {}),
       ...(typeof record["skillSyncVersion"] === "string"
         ? { skillSyncVersion: record["skillSyncVersion"] }
         : {}),
@@ -190,6 +224,60 @@ async function fetchLatestStableVersion(): Promise<string | undefined> {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Count the stable releases between the running version and the published latest.
+ *
+ * The `/latest` endpoint names the newest version but not the ones between it and the running one,
+ * so the count comes from the abridged packument, fetched only on the failure path the hint is
+ * printed on. Anything that goes wrong - network, timeout, an unexpected document - leaves the
+ * count unknown and the hint drops the number instead of blocking the caller.
+ */
+async function countReleasesFromRegistry(
+  currentVersion: string,
+  latestVersion: string,
+): Promise<number | undefined> {
+  try {
+    const response = await fetch(REGISTRY_PACKUMENT_URL, {
+      headers: { accept: PACKUMENT_ACCEPT },
+      signal: AbortSignal.timeout(UPDATE_REQUEST_TIMEOUT_MS),
+    });
+    if (!response.ok) return undefined;
+    const value: unknown = await response.json();
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    const versions = (value as Record<string, unknown>)["versions"];
+    if (typeof versions !== "object" || versions === null || Array.isArray(versions)) {
+      return undefined;
+    }
+    let count = 0;
+    for (const version of Object.keys(versions as Record<string, unknown>)) {
+      if (stableVersion(version) && gt(version, currentVersion) && !gt(version, latestVersion)) {
+        count += 1;
+      }
+    }
+    return count;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * One line on stderr telling the caller how to leave the stale install behind.
+ *
+ * Only version numbers and the exact fix command - no paths, no arguments - and never stdout: the
+ * command's machine-readable output must stay untouched whether or not an update was attempted.
+ */
+function behindHint(
+  releasesBehind: number | undefined,
+  currentVersion: string,
+  latestVersion: string,
+): string {
+  const behind = releasesBehind === undefined
+    ? "behind"
+    : `${releasesBehind} release${releasesBehind === 1 ? "" : "s"} behind`;
+  return `maa-evidence: install is ${behind} (running ${currentVersion}, latest ${latestVersion}); `
+    + `run: npm i -g maa-evidence-kit@${latestVersion}\n`;
 }
 
 async function runProgram(
@@ -375,8 +463,11 @@ async function probeVersion(
 ): Promise<boolean> {
   const packageSpecification = `maa-evidence-kit@${version}`;
   const probeEnvironment = { ...environment, [PROBE_ENVIRONMENT_KEY]: "1" };
+  // The probe runs under the alias bin, not `maa-evidence`: an existing global shim wins npm
+  // exec's command-name resolution and would answer with the stale version, which is exactly the
+  // machine state the updater exists for.
   const probe = await command(
-    npmExec(packageSpecification, "maa-evidence", ["--version"]),
+    npmExec(packageSpecification, PROBE_BIN, ["--version"]),
     {
       environment: probeEnvironment,
       inheritStdio: false,
@@ -404,9 +495,11 @@ async function handOffToVersion(
   const handoffEnvironment = { ...environment, [HANDOFF_ENVIRONMENT_KEY]: "1" };
   // No timeout: this child is the caller's command, and an inspection that legitimately runs for
   // minutes must not be killed by the updater. The probe and the Skill sync, whose commands are
-  // ours, keep their budget.
+  // ours, keep their budget. The child runs under the alias bin for the same reason the probe
+  // does: under the `maa-evidence` name, a shadowing global install would answer instead of the
+  // pinned version, and the caller would run stale code while the handoff looked successful.
   const handoff = await command(
-    npmExec(packageSpecification, "maa-evidence", args),
+    npmExec(packageSpecification, PROBE_BIN, args),
     { environment: handoffEnvironment, inheritStdio: true },
   );
   if (!handoff.spawned) return undefined;
@@ -427,6 +520,7 @@ export async function runWithAutomaticUpdates(
   const directory = dependencies.configDirectory ?? maaEvidenceConfigDirectory(environment);
   const command = dependencies.runCommand ?? runNpm;
   const skillCommand = dependencies.runSkillCommand ?? runNpm;
+  const countReleasesBehind = dependencies.countReleasesBehind ?? countReleasesFromRegistry;
   const diagnostic = dependencies.writeDiagnostic
     ?? ((message: string) => process.stderr.write(message));
   const releaseLock = await acquireUpdateLock(directory, now);
@@ -456,9 +550,20 @@ export async function runWithAutomaticUpdates(
             await releaseLock();
             const exitCode = await handOffToVersion(resolved.latest, args, environment, command);
             if (exitCode !== undefined) return exitCode;
+            const hintDue = !fresh(state.behindHintAt, now);
+            if (hintDue) {
+              await writeUpdateState(directory, { ...state, behindHintAt: now.toISOString() });
+            }
             diagnostic(
               `maa-evidence: version ${resolved.latest} was prepared but could not be started.\n`,
             );
+            if (hintDue) {
+              diagnostic(behindHint(
+                await countReleasesBehind(currentVersion, resolved.latest),
+                currentVersion,
+                resolved.latest,
+              ));
+            }
             return 1;
           }
           // Remember the failure only: a version that probed successfully is handed off now, so a
@@ -468,10 +573,21 @@ export async function runWithAutomaticUpdates(
             probeAttemptedAt: now.toISOString(),
             probeAttemptedVersion: resolved.latest,
           };
+          // The probe-failure cache already bounds this branch to once per window; the hint keeps
+          // its own timestamp so the handoff path above is bounded the same way.
+          const hintDue = !fresh(state.behindHintAt, now);
+          if (hintDue) state = { ...state, behindHintAt: now.toISOString() };
           await writeUpdateState(directory, state);
           diagnostic(
             `maa-evidence: version ${resolved.latest} is available but could not be prepared; continuing with ${currentVersion}.\n`,
           );
+          if (hintDue) {
+            diagnostic(behindHint(
+              await countReleasesBehind(currentVersion, resolved.latest),
+              currentVersion,
+              resolved.latest,
+            ));
+          }
         }
       }
     }

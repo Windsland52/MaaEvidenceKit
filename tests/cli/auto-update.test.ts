@@ -86,11 +86,15 @@ test("a newer registry version receives the original command through an exact np
   expect(calls).toHaveLength(2);
   expect(calls[0]?.args).toContain("--package=maa-evidence-kit@0.2.0");
   expect(calls[0]?.args).toContain("--loglevel=error");
+  // The probe and the handoff run under the alias bin: a same-name global shim would otherwise
+  // answer for the pinned version on exactly the machines that need the update.
+  expect(calls[0]?.args[calls[0]?.args.indexOf("--") + 1]).toBe("maa-evidence-probe");
   // The probe is ours, so it is captured and bounded.
   expect(calls[0]?.inheritStdio).toBe(false);
   expect(calls[0]?.timeoutMs).toBeDefined();
   // The handoff is the caller's command: it owns both streams and must not be killed by us.
   expect(calls[1]?.args.slice(-2)).toEqual(["inspect", "materials"]);
+  expect(calls[1]?.args[calls[1]?.args.indexOf("--") + 1]).toBe("maa-evidence-probe");
   expect(calls[1]?.inheritStdio).toBe(true);
   expect(calls[1]?.timeoutMs).toBeUndefined();
   expect(runSkillCommand).not.toHaveBeenCalled();
@@ -275,6 +279,7 @@ test("a failed probe is not repeated until its suppression window expires", asyn
     currentVersion: "0.1.1",
     environment: {},
     fetchLatestVersion: async () => "0.2.0",
+    countReleasesBehind: async () => undefined,
     isInteractive: () => true,
     now: () => now,
     runCommand,
@@ -307,6 +312,7 @@ test("a failed npm probe reports its output only when debugging is requested", a
     configDirectory: directory,
     currentVersion: "0.1.1",
     fetchLatestVersion: async () => "0.2.0",
+    countReleasesBehind: async () => undefined,
     isInteractive: () => true,
     now: () => new Date("2026-08-09T12:00:00.000Z"),
     runCommand,
@@ -320,6 +326,9 @@ test("a failed npm probe reports its output only when debugging is requested", a
     writeDiagnostic: (message: string) => quiet.push(message),
   })).resolves.toBe(0);
   expect(quiet.join("\n")).toContain("could not be prepared");
+  expect(quiet.join("\n")).toContain(
+    "install is behind (running 0.1.1, latest 0.2.0); run: npm i -g maa-evidence-kit@0.2.0",
+  );
   expect(quiet.join("\n")).not.toContain("npm error 404");
 
   const debug: string[] = [];
@@ -331,6 +340,81 @@ test("a failed npm probe reports its output only when debugging is requested", a
     writeDiagnostic: (message: string) => debug.push(message),
   })).resolves.toBe(0);
   expect(debug.join("\n")).toContain("npm error 404");
+});
+
+test("a shadowed probe states the way out once and stays quiet until its window expires", async () => {
+  const directory = await temporaryConfigDirectory();
+  const diagnostics: string[] = [];
+  const runCommand = vi.fn(async () => ({
+    // Whatever version the probe pins, the command name answers with the stale copy: the shape of
+    // a machine where an old global install shadows npm exec's command-name resolution.
+    spawned: true,
+    exitCode: 0,
+    stdout: "0.8.0\n",
+    stderr: "",
+  }));
+  const runLocal = vi.fn(async () => 2);
+  let now = new Date("2026-09-27T12:00:00.000Z");
+  const options = {
+    configDirectory: directory,
+    currentVersion: "0.8.0",
+    environment: {},
+    fetchLatestVersion: async () => "0.9.0",
+    countReleasesBehind: async () => 1,
+    isInteractive: () => true,
+    now: () => now,
+    runCommand,
+    runSkillCommand: async () => ({ spawned: true, exitCode: 0, stdout: "", stderr: "" }),
+    writeDiagnostic: (message: string) => diagnostics.push(message),
+  };
+
+  await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, options)).resolves.toBe(2);
+  await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, options)).resolves.toBe(2);
+  // One paid attempt, one hint: the failure is remembered for the whole window instead of paying
+  // the probe again on every call.
+  expect(runCommand).toHaveBeenCalledOnce();
+  expect(diagnostics.filter((message) => message.includes("install is"))).toHaveLength(1);
+  expect(diagnostics.join("\n")).toContain(
+    "install is 1 release behind (running 0.8.0, latest 0.9.0); run: npm i -g maa-evidence-kit@0.9.0",
+  );
+
+  diagnostics.length = 0;
+  now = new Date("2026-09-28T12:00:00.001Z");
+  await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, options)).resolves.toBe(2);
+  expect(runCommand).toHaveBeenCalledTimes(2);
+  expect(diagnostics.filter((message) => message.includes("install is"))).toHaveLength(1);
+});
+
+test("a handoff that cannot start hints once per window without caching the probe as failed", async () => {
+  const directory = await temporaryConfigDirectory();
+  const diagnostics: string[] = [];
+  const runCommand = vi.fn(async (args: string[]) =>
+    args.at(-1) === "--version"
+      ? { spawned: true, exitCode: 0, stdout: "0.9.0\n", stderr: "" }
+      : { spawned: false, exitCode: null, stdout: "", stderr: "" });
+  const runLocal = vi.fn(async () => 0);
+  const options = {
+    configDirectory: directory,
+    currentVersion: "0.8.0",
+    environment: {},
+    fetchLatestVersion: async () => "0.9.0",
+    countReleasesBehind: async () => 2,
+    isInteractive: () => true,
+    now: () => new Date("2026-09-27T12:00:00.000Z"),
+    runCommand,
+    runSkillCommand: async () => ({ spawned: true, exitCode: 0, stdout: "", stderr: "" }),
+    writeDiagnostic: (message: string) => diagnostics.push(message),
+  };
+
+  await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, options)).resolves.toBe(1);
+  await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, options)).resolves.toBe(1);
+  // The probe succeeded, so no probe-failure cache exists; the hint's own timestamp is what keeps
+  // the second failed handoff from repeating it.
+  expect(diagnostics.filter((message) => message.includes("install is"))).toHaveLength(1);
+  expect(diagnostics.join("\n")).toContain(
+    "install is 2 releases behind (running 0.8.0, latest 0.9.0); run: npm i -g maa-evidence-kit@0.9.0",
+  );
+  expect(runLocal).not.toHaveBeenCalled();
 });
 
 test("a runtime ahead of the published version does not install the published Skill", async () => {

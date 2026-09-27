@@ -24,7 +24,8 @@
     }
   },
   "bin": {
-    "maa-evidence": "./dist/cli/main.js"
+    "maa-evidence": "./dist/cli/main.js",
+    "maa-evidence-probe": "./dist/cli/main.js"
   },
   "files": [
     "dist",

@@ -7,8 +7,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A second public bin, `maa-evidence-probe`, pointing at the same CLI entry as `maa-evidence`.
+  Installing the package now creates both commands. The alias exists for the automatic update probe
+  and the version handoff, which must run the pinned release rather than whatever a same-name
+  global shim resolves to; it accepts the same arguments and produces the same output, so nothing
+  changes for direct use - it is simply a name no older release ships.
+
 ### Fixed
 
+- The automatic update works on the machines it exists for. The probe ran `npm exec
+  --package=maa-evidence-kit@<newer> -- maa-evidence --version`, but npm resolves the command name
+  before it reaches the pinned package: on a host with an older global install the existing
+  `maa-evidence` shim answered - measured on a machine with 0.6.0 installed, the probe printed the
+  stale 0.6.0 twice - so the probe could never succeed there, and before 0.8.0 every call paid the
+  full `npm exec` cost for the attempt. The probe and the version handoff now run under the
+  `maa-evidence-probe` alias, which no older release ships, so the name can only resolve to the
+  pinned copy; a handoff under the old name would have run the shadowing install while looking
+  successful. When an update still cannot be delivered - a failed probe, or a handoff that cannot
+  start - the CLI prints one stderr line naming the running and latest versions and the exact fix
+  command (`npm i -g maa-evidence-kit@<latest>`), throttled to once per 24 hours, and never writes
+  stdout.
 - The `--fields` length-mismatch refusal names the requested paths, not only the element counts and
   the array's path: it now reads `--fields paths "evidence.id" and "evidence.source.node" project
   arrays of different lengths (85 vs 76) at "evidence" ...`. 0.8.0 stopped the projection from

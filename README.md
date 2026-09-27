@@ -49,8 +49,10 @@ npx skills add https://github.com/Windsland52/MaaEvidenceKit `
 发布版 CLI 在分析命令和 `--version` 启动时自动维护 CLI 与受管 Skill 的版本。**只有交互式终端**
 (或显式设置 `MAA_EVIDENCE_AUTO_UPDATE=1`)才会做更新工作:非交互调用、agent、管道输出都不再为
 它付出 `npm exec` 的秒级开销,也不会被 npm 的 `notice` 行污染 stderr。检查至多每 24 小时一次,
-发现更高稳定版就让本次命令由该精确版本执行;探测失败会记住该版本并在 24 小时内不再重试,准备
-或网络失败时沿用当前版本。`MAA_EVIDENCE_AUTO_UPDATE=0` 完全关闭更新,CI 默认关闭,SDK import
+发现更高稳定版就让本次命令由该精确版本执行;探测与命令交接都以 `maa-evidence-probe` 别名
+运行,装着旧全局版的机器上同名 shim 不再冒充目标版本。更新无法交付时(探测失败会记住该版本
+并在 24 小时内不再重试),stderr 至多每 24 小时给出一行落后提示与确切的升级命令,随后沿用当前
+版本。`MAA_EVIDENCE_AUTO_UPDATE=0` 完全关闭更新,CI 默认关闭,SDK import
 不执行更新。机制与 `updates.json` 的说明见 [`docs/cli.md`](docs/cli.md),网络与本地状态见
 [`PRIVACY.md`](PRIVACY.md)。
 
