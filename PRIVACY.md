@@ -1,6 +1,6 @@
 # MaaEvidenceKit Privacy Notice
 
-Last updated: 2026-08-12
+Last updated: 2026-09-28
 
 MaaEvidenceKit performs log, project, and explicitly requested repository-document inspection
 locally and never sends inspected material for
@@ -16,7 +16,11 @@ Before an analysis command or `--version`, the launcher may:
 - query `https://registry.npmjs.org/maa-evidence-kit/latest` at most once every 24 hours;
 - ask npm to download and execute a newer exact `maa-evidence-kit` version;
 - invoke the `skills` CLI once per MEK version to update remotely managed `maa-evidence` Skill
-  installations from their recorded source, normally GitHub.
+  installations from their recorded source, normally GitHub;
+- when an update cannot be delivered, fetch the abridged packument from
+  `https://registry.npmjs.org/maa-evidence-kit` at most once every 24 hours to count the releases
+  between the running and the latest version, so the behind hint can name the distance (public
+  version metadata only, same host as the update check).
 
 MEK does not include command arguments, paths, logs, source, screenshots, or evidence in these
 update requests. npm, GitHub, and their network providers receive the connection metadata required
