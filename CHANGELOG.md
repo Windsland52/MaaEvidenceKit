@@ -50,12 +50,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `maa-evidence` shim answered - measured on a machine with 0.6.0 installed, the probe printed the
   stale 0.6.0 twice - so the probe could never succeed there, and before 0.8.0 every call paid the
   full `npm exec` cost for the attempt. The probe and the version handoff now run under the
-  `maa-evidence-probe` alias, which no older release ships, so the name can only resolve to the
-  pinned copy; a handoff under the old name would have run the shadowing install while looking
-  successful. When an update still cannot be delivered - a failed probe, or a handoff that cannot
-  start - the CLI prints one stderr line naming the running and latest versions and the exact fix
-  command (`npm i -g maa-evidence-kit@<latest>`), throttled to once per 24 hours, and never writes
-  stdout.
+  `maa-evidence-probe` alias, which no older release ships, so a legacy global shim cannot answer
+  for the pinned copy under this name: where npm cannot prepare the pinned install, the alias
+  probe fails visibly instead of the old shim answering silently. npm's command-name resolution is
+  an uncontrolled variable - pinned-first where it works, PATH fallback when an install fails - so
+  the mechanism's correctness does not rest on it: in the legacy no-alias scenario delivery is
+  deterministic because the shadowing shim does not ship the name, and anything npm resolves
+  differently is caught by the handoff marker verification. When an update still cannot be
+  delivered - a failed probe, or a handoff that cannot start or cannot be verified - the CLI
+  prints one stderr line naming the running and latest versions and the exact fix command
+  (`npm i -g maa-evidence-kit@<latest>`), throttled to once per 24 hours, and never writes stdout.
 - The `--fields` length-mismatch refusal names the requested paths, not only the element counts and
   the array's path: it now reads `--fields paths "evidence.id" and "evidence.source.node" project
   arrays of different lengths (85 vs 76) at "evidence" ...`. 0.8.0 stopped the projection from
@@ -63,6 +67,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (elements without the path are omitted, and it used to return only the first selection), but the
   error could not say which of the requested paths conflicted, so a longer request gave no hint
   which fields to project separately.
+- PRIVACY.md's "Automatic updates" list now names every network behavior of the updater, including
+  the abridged packument fetch that counts the releases behind the latest version when an update
+  cannot be delivered, and the local handoff marker file; the notice's Last updated date reflects
+  that.
 
 ## [0.8.0] - 2026-09-27
 
