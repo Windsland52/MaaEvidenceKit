@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { runWithAutomaticUpdates } from "../../src/cli/auto-update.js";
+import { MAA_EVIDENCE_VERSION } from "../../src/version.js";
 
 const roots: string[] = [];
 
@@ -55,12 +56,14 @@ test("CI disables automatic updates unless explicitly enabled", async () => {
 test("a newer registry version receives the original command through an exact npm handoff", async () => {
   const directory = await temporaryConfigDirectory();
   const calls: Array<{ args: string[]; inheritStdio: boolean; timeoutMs?: number }> = [];
-  const runCommand = vi.fn(async (args: string[], options: { inheritStdio: boolean; timeoutMs?: number }) => {
+  const environments: NodeJS.ProcessEnv[] = [];
+  const runCommand = vi.fn(async (args: string[], options: { inheritStdio: boolean; timeoutMs?: number; environment: NodeJS.ProcessEnv }) => {
     calls.push({
       args,
       inheritStdio: options.inheritStdio,
       ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     });
+    environments.push(options.environment);
     if (args.at(-1) === "--version") {
       return { spawned: true, exitCode: 0, stdout: "0.2.0\n", stderr: "" };
     }
@@ -97,6 +100,9 @@ test("a newer registry version receives the original command through an exact np
   expect(calls[1]?.args[calls[1]?.args.indexOf("--") + 1]).toBe("maa-evidence-probe");
   expect(calls[1]?.inheritStdio).toBe(true);
   expect(calls[1]?.timeoutMs).toBeUndefined();
+  // The child learns the base version so it can disclose the handoff on stderr.
+  expect(environments[1]?.MAA_EVIDENCE_UPDATE_HANDOFF).toBe("1");
+  expect(environments[1]?.MAA_EVIDENCE_UPDATE_HANDOFF_FROM).toBe("0.1.1");
   expect(runSkillCommand).not.toHaveBeenCalled();
 });
 
@@ -121,6 +127,50 @@ test("the handed-off runtime skips a second registry check and synchronizes its 
   })).resolves.toBe(5);
   expect(fetchLatestVersion).not.toHaveBeenCalled();
   expect(runSkillCommand).toHaveBeenCalledOnce();
+});
+
+test("a handed-off command names its actual version and its origin on stderr", async () => {
+  const diagnostics: string[] = [];
+  const runLocal = vi.fn(async () => 0);
+
+  await expect(runWithAutomaticUpdates(["--version"], runLocal, {
+    currentVersion: MAA_EVIDENCE_VERSION,
+    environment: {
+      MAA_EVIDENCE_UPDATE_HANDOFF: "1",
+      MAA_EVIDENCE_UPDATE_HANDOFF_FROM: "0.7.0",
+    },
+    isInteractive: () => false,
+    writeDiagnostic: (message: string) => diagnostics.push(message),
+  })).resolves.toBe(0);
+  // The line rides on stderr before anything runs, `--version` included, so a mixed install
+  // cannot pass its handed-off answer off as the global install's feature level.
+  expect(diagnostics.join("\n")).toContain(
+    `running ${MAA_EVIDENCE_VERSION} (handed off from 0.7.0)`,
+  );
+  expect(diagnostics.join("\n")).toContain("the global install may still be at 0.7.0.");
+  expect(runLocal).toHaveBeenCalledWith(["--version"]);
+});
+
+test("a plain command and an unprefixed handoff print no version line", async () => {
+  const diagnostics: string[] = [];
+  const runLocal = vi.fn(async () => 0);
+  const base = {
+    currentVersion: MAA_EVIDENCE_VERSION,
+    isInteractive: () => false,
+    writeDiagnostic: (message: string) => diagnostics.push(message),
+  };
+
+  await expect(runWithAutomaticUpdates(["--version"], runLocal, {
+    ...base,
+    environment: {},
+  })).resolves.toBe(0);
+  await expect(runWithAutomaticUpdates(["--version"], runLocal, {
+    ...base,
+    // The handoff marker without a base version cannot describe anything.
+    environment: { MAA_EVIDENCE_UPDATE_HANDOFF: "1" },
+  })).resolves.toBe(0);
+  expect(diagnostics).toHaveLength(0);
+  expect(runLocal).toHaveBeenCalledTimes(2);
 });
 
 test("the current runtime updates the managed global Skill once per version", async () => {

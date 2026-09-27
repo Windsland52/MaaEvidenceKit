@@ -18,6 +18,7 @@ const REGISTRY_PACKUMENT_URL = "https://registry.npmjs.org/maa-evidence-kit";
 const PACKUMENT_ACCEPT = "application/vnd.npm.install-v1+json";
 const SKILLS_CLI_VERSION = "1.5.22";
 const HANDOFF_ENVIRONMENT_KEY = "MAA_EVIDENCE_UPDATE_HANDOFF";
+const HANDOFF_FROM_ENVIRONMENT_KEY = "MAA_EVIDENCE_UPDATE_HANDOFF_FROM";
 const PROBE_ENVIRONMENT_KEY = "MAA_EVIDENCE_UPDATE_PROBE";
 const DEBUG_ENVIRONMENT_KEY = "MAA_EVIDENCE_DEBUG";
 const AUTO_UPDATE_ENVIRONMENT_KEY = "MAA_EVIDENCE_AUTO_UPDATE";
@@ -369,6 +370,25 @@ function debugEnabled(environment: NodeJS.ProcessEnv): boolean {
 }
 
 /**
+ * Name the version that is actually executing when this process is an update handoff.
+ *
+ * The handoff runs the pinned release's command while the global install stays behind, and the
+ * SKILL's first step is `--version`, so the stdout answer alone cannot tell a mixed install from
+ * an up-to-date one. One stderr line, versions only, printed before any command runs - including
+ * `--version`, whose stdout contract stays the bare version string. A child older than the
+ * base-version marker never sees it, and an equal version means there is nothing to disclose.
+ */
+function reportHandoff(environment: NodeJS.ProcessEnv, diagnostic: (message: string) => void): void {
+  if (environment[HANDOFF_ENVIRONMENT_KEY] !== "1") return;
+  const baseVersion = environment[HANDOFF_FROM_ENVIRONMENT_KEY];
+  if (baseVersion === undefined || baseVersion === MAA_EVIDENCE_VERSION) return;
+  diagnostic(
+    `maa-evidence: running ${MAA_EVIDENCE_VERSION} (handed off from ${baseVersion}); `
+    + `the global install may still be at ${baseVersion}.\n`,
+  );
+}
+
+/**
  * Whether the npm-published Skill can be assumed to match this running version.
  *
  * `skills update` installs whatever npm publishes, while the state file records the *running*
@@ -487,12 +507,19 @@ async function probeVersion(
 
 async function handOffToVersion(
   version: string,
+  baseVersion: string,
   args: string[],
   environment: NodeJS.ProcessEnv,
   command: (args: string[], options: CommandOptions) => Promise<CommandResult>,
 ): Promise<number | undefined> {
   const packageSpecification = `maa-evidence-kit@${version}`;
-  const handoffEnvironment = { ...environment, [HANDOFF_ENVIRONMENT_KEY]: "1" };
+  // The base version rides along so the child can disclose which version is actually executing; a
+  // child that predates the marker simply never reads it.
+  const handoffEnvironment = {
+    ...environment,
+    [HANDOFF_ENVIRONMENT_KEY]: "1",
+    [HANDOFF_FROM_ENVIRONMENT_KEY]: baseVersion,
+  };
   // No timeout: this child is the caller's command, and an inspection that legitimately runs for
   // minutes must not be killed by the updater. The probe and the Skill sync, whose commands are
   // ours, keep their budget. The child runs under the alias bin for the same reason the probe
@@ -512,6 +539,11 @@ export async function runWithAutomaticUpdates(
   dependencies: AutoUpdateDependencies = {},
 ): Promise<number> {
   const environment = dependencies.environment ?? process.env;
+  const diagnostic = dependencies.writeDiagnostic
+    ?? ((message: string) => process.stderr.write(message));
+  // Before any gating: a handed-off command discloses the version that actually runs even when it
+  // would never be allowed to spend time on update work itself.
+  reportHandoff(environment, diagnostic);
   const interactive = (dependencies.isInteractive ?? (() => process.stdout.isTTY === true))();
   if (!updatesEnabled(args, environment, interactive)) return runLocal(args);
 
@@ -521,8 +553,6 @@ export async function runWithAutomaticUpdates(
   const command = dependencies.runCommand ?? runNpm;
   const skillCommand = dependencies.runSkillCommand ?? runNpm;
   const countReleasesBehind = dependencies.countReleasesBehind ?? countReleasesFromRegistry;
-  const diagnostic = dependencies.writeDiagnostic
-    ?? ((message: string) => process.stderr.write(message));
   const releaseLock = await acquireUpdateLock(directory, now);
   if (releaseLock === undefined) return runLocal(args);
 
@@ -548,7 +578,13 @@ export async function runWithAutomaticUpdates(
         if (!probedRecently) {
           if (await probeVersion(resolved.latest, environment, command, diagnostic)) {
             await releaseLock();
-            const exitCode = await handOffToVersion(resolved.latest, args, environment, command);
+            const exitCode = await handOffToVersion(
+              resolved.latest,
+              currentVersion,
+              args,
+              environment,
+              command,
+            );
             if (exitCode !== undefined) return exitCode;
             const hintDue = !fresh(state.behindHintAt, now);
             if (hintDue) {

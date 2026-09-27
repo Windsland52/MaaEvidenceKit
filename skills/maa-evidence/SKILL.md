@@ -18,7 +18,9 @@ conclusions and does not query application Sentry.
 ## Start small
 
 Before the first MEK command, run `maa-evidence --version`. Use the installed CLI rather than a
-checkout's `dist` files. MEK checks for a newer release only in an interactive terminal, so an agent
+checkout's `dist` files. On a machine whose global install is behind, a command may be handed off
+to a newer release; that child prints one stderr line naming the version that actually ran and the
+one it was handed off from, so read that line as the authoritative feature level. MEK checks for a newer release only in an interactive terminal, so an agent
 or a piped command pays nothing for it; to keep that guarantee independent of environment, prefix
 commands with `MAA_EVIDENCE_AUTO_UPDATE=0` (PowerShell: `$env:MAA_EVIDENCE_AUTO_UPDATE = "0"`
 before the call) and keep `MAA_EVIDENCE_TELEMETRY=0` plus any existing telemetry opt-out the same

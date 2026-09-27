@@ -14,6 +14,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and the version handoff, which must run the pinned release rather than whatever a same-name
   global shim resolves to; it accepts the same arguments and produces the same output, so nothing
   changes for direct use - it is simply a name no older release ships.
+- A handed-off command discloses mixed installs: the updater passes its own version to the child
+  through a `MAA_EVIDENCE_UPDATE_HANDOFF_FROM` environment marker, and the child prints one stderr
+  line - `running <version> (handed off from <base>); the global install may still be at <base>.` -
+  before the command runs, `--version` included, whose stdout stays the bare version string. The
+  SKILL's Start small section now says to read that line before judging the feature level, because
+  its first step is `--version` on an install the updater could not replace.
 
 ### Fixed
 
