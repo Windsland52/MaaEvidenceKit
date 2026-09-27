@@ -32,9 +32,8 @@ The local `updates.json` file contains only check/sync timestamps and MEK versio
 stable installation identifier. While a version handoff runs, the config directory also holds one
 `handoff-*.json` marker containing only MEK version strings, the parent's process ID, and a
 timestamp; the parent deletes it after reading, leftovers older than 24 hours are swept when the
-updater runs, and marker
-contents are never uploaded. Update checks, downloads, and Skill synchronization fall back to
-the installed runtime and Skill when they cannot be prepared safely.
+updater runs, and marker contents are never uploaded. Update checks, downloads, and Skill
+synchronization fall back to the installed runtime and Skill when they cannot be prepared safely.
 `MAA_EVIDENCE_AUTO_UPDATE=0` disables both runtime and Skill updates. CI disables them unless the
 variable is explicitly set to `1`. SDK imports never run the updater.
 

@@ -29,12 +29,18 @@ const AUTO_UPDATE_ENVIRONMENT_KEY = "MAA_EVIDENCE_AUTO_UPDATE";
 /**
  * The bin name the update probe and the version handoff run under.
  *
- * `npm exec` resolves the command name before it reaches the pinned `--package` copy, so probing
- * under the `maa-evidence` name ran whichever global shim came first on the machine. Measured on a
- * host with a global 0.6.0 installed: `npm exec --package=maa-evidence-kit@<newer> -- maa-evidence
- * --version` printed 0.6.0 twice, so on exactly the machines that need an update the probe could
- * never succeed and every attempt was paid in full. No release older than the alias ships a
- * `maa-evidence-probe` bin, so a legacy global shim cannot answer for this name.
+ * The alias exists because a probe under the `maa-evidence` name was observed answering a stale
+ * global shim (a host with 0.6.0 installed printed the stale 0.6.0 twice for a newer-version
+ * probe), exactly on the machines that need an update. How npm produced that answer was never
+ * pinned down - under the measured rules below the pinned copy usually wins when it ships the
+ * name - but the alias removes the whole class: no release older than the alias ships a
+ * `maa-evidence-probe` bin, so a legacy global shim cannot answer for this name under any of them.
+ *
+ * The alias bin and the alias-using probe ship in the same release on purpose, and the bin has to
+ * stay in the package map for every later release: a parent whose code probes this name always
+ * targets a version newer than itself, so the target only ships the bin while this holds. Dropping
+ * or renaming the bin while older alias-using releases are still live would dead-end their probes
+ * on bin-less targets - a hard probe failure wherever no shim answers.
  *
  * The alias is defense in depth, not the correctness argument: npm's command-name resolution is an
  * uncontrolled variable (measured on npm 10-12: the pinned copy answers when it ships the name,
