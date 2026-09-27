@@ -207,6 +207,30 @@ function fresh(timestamp: string | undefined, now: Date): boolean {
   return Number.isFinite(checkedAt) && age >= 0 && age < UPDATE_CHECK_INTERVAL_MS;
 }
 
+/**
+ * Record that the behind hint is about to print, and report whether this invocation owns it.
+ *
+ * The handoff runs for minutes with the lock released, and the handed-off child writes the state
+ * file under its own lock (Skill sync), so the caller's snapshot is stale by the time the handoff
+ * returns: writing it back from memory would clobber the child's fields with pre-handoff values.
+ * This re-acquires the lock and re-reads, which keeps every `updates.json` write-back serialized.
+ * When another process holds the lock, the write and the hint are both skipped for this
+ * invocation - the lock holder owns the window, and update bookkeeping must never block evidence
+ * extraction.
+ */
+async function recordBehindHint(directory: string, now: Date): Promise<boolean> {
+  const releaseLock = await acquireUpdateLock(directory, now);
+  if (releaseLock === undefined) return false;
+  try {
+    const state = await readUpdateState(directory);
+    if (fresh(state.behindHintAt, now)) return false;
+    await writeUpdateState(directory, { ...state, behindHintAt: now.toISOString() });
+    return true;
+  } finally {
+    await releaseLock();
+  }
+}
+
 function stableVersion(value: unknown): value is string {
   return typeof value === "string" && valid(value) !== null && prerelease(value) === null;
 }
@@ -586,10 +610,9 @@ export async function runWithAutomaticUpdates(
               command,
             );
             if (exitCode !== undefined) return exitCode;
-            const hintDue = !fresh(state.behindHintAt, now);
-            if (hintDue) {
-              await writeUpdateState(directory, { ...state, behindHintAt: now.toISOString() });
-            }
+            // The handoff held no lock for minutes; the hint timestamp must be written by a fresh
+            // read under a re-acquired lock, not merged into the pre-handoff snapshot.
+            const hintDue = await recordBehindHint(directory, now);
             diagnostic(
               `maa-evidence: version ${resolved.latest} was prepared but could not be started.\n`,
             );

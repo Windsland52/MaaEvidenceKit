@@ -23,6 +23,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The update state written back after a failed handoff no longer clobbers what the handed-off child
+  recorded under its own lock: the write-back re-acquires the update lock and re-reads
+  `updates.json` before adding the hint timestamp, because the caller's pre-handoff snapshot is
+  stale after minutes of handoff and overwriting it from memory dropped the child's Skill sync
+  fields. When another updater holds the lock, the write and the behind hint are both skipped for
+  this invocation instead of being written outside the lock.
 - The automatic update works on the machines it exists for. The probe ran `npm exec
   --package=maa-evidence-kit@<newer> -- maa-evidence --version`, but npm resolves the command name
   before it reaches the pinned package: on a host with an older global install the existing

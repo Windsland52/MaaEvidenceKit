@@ -467,6 +467,106 @@ test("a handoff that cannot start hints once per window without caching the prob
   expect(runLocal).not.toHaveBeenCalled();
 });
 
+test("the post-handoff write-back preserves what the handed-off child wrote under its own lock", async () => {
+  const directory = await temporaryConfigDirectory();
+  const diagnostics: string[] = [];
+  const runCommand = vi.fn(async (args: string[]) => {
+    if (args.at(-1) === "--version") {
+      return { spawned: true, exitCode: 0, stdout: "0.9.0\n", stderr: "" };
+    }
+    // The handed-off child runs its own update pass under its own lock while the parent waits with
+    // its lock released; its Skill sync timestamps land in the state file first.
+    await writeFile(
+      path.join(directory, "updates.json"),
+      `${JSON.stringify(
+        {
+          schemaVersion: "maa-evidence-updates/v1",
+          checkedAt: "2026-09-27T12:00:00.000Z",
+          latestVersion: "0.9.0",
+          skillSyncVersion: "0.9.0",
+          skillSyncAttemptedAt: "2026-09-27T12:00:00.000Z",
+          skillSyncAttemptedVersion: "0.9.0",
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    return { spawned: false, exitCode: null, stdout: "", stderr: "" };
+  });
+  const runLocal = vi.fn(async () => 0);
+
+  await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, {
+    configDirectory: directory,
+    currentVersion: "0.8.0",
+    environment: {},
+    fetchLatestVersion: async () => "0.9.0",
+    countReleasesBehind: async () => 2,
+    isInteractive: () => true,
+    now: () => new Date("2026-09-27T12:00:00.000Z"),
+    runCommand,
+    runSkillCommand: async () => ({ spawned: true, exitCode: 0, stdout: "", stderr: "" }),
+    writeDiagnostic: (message: string) => diagnostics.push(message),
+  })).resolves.toBe(1);
+
+  // The hint timestamp is added by a fresh read under a re-acquired lock, so nothing the child
+  // wrote is lost to the parent's pre-handoff snapshot.
+  const state = JSON.parse(
+    await readFile(path.join(directory, "updates.json"), "utf8"),
+  ) as Record<string, unknown>;
+  expect(state["behindHintAt"]).toBe("2026-09-27T12:00:00.000Z");
+  expect(state["skillSyncVersion"]).toBe("0.9.0");
+  expect(state["skillSyncAttemptedVersion"]).toBe("0.9.0");
+  expect(state["latestVersion"]).toBe("0.9.0");
+  expect(diagnostics.filter((message) => message.includes("install is"))).toHaveLength(1);
+});
+
+test("a busy update lock skips the post-handoff write-back instead of writing outside it", async () => {
+  const directory = await temporaryConfigDirectory();
+  const diagnostics: string[] = [];
+  const runCommand = vi.fn(async (args: string[]) => {
+    if (args.at(-1) === "--version") {
+      return { spawned: true, exitCode: 0, stdout: "0.9.0\n", stderr: "" };
+    }
+    // The handed-off child leaves its own lock behind: the parent's write-back must not race it.
+    await writeFile(
+      path.join(directory, "updates.json"),
+      `${JSON.stringify(
+        { schemaVersion: "maa-evidence-updates/v1", skillSyncVersion: "0.9.0" },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    await writeFile(path.join(directory, "updates.lock"), "child\n", "utf8");
+    return { spawned: false, exitCode: null, stdout: "", stderr: "" };
+  });
+  const runLocal = vi.fn(async () => 0);
+
+  await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, {
+    configDirectory: directory,
+    currentVersion: "0.8.0",
+    environment: {},
+    fetchLatestVersion: async () => "0.9.0",
+    countReleasesBehind: async () => 2,
+    isInteractive: () => true,
+    now: () => new Date(),
+    runCommand,
+    runSkillCommand: async () => ({ spawned: true, exitCode: 0, stdout: "", stderr: "" }),
+    writeDiagnostic: (message: string) => diagnostics.push(message),
+  })).resolves.toBe(1);
+
+  // The lock holder owns this window: the failure line still prints, but the hint and the state
+  // write are skipped and the child's fields stand untouched.
+  const state = JSON.parse(
+    await readFile(path.join(directory, "updates.json"), "utf8"),
+  ) as Record<string, unknown>;
+  expect(state["behindHintAt"]).toBeUndefined();
+  expect(state["skillSyncVersion"]).toBe("0.9.0");
+  expect(diagnostics.join("\n")).toContain("could not be started");
+  expect(diagnostics.filter((message) => message.includes("install is"))).toHaveLength(0);
+});
+
 test("a runtime ahead of the published version does not install the published Skill", async () => {
   const directory = await temporaryConfigDirectory();
   const runSkillCommand = vi.fn(async () => ({
