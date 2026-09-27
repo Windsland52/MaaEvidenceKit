@@ -46,6 +46,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `--fields` refuses to merge two paths that select different numbers of elements on one array,
+  naming both counts and the array's path, instead of returning only the first selection: elements
+  without the requested path are omitted, so pairing the selections by position would attach a value
+  to the wrong element, and keeping one side dropped a requested field without saying so.
 - A handed-off command is no longer killed by the updater's two-minute subprocess budget, and it
   inherits stdout and stderr so a failing handed-off command reports exactly as a local one does.
   npm's own `notice` lines are suppressed with `--loglevel=error` instead of by capturing the

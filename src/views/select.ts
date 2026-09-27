@@ -9,7 +9,10 @@ import { UsageError } from "../evidence/index.js";
  *
  * Semantics: `a.b` walks objects; when the walk meets an array it applies the remaining path to each
  * element. Elements without the path are omitted, but a path that matches no element at all is an
- * error, so a misspelled field cannot come back as an empty list.
+ * error, so a misspelled field cannot come back as an empty list. Two paths over one array can
+ * therefore select different numbers of elements, and merging those is refused: pairing them by
+ * position would attach a value to the wrong element, and keeping one side would drop a requested
+ * field without saying so.
  */
 
 const MISSING = Symbol("missing");
@@ -127,22 +130,30 @@ export function selectFields(value: unknown, fields: readonly string[]): unknown
     // Every requested path must resolve. Continuing here would return a partial document whose
     // missing field looks like a fact the report does not contain.
     if (selection === MISSING) throw selectionFailure(fields, context);
-    projected = projected === MISSING ? selection : mergeSelections(projected, selection);
+    projected = projected === MISSING ? selection : mergeSelections(projected, selection, "");
   }
   if (projected === MISSING) throw selectionFailure(fields, context);
   // Field order follows the request order, so the rendered key order stays deterministic.
   return projected;
 }
 
-function mergeSelections(left: unknown, right: unknown): unknown {
+function mergeSelections(left: unknown, right: unknown, path: string): unknown {
   if (Array.isArray(left) && Array.isArray(right)) {
-    if (left.length !== right.length) return left;
-    return left.map((element, index) => mergeSelections(element, right[index]));
+    if (left.length !== right.length) {
+      throw new UsageError(
+        `--fields selected ${left.length} and ${right.length} elements at "${path.length === 0 ? "<document root>" : path}". `
+        + "A path that reaches an array applies only to the elements that have it, so merging these "
+        + "paths by position would attach a value to the wrong element. Project one path per call.",
+      );
+    }
+    return left.map((element, index) => mergeSelections(element, right[index], path));
   }
   if (isRecord(left) && isRecord(right)) {
     const merged: Record<string, unknown> = { ...left };
     for (const [key, value] of Object.entries(right)) {
-      merged[key] = Object.hasOwn(merged, key) ? mergeSelections(merged[key], value) : value;
+      merged[key] = Object.hasOwn(merged, key)
+        ? mergeSelections(merged[key], value, path.length === 0 ? key : `${path}.${key}`)
+        : value;
     }
     return merged;
   }

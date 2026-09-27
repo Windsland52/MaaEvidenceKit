@@ -492,7 +492,9 @@ maa-evidence search --input inspection.json --kind mla.failure --fields totalMat
 ```
 
 `--fields` keeps the JSON valid, preserves the shape of the paths it selects, and refuses a path that
-does not exist (naming the keys that do) rather than returning undefined. Text output is bounded
+does not exist (naming the keys that do) rather than returning undefined. It also refuses to merge
+paths that select different numbers of elements on one array, because elements without the path are
+omitted and pairing the two selections by position would attach a value to the wrong element. Text output is bounded
 instead: `window` and `view` default to 400 lines and 40000 characters, accept
 `--max-lines`/`--max-characters`, and mark truncation explicitly; `--output FILE` receives the
 complete rendering. Every command answers `--help` with its own usage, defaults, and limits, so read

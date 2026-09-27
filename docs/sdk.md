@@ -80,7 +80,8 @@ const answers = await queryEvidenceBatch(runtime, [
   [输出模型](evidence-model.md)。
 - `selectFields` / `parseFields`:与 CLI `--fields` 相同的点分路径投影。`selectFields(value, paths)`
   返回保持嵌套形状的新值(路径穿过数组时逐元素投影),路径不存在时抛出 `UsageError` 并列出该层
-  可用 key;`parseFields` 负责把重复、逗号分隔的 `--fields` 取值解析成去重后的路径列表。harness
+  可用 key;两条路径在同一数组上选中不同数量的元素时同样抛出 `UsageError`(元素缺失时被省略,
+  按下标合并会把值贴到别的元素上),调用方需要分开投影;`parseFields` 负责把重复、逗号分隔的 `--fields` 取值解析成去重后的路径列表。harness
   用它替代"整份文档丢给 `JSON.parse` 再手写取字段"的写法,也不会把拼错字段静默变成 `undefined`。
 
 ## 输出模型

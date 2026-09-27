@@ -41,6 +41,27 @@ test("merges several paths in request order", () => {
   ]);
 });
 
+test("refuses to merge paths that select different numbers of elements", () => {
+  const partial = {
+    evidence: [
+      { id: "evidence-a", source: { node: "NodeA" } },
+      { id: "evidence-b" },
+    ],
+  };
+  // evidence.id selects two elements and evidence.source.node selects one, because the element
+  // without source is omitted. Pairing them by position would put NodeA next to evidence-b, and
+  // keeping only the first selection would drop the node silently.
+  expect(() => selectFields(partial, ["evidence.id", "evidence.source.node"]))
+    .toThrow(/--fields selected 2 and 1 elements at "evidence"/u);
+  expect(() => selectFields(partial, ["evidence.source.node", "evidence.id"]))
+    .toThrow(/--fields selected 1 and 2 elements at "evidence"/u);
+  // Each path on its own still projects the elements that carry it.
+  expect(selectFields(partial, ["evidence.source.node"]))
+    .toEqual({ evidence: [{ source: { node: "NodeA" } }] });
+  expect(selectFields(partial, ["evidence.id"]))
+    .toEqual({ evidence: [{ id: "evidence-a" }, { id: "evidence-b" }] });
+});
+
 test("refuses an unknown path with the keys that exist", () => {
   expect(() => selectFields(document, ["statistcs"]))
     .toThrow(/--fields path "statistcs" does not exist\. Available at this level: evidence, kind, schemaVersion, statistics\./u);

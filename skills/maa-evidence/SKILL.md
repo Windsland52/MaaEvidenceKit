@@ -140,7 +140,8 @@ accepts the same `query` object as `search` and reports `matchCount`.
 Read only what the next step needs. `--fields statistics` or `--fields evidence.id,evidence.summary`
 projects JSON output onto named paths and refuses a path that does not exist, which is cheaper and
 safer than piping a whole report through a hand-written script. Every requested path must resolve,
-and a path through an array applies to each element (there is no index syntax). `window` and `view` bound their text
+a path through an array applies to each element (there is no index syntax), and paths that select
+different numbers of elements on one array are refused instead of merged by position. `window` and `view` bound their text
 output (`--max-lines`, `--max-characters`) and mark truncation explicitly; `--output FILE` always
 receives the complete rendering. Every command answers `--help` with its own usage, defaults, and
 limits.
