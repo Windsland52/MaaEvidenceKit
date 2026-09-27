@@ -11,7 +11,7 @@ export function renderEvidenceWindow(
     "Evidence window",
     `Evidence: ${window.evidenceId ?? "not specified"}`,
     `Artifact: ${window.artifactId} (${window.path})`,
-    `Lines: ${window.startLine}-${window.endLine}${window.truncated ? " (truncated)" : ""}`,
+    `Lines: ${window.startLine}-${window.endLine}${window.truncated ? " (truncated: line or character budget reached)" : ""}`,
     "",
     window.text,
   ].join("\n");

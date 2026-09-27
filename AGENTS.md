@@ -39,6 +39,7 @@ src/
   mse/         Public MSE package integration and static node/reference graphs
   repo-docs/   Bounded repository-document and skill-file structure inventory
   views/       JSON, text, and Mermaid rendering
+  skills/      The packaged host-agent Skill: payload listing, digests, and offline install
   feedback/    Consent state, operational telemetry, and extraction-gap feedback
   cli/         Argument handling and command entry point
   inspect.ts   Optional MLA/MSE composition

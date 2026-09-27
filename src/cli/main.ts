@@ -10,7 +10,14 @@ import {
   inspectMse,
   inspectRepositoryDocs,
   MAA_EVIDENCE_VERSION,
+  VIEW_DEFAULT_MAX_CHARACTERS,
+  VIEW_DEFAULT_MAX_LINES,
+  VIEW_MAX_CHARACTERS,
+  VIEW_MAX_LINES,
+  boundText,
+  budgetInteger,
   getTelemetryStatus,
+  parseFields,
   createApprovalToken,
   consumeApprovalToken,
   previewFeedback,
@@ -28,6 +35,8 @@ import {
   renderEvidenceSearch,
   renderInspectionSummary,
   renderTaskTimeline,
+  selectFields,
+  taskTimeline,
   resolveMse,
   searchEvidence,
   setTelemetryEnabled,
@@ -40,43 +49,21 @@ import {
 } from "../index.js";
 import { classifyOperationalError } from "../feedback/sentry.js";
 import { profileStage, profileStageSync } from "../profiling.js";
+import {
+  PACKAGED_SKILL_ENTRY,
+  checkPackagedSkill,
+  installPackagedSkill,
+  loadPackagedSkill,
+  readPackagedSkillFile,
+} from "../skills/index.js";
 import { flag, integerOption, option, options, parseArguments, type ParsedArguments } from "./args.js";
 import { runWithAutomaticUpdates } from "./auto-update.js";
 import { readBatchRequests } from "./batch-input.js";
+import { TOP_LEVEL_HELP, commandHelp } from "./help.js";
 import { emit, readInspection } from "./io.js";
 import { rejectUnknownOptions } from "./options.js";
 import { withLocalProfile } from "./profile.js";
 
-const HELP = `MaaEvidenceKit — deterministic MaaFramework evidence extraction
-
-Usage:
-  maa-evidence mla inspect <path> [--from ISO] [--to ISO] [--keyword TEXT] [--all-signals] [--summary] [--format json|text|mermaid]
-  maa-evidence mse inspect <path> [--task NAME] [--depth N] [--controller NAME] [--resource NAME] [--no-referencers] [--syntax-mode maafw|maa] [--git-ref REF] [--summary] [--format json|text|mermaid]
-  maa-evidence mse resolve <path> --task NAME [--depth N] [--controller NAME] [--resource NAME] [--no-referencers] [--syntax-mode maafw|maa] [--summary] [--format json|text|mermaid]
-  maa-evidence repo-docs <checkout> [--summary] [--format json|text]
-  maa-evidence inspect <path> [--from ISO] [--to ISO] [--task NAME] [--controller NAME] [--resource NAME] [--referencers|--no-referencers] [--no-mla] [--no-mse] [--summary]
-  maa-evidence window --input result.json (--evidence-id ID | --artifact-id ID) [--line N]
-  maa-evidence view --input result.json [--evidence-id ID] --format json|text|mermaid
-  maa-evidence search --input result.json [--artifact-id ID] [--kind KIND] [--node NODE] [--task TASK] [--text TEXT] [--from ISO] [--to ISO] [--limit N] [--format json|text]
-  maa-evidence batch --input result.json --requests queries.json
-  maa-evidence timeline --input result.json [--task NAME] [--format json|text]
-  maa-evidence telemetry status|enable|disable
-  maa-evidence feedback --message TEXT [--category blocker|bug|suggestion|other] [--component mla|mse|discovery|views|other] [--attachment FILE] [--preview]
-  maa-evidence feedback approve --message TEXT [--category ...] [--component ...] [--attachment FILE] --out token.json
-
-Common options:
-  --output FILE       Write output to a file
-  --format FORMAT     json, text, or mermaid
-  --summary           Print only artifacts, statistics, warnings, and evidence kinds to
-                      stdout (every inspection command; json or text). --output always
-                      receives the full report, so view/search/window can consume it.
-  --profile FILE      Write local stage timings as JSON
-  --version           Show the MaaEvidenceKit version
-  -h, --help          Show this help
-
-A full inspection is dominated by its evidence ledger and details payload. Start with --summary, or
-narrow the window with --from/--to, before reading or piping a complete result.
-`;
 
 function requirePositional(parsed: ParsedArguments, index: number, label: string): string {
   const value = parsed.positionals[index];
@@ -123,11 +110,38 @@ function outputFormat(parsed: ParsedArguments): ViewFormat {
   return value;
 }
 
+function requestedFields(parsed: ParsedArguments): string[] {
+  return options(parsed, "--fields").length === 0 ? [] : parseFields(options(parsed, "--fields"));
+}
+
+/**
+ * Emit a projected JSON document when `--fields` is present, and report whether it did.
+ *
+ * JSON is never truncated, so a projection is the bounded alternative to a text budget: it keeps the
+ * document valid and fails on a field name that does not exist instead of returning undefined.
+ */
+async function emitSelection(
+  value: unknown,
+  parsed: ParsedArguments,
+  format: string,
+): Promise<boolean> {
+  const fields = requestedFields(parsed);
+  if (fields.length === 0) return false;
+  if (format !== "json") {
+    throw new UsageError("--fields projects JSON output; add --format json or drop --fields.");
+  }
+  await emit(JSON.stringify(selectFields(value, fields), null, 2), option(parsed, "--output"));
+  return true;
+}
+
 async function emitInspection(result: InspectionResult, parsed: ParsedArguments): Promise<void> {
   const format = outputFormat(parsed);
   const output = option(parsed, "--output");
   if (flag(parsed, "--summary")) {
     if (format === "mermaid") throw new UsageError("--summary supports --format json or text.");
+    if (requestedFields(parsed).length > 0) {
+      throw new UsageError("--summary already bounds stdout; --fields projects the full JSON document, so use one of them.");
+    }
     const summary = profileStageSync("render", () => renderInspectionSummary(result, format));
     if (output === undefined) {
       await emit(summary);
@@ -140,6 +154,7 @@ async function emitInspection(result: InspectionResult, parsed: ParsedArguments)
     await emit(summary);
     return;
   }
+  if (await emitSelection(result, parsed, format)) return;
   const rendered = profileStageSync("render", () => view(result, { format }));
   await emit(rendered, output);
 }
@@ -257,23 +272,69 @@ async function runWindow(parsed: ParsedArguments): Promise<void> {
   if (format !== "json" && format !== "text") {
     throw new UsageError("window --format must be json or text.");
   }
+  if (await emitSelection(evidenceWindow, parsed, format)) return;
   const rendered = profileStageSync("render", () => renderEvidenceWindow(evidenceWindow, format));
   await emit(rendered, option(parsed, "--output"));
+}
+
+/**
+ * Budgets for the text rendering of `view`.
+ *
+ * JSON is never truncated, so a text budget asked for with `--format json` is refused rather than
+ * ignored: silently dropping either one is exactly how a caller ends up trusting a partial document.
+ */
+function viewTextBudget(parsed: ParsedArguments, format: string): { maxLines: number; maxCharacters: number } {
+  const requested = integerOption(parsed, "--max-lines") !== undefined
+    || integerOption(parsed, "--max-characters") !== undefined;
+  if (requested && format !== "text") {
+    throw new UsageError(
+      "--max-lines/--max-characters bound the text rendering; use --format text, or --fields to project JSON output.",
+    );
+  }
+  return {
+    maxLines: budgetInteger("--max-lines", integerOption(parsed, "--max-lines"), VIEW_DEFAULT_MAX_LINES, VIEW_MAX_LINES),
+    maxCharacters: budgetInteger(
+      "--max-characters",
+      integerOption(parsed, "--max-characters"),
+      VIEW_DEFAULT_MAX_CHARACTERS,
+      VIEW_MAX_CHARACTERS,
+    ),
+  };
+}
+
+/** Bound stdout; `--output FILE` keeps the complete rendering, as it does for an inspection. */
+async function emitRendered(
+  rendered: string,
+  parsed: ParsedArguments,
+  format: string,
+  budget: { maxLines: number; maxCharacters: number },
+): Promise<void> {
+  const output = option(parsed, "--output");
+  if (output !== undefined) {
+    await emit(rendered, output);
+    return;
+  }
+  await emit(format === "text" ? boundText(rendered, budget).text : rendered);
 }
 
 async function runView(parsed: ParsedArguments): Promise<void> {
   const result = await readInspection(option(parsed, "--input") ?? "");
   const evidenceId = option(parsed, "--evidence-id");
   const format = outputFormat(parsed);
+  // Validated up front: a budget asked for with a format that cannot honor it must fail even when
+  // the rendering path would never read it.
+  const budget = viewTextBudget(parsed, format);
   if (evidenceId === undefined) {
+    if (await emitSelection(result, parsed, format)) return;
     const rendered = profileStageSync("render", () => view(result, { format }));
-    await emit(rendered, option(parsed, "--output"));
+    await emitRendered(rendered, parsed, format, budget);
     return;
   }
   if (format === "mermaid") throw new UsageError("view --evidence-id supports only json or text.");
   const evidence = profileStageSync("evidence.view", () => evidenceById(result.evidence, evidenceId));
+  if (await emitSelection(evidence, parsed, format)) return;
   const rendered = profileStageSync("render", () => renderEvidence(evidence, format));
-  await emit(rendered, option(parsed, "--output"));
+  await emitRendered(rendered, parsed, format, budget);
 }
 
 async function runSearch(parsed: ParsedArguments): Promise<void> {
@@ -290,6 +351,7 @@ async function runSearch(parsed: ParsedArguments): Promise<void> {
   }));
   const format = option(parsed, "--format") ?? (process.stdout.isTTY ? "text" : "json");
   if (format !== "json" && format !== "text") throw new UsageError("search --format must be json or text.");
+  if (await emitSelection(search, parsed, format)) return;
   const rendered = profileStageSync("render", () => renderEvidenceSearch(search, format));
   await emit(rendered, option(parsed, "--output"));
 }
@@ -300,8 +362,10 @@ async function runTimeline(parsed: ParsedArguments): Promise<void> {
   if (format !== "json" && format !== "text") {
     throw new UsageError("timeline --format must be json or text.");
   }
+  const tasks = options(parsed, "--task");
+  if (await emitSelection(taskTimeline(result, { tasks }), parsed, format)) return;
   const rendered = profileStageSync("render", () => renderTaskTimeline(result, format, {
-    tasks: options(parsed, "--task"),
+    tasks,
   }));
   await emit(rendered, option(parsed, "--output"));
 }
@@ -311,8 +375,77 @@ async function runBatch(parsed: ParsedArguments): Promise<void> {
   const requests = await profileStage("batch.requests_load", () =>
     readBatchRequests(option(parsed, "--requests") ?? ""));
   const batch = await profileStage("evidence.batch", () => queryEvidenceBatch(result, requests));
+  if (await emitSelection(batch, parsed, "json")) return;
   const rendered = profileStageSync("render", () => JSON.stringify(batch, null, 2));
   await emit(rendered, option(parsed, "--output"));
+}
+
+async function runSkill(parsed: ParsedArguments): Promise<void> {
+  const installDirectory = option(parsed, "--install");
+  const checkDirectory = option(parsed, "--check");
+  const print = flag(parsed, "--print");
+  const file = option(parsed, "--file");
+  const modes = [print, installDirectory !== undefined, checkDirectory !== undefined]
+    .filter(Boolean).length;
+  if (modes !== 1) {
+    throw new UsageError("skill requires exactly one of --print, --install <dir>, or --check <dir>.");
+  }
+  if (file !== undefined && !print) {
+    throw new UsageError("--file selects a Skill document to print; it can only be combined with --print.");
+  }
+  const format = option(parsed, "--format");
+  if (format !== undefined && format !== "json" && format !== "text") {
+    throw new UsageError("skill --format must be json or text.");
+  }
+  const skill = await loadPackagedSkill();
+  if (checkDirectory !== undefined) {
+    const check = await checkPackagedSkill(skill, checkDirectory);
+    const resolved = format ?? (process.stdout.isTTY ? "text" : "json");
+    const rendered = resolved === "json"
+      ? JSON.stringify(check, null, 2)
+      : [
+        `MaaEvidenceKit Skill ${check.version}`,
+        `Installed: ${check.installedDirectory}`,
+        check.installed
+          ? (check.match
+            ? "Status: matches the packaged copy"
+            : "Status: differs from the packaged copy")
+          : "Status: no installed Skill at this path",
+        ...check.files.map((entry) => `- ${entry.path}: ${entry.status}`),
+        ...(check.extraFiles.length === 0
+          ? []
+          : [`- not part of the packaged payload: ${check.extraFiles.join(", ")}`]),
+      ].join("\n");
+    await emit(rendered, option(parsed, "--output"));
+    return;
+  }
+  if (installDirectory !== undefined) {
+    const install = await installPackagedSkill(skill, installDirectory);
+    const resolved = format ?? (process.stdout.isTTY ? "text" : "json");
+    const rendered = resolved === "json"
+      ? JSON.stringify(install, null, 2)
+      : [
+        `Installed MaaEvidenceKit Skill ${install.version} into ${install.installedDirectory}`,
+        ...install.files.map((entry) => `- ${entry}`),
+      ].join("\n");
+    await emit(rendered, option(parsed, "--output"));
+    return;
+  }
+  const selected = file ?? PACKAGED_SKILL_ENTRY;
+  const content = await readPackagedSkillFile(skill, selected);
+  if (format === "json") {
+    const entry = skill.files.find((candidate) => candidate.path === selected);
+    await emit(JSON.stringify({
+      name: skill.name,
+      version: skill.version,
+      entry: skill.entry,
+      directory: skill.directory,
+      files: skill.files,
+      selected: { ...entry, content },
+    }, null, 2), option(parsed, "--output"));
+    return;
+  }
+  await emit(content, option(parsed, "--output"));
 }
 
 async function runTelemetry(parsed: ParsedArguments): Promise<void> {
@@ -550,7 +683,9 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<numb
       return 0;
     }
     if (args.length === 0 || flag(parsed, "--help") || flag(parsed, "-h")) {
-      process.stdout.write(HELP);
+      // `--help` follows the named command, because the top-level usage cannot show the defaults
+      // and limits that decide whether an invocation is cheap or exhaustive.
+      process.stdout.write(args.length === 0 ? TOP_LEVEL_HELP : commandHelp(parsed));
       return 0;
     }
     // Reject options the named command does not understand, so a misplaced flag cannot look like it
@@ -601,6 +736,10 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<numb
       case "telemetry":
         rejectUnexpectedPositionals(parsed, 2);
         await runTelemetry(parsed);
+        return 0;
+      case "skill":
+        rejectUnexpectedPositionals(parsed, 1);
+        await runSkill(parsed);
         return 0;
       case "feedback":
         if (parsed.positionals[1] === "approve") {

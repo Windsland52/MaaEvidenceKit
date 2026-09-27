@@ -58,6 +58,29 @@ if (MAA_EVIDENCE_VERSION !== ${JSON.stringify(version)}) {
   if (cliVersion !== version) {
     throw new Error(`CLI version mismatch: expected ${version}, received ${JSON.stringify(cliVersion)}`);
   }
+  // `skill` resolves the payload relative to the installed module, so these only work when
+  // package.json#files really publishes skills/ and the CLI can read what it shipped.
+  const skill = JSON.parse(runPnpm(
+    ["exec", "maa-evidence", "skill", "--print", "--format", "json"],
+    consumerRoot,
+  ));
+  if (skill.version !== version) {
+    throw new Error(
+      `Packaged Skill version mismatch: package ${JSON.stringify(skill.version)}, expected ${JSON.stringify(version)}`,
+    );
+  }
+  if (!skill.files.some((file) => file.path === "SKILL.md")) {
+    throw new Error("Packaged Skill is missing SKILL.md");
+  }
+  const agentSkills = path.join(consumerRoot, "agent-skills");
+  runPnpm(["exec", "maa-evidence", "skill", "--install", agentSkills], consumerRoot);
+  const check = JSON.parse(runPnpm(
+    ["exec", "maa-evidence", "skill", "--check", agentSkills, "--format", "json"],
+    consumerRoot,
+  ));
+  if (check.installed !== true || check.match !== true) {
+    throw new Error(`Packaged Skill copy does not verify: ${JSON.stringify(check)}`);
+  }
   process.stdout.write(`Package smoke test passed for ${packageName}@${version}.\n`);
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });

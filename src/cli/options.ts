@@ -17,7 +17,7 @@ const SUMMARY_COMMANDS = new Set(["mla inspect", "mse inspect", "mse resolve", "
  * print JSON, so accepting `--format` there would be the same silent no-op this table exists to
  * prevent.
  */
-const FORMAT_COMMANDS = new Set([
+export const FORMAT_COMMANDS = new Set([
   "mla inspect",
   "mse inspect",
   "mse resolve",
@@ -27,6 +27,7 @@ const FORMAT_COMMANDS = new Set([
   "window",
   "search",
   "timeline",
+  "skill",
 ]);
 
 /** Options that belong to exactly one command family, so a rejection can name the right command. */
@@ -34,8 +35,12 @@ const SOLE_COMMAND_OPTIONS: Record<string, string> = {
   "--all-signals": "mla inspect",
   "--attachment": "feedback",
   "--category": "feedback",
+  "--check": "skill",
   "--component": "feedback",
+  "--fields": "view, search, window, batch, timeline, or the inspection commands",
+  "--file": "skill",
   "--git-ref": "mse inspect",
+  "--install": "skill",
   "--keyword": "mla inspect",
   "--message": "feedback",
   "--out": "feedback approve",
@@ -71,6 +76,9 @@ function rejectionReason(name: string, key: string): string {
   if (name === "--artifact-id" && key === "timeline") {
     return "timeline renders a saved inspection; filter it with --task";
   }
+  if (name === "--evidence-id" && key === "timeline") {
+    return "timeline renders a saved inspection per task; filter it with --task";
+  }
   return "not supported by this command";
 }
 
@@ -97,34 +105,43 @@ const MSE_OPTIONS = [
  * rejection, so each command now declares what it understands. Command keys are the leading
  * positional words, which is also what makes `mse inspect` and `mse resolve` distinct.
  */
-const COMMAND_OPTIONS: Record<string, readonly string[]> = {
-  "mla inspect": ["--all-signals", "--keyword", "--summary", ...TIME_RANGE],
+export const COMMAND_OPTIONS: Record<string, readonly string[]> = {
+  "mla inspect": ["--all-signals", "--fields", "--keyword", "--summary", ...TIME_RANGE],
   // --git-ref is inspect-only: resolveMse has its own path and does not read it.
-  "mse inspect": [...MSE_OPTIONS, "--git-ref", "--summary"],
-  "mse resolve": [...MSE_OPTIONS, "--summary"],
-  "repo-docs": ["--summary"],
+  "mse inspect": [...MSE_OPTIONS, "--fields", "--git-ref", "--summary"],
+  "mse resolve": [...MSE_OPTIONS, "--fields", "--summary"],
+  "repo-docs": ["--fields", "--summary"],
   inspect: [
     ...MSE_OPTIONS,
+    "--fields",
     "--no-mla",
     "--no-mse",
     "--referencers",
     "--summary",
     ...TIME_RANGE,
   ],
-  view: [...INSPECTION_INPUT, "--evidence-id"],
+  view: [
+    ...INSPECTION_INPUT,
+    "--evidence-id",
+    "--fields",
+    "--max-characters",
+    "--max-lines",
+  ],
   window: [
     ...INSPECTION_INPUT,
     "--after",
     "--artifact-id",
     "--before",
     "--evidence-id",
+    "--fields",
     "--line",
     "--max-characters",
     "--max-lines",
   ],
-  search: [...INSPECTION_INPUT, "--artifact-id", "--kind", "--limit", "--node", "--task", "--text", ...TIME_RANGE],
-  batch: [...INSPECTION_INPUT, "--requests"],
-  timeline: [...INSPECTION_INPUT, "--evidence-id", "--task"],
+  search: [...INSPECTION_INPUT, "--artifact-id", "--fields", "--kind", "--limit", "--node", "--task", "--text", ...TIME_RANGE],
+  batch: [...INSPECTION_INPUT, "--fields", "--requests"],
+  skill: ["--check", "--file", "--install", "--print"],
+  timeline: [...INSPECTION_INPUT, "--fields", "--task"],
   telemetry: [],
   feedback: ["--attachment", "--category", "--component", "--message", "--preview", "--token"],
   "feedback approve": ["--attachment", "--category", "--component", "--message", "--out"],

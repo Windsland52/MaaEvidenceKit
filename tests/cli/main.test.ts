@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { main } from "../../src/cli/main.js";
+import { MAA_EVIDENCE_VERSION } from "../../src/version.js";
 
 const temporaryRoots: string[] = [];
 
@@ -41,6 +42,8 @@ test("prints a stable CLI version without running inspection or telemetry", asyn
   });
 
   await expect(main(["--version"])).resolves.toBe(0);
+  // Deliberately a literal rather than MAA_EVIDENCE_VERSION: this is the assertion that fails when a
+  // release bumps package.json without bumping src/version.ts.
   expect(output).toBe("0.7.0\n");
 });
 
@@ -256,4 +259,125 @@ test("renders a task timeline from a saved inspection report", async () => {
   expect(await main(["timeline", "--input", reportPath, "--format", "text", "--task", "Combat"])).toBe(0);
   expect(output).toContain("Task Combat [failed]");
   expect(output).not.toContain("Task Collect");
+});
+
+async function captureStdout(run: () => Promise<number>): Promise<{ code: number; output: string }> {
+  let output = "";
+  vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+    output += String(chunk);
+    return true;
+  });
+  try {
+    return { code: await run(), output };
+  } finally {
+    vi.restoreAllMocks();
+  }
+}
+
+test("skill --print emits the packaged Skill document byte for byte", async () => {
+  const packaged = await readFile(
+    path.join("skills", "maa-evidence", "SKILL.md"),
+    "utf8",
+  );
+  const { code, output } = await captureStdout(() => main(["skill", "--print"]));
+
+  expect(code).toBe(0);
+  expect(output).toBe(packaged);
+  expect(output).toContain("Maa Evidence");
+  // The payload states no version of its own: nothing here has to be edited on release.
+  expect(output).not.toMatch(/^MEK v/mu);
+});
+
+test("skill --print --format json exposes per-file digests for drift checks", async () => {
+  const { code, output } = await captureStdout(() =>
+    main(["skill", "--print", "--format", "json"]));
+  const manifest = JSON.parse(output) as {
+    version: string;
+    files: { path: string; sha256: string }[];
+    selected: { path: string; content: string };
+  };
+
+  expect(code).toBe(0);
+  expect(manifest.version).toBe(MAA_EVIDENCE_VERSION);
+  expect(manifest.files.map((file) => file.path)).toContain("SKILL.md");
+  expect(manifest.files.every((file) => /^[0-9a-f]{64}$/u.test(file.sha256))).toBe(true);
+  expect(manifest.selected.path).toBe("SKILL.md");
+  expect(manifest.selected.content).toContain("Maa Evidence");
+});
+
+test("skill --install writes a byte-exact copy that --check then reports as matching", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-cli-skill-"));
+  temporaryRoots.push(root);
+  const install = await captureStdout(() => main(["skill", "--install", root]));
+  const result = JSON.parse(install.output) as { installedDirectory: string; files: string[] };
+
+  expect(install.code).toBe(0);
+  expect(result.files).toContain("SKILL.md");
+  const installed = await readFile(path.join(result.installedDirectory, "SKILL.md"), "utf8");
+  expect(installed).toContain("Maa Evidence");
+
+  const check = await captureStdout(() => main(["skill", "--check", root]));
+  const comparison = JSON.parse(check.output) as {
+    installed: boolean;
+    match: boolean;
+    version: string;
+    files: { path: string; status: string }[];
+  };
+  expect(check.code).toBe(0);
+  expect(comparison.installed).toBe(true);
+  expect(comparison.match).toBe(true);
+  expect(comparison.version).toBe(MAA_EVIDENCE_VERSION);
+  expect(comparison.files.every((file) => file.status === "same")).toBe(true);
+});
+
+test("skill --check reports a drifted copy without failing the command", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-cli-skill-drift-"));
+  temporaryRoots.push(root);
+  await captureStdout(() => main(["skill", "--install", root]));
+  await writeFile(path.join(root, "maa-evidence", "SKILL.md"), "older text\n", "utf8");
+  await writeFile(path.join(root, "maa-evidence", "PROVENANCE.md"), "agent metadata\n", "utf8");
+
+  const { code, output } = await captureStdout(() => main(["skill", "--check", root]));
+  const comparison = JSON.parse(output) as {
+    match: boolean;
+    files: { path: string; status: string }[];
+    extraFiles: string[];
+  };
+
+  expect(code).toBe(0);
+  expect(comparison.match).toBe(false);
+  expect(comparison.files.find((file) => file.path === "SKILL.md")?.status).toBe("different");
+  expect(comparison.files.find((file) => file.path === "references/full-guide.md")?.status).toBe("same");
+  // Agent metadata the payload does not ship is reported, not treated as drift.
+  expect(comparison.extraFiles).toEqual(["PROVENANCE.md"]);
+});
+
+test("skill requires exactly one of --print, --install, or --check", async () => {
+  let errorOutput = "";
+  vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    errorOutput += String(chunk);
+    return true;
+  });
+
+  await expect(main(["skill"])).resolves.toBe(1);
+  expect(errorOutput).toContain("skill requires exactly one of --print, --install <dir>, or --check <dir>.");
+
+  errorOutput = "";
+  await expect(main(["skill", "--print", "--install", "somewhere"])).resolves.toBe(1);
+  expect(errorOutput).toContain("exactly one");
+  errorOutput = "";
+  await expect(main(["skill", "--check", "somewhere", "--file", "SKILL.md"])).resolves.toBe(1);
+  expect(errorOutput).toContain("--file selects a Skill document to print");
+});
+
+test("skill --file names an unknown document instead of printing nothing", async () => {
+  let errorOutput = "";
+  vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    errorOutput += String(chunk);
+    return true;
+  });
+
+  await expect(main(["skill", "--print", "--file", "references/missing.md"])).resolves.toBe(1);
+  expect(errorOutput).toContain("Unknown Skill file: references/missing.md");
+  expect(errorOutput).toContain("references/full-guide.md");
 });

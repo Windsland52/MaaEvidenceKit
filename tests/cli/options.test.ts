@@ -104,7 +104,7 @@ describe("per-command option validation", () => {
       .toThrow(/- --artifact-id: timeline renders a saved inspection; filter it with --task/u);
     // The message still lists everything this command does accept.
     expect(() => rejectUnknownOptions(parsed(["view"], { "--token": "t" })))
-      .toThrow(/view accepts: --evidence-id, --format, --help, --input, --output, --profile, --version, -h\./u);
+      .toThrow(/view accepts: --evidence-id, --fields, --format, --help, --input, --max-characters, --max-lines, --output, --profile, --version, -h\./u);
   });
 
   test("keeps the reason honest for an option that is simply unknown", () => {

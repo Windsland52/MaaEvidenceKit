@@ -23,7 +23,18 @@ export function view(result: InspectionResult, options: ViewOptions = {}): strin
 }
 
 export { evidenceById, renderEvidence, type EvidenceViewFormat } from "./evidence.js";
+export {
+  VIEW_DEFAULT_MAX_CHARACTERS,
+  VIEW_DEFAULT_MAX_LINES,
+  VIEW_MAX_CHARACTERS,
+  VIEW_MAX_LINES,
+  boundText,
+  budgetInteger,
+  type BoundedText,
+  type TextBudget,
+} from "./bounds.js";
 export { renderJson } from "./json.js";
+export { parseFields, selectFields } from "./select.js";
 export { renderMermaid } from "./mermaid.js";
 export { renderEvidenceSearch, type EvidenceSearchFormat } from "./search.js";
 export {
