@@ -62,6 +62,49 @@ describe("evidence ledger", () => {
     expect(single.artifactIds).toEqual([]);
   });
 
+  test("names each mirrored group and the artifact to count from", () => {
+    const observation = (id: string, artifact: string, summary: string) => ({
+      id,
+      kind: "mla.action_detail",
+      summary,
+      source: { artifactId: artifact, path: "maafw.log", line: 1, node: "EatCandyStart" },
+      data: {},
+    });
+    const records = [
+      observation("evidence-a", "artifact-launcher", "Action EatCandyStart succeeded (Click) x2."),
+      observation("evidence-b", "artifact-agent", "Action EatCandyStart succeeded (Click) x2."),
+      observation("evidence-c", "artifact-launcher", "Action EatCandyStart succeeded (Click) x1."),
+      observation("evidence-d", "artifact-agent", "Action EatCandyStart succeeded (Click) x1."),
+      observation("evidence-e", "artifact-launcher", "Only one artifact saw this."),
+    ];
+
+    const duplicates = findCrossArtifactDuplicateObservations(records, [
+      "artifact-agent",
+      "artifact-launcher",
+    ]);
+
+    expect(duplicates.observationGroups).toBe(2);
+    expect(duplicates.duplicateRecords).toBe(4);
+    expect(duplicates.groups).toHaveLength(2);
+    for (const group of duplicates.groups) {
+      expect(group.artifactIds).toEqual(["artifact-agent", "artifact-launcher"]);
+      // Discovery order decides the preferred copy; both groups list the agent copy first here.
+      expect(group.preferredArtifactId).toBe("artifact-agent");
+      expect(group.recordCount).toBe(2);
+      expect(group.recordIds).toHaveLength(2);
+    }
+    expect(duplicates.groups.map((group) => group.recordIds).flat().sort()).toEqual([
+      "evidence-a",
+      "evidence-b",
+      "evidence-c",
+      "evidence-d",
+    ]);
+    // Without an order the tie-break is the artifact ID, so the result stays deterministic.
+    expect(
+      findCrossArtifactDuplicateObservations(records).groups[0]?.preferredArtifactId,
+    ).toBe("artifact-agent");
+  });
+
   test("groups artifacts whose bytes are identical and excludes undigested records", () => {
     const artifact = (
       id: string,

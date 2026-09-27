@@ -20,6 +20,7 @@ import {
   artifactId,
   findByteIdenticalArtifacts,
   findCrossArtifactDuplicateObservations,
+  type CrossArtifactDuplicateObservationGroup,
   isMissingPathError,
   parseTimestamp,
   portablePath,
@@ -46,6 +47,7 @@ import {
 } from "./translate.js";
 
 const MAX_ACTION_DETAILS = 500;
+const MAX_MIRROR_GROUPS = 25;
 const MAX_PIPELINE_OVERRIDES = 500;
 const MAX_FAILURE_CONTEXT_TASKS = 5;
 const MAX_FAILURE_CONTEXT_FAILURES = 5;
@@ -431,6 +433,13 @@ export type MlaInspectOptions = {
 export type MlaInspectionDetails = {
   runtime: MlaRuntimeInspectionResult;
   taskTimelines: MlaTaskTimeline[];
+  /**
+   * Bounded groups of records that share a kind/summary/task/node fingerprint across artifacts,
+   * largest first, each naming the artifact to filter on when an event must be counted once. The
+   * records stay separate and unmerged: this names the repetition so a count can be taken
+   * deliberately, it does not prove the copies are one observation.
+   */
+  mirrorGroups: CrossArtifactDuplicateObservationGroup[];
   selection: {
     requestedTimeRange?: TimeRange;
     keywords: string[];
@@ -2609,7 +2618,6 @@ export async function inspectMla(
     addTaskAnomalyEvidence(ledger, anomaly, task, discovery.artifacts, resolvedPath);
   }
   const evidence = correlateCycleBlockers(ledger.values());
-  const duplicateObservations = findCrossArtifactDuplicateObservations(evidence);
   const selectedArtifactIds = new Set(evidence.map((item) => item.source.artifactId));
   for (const loaded of loadedTargets) {
     for (const segment of loaded.sourceSegments) {
@@ -2632,6 +2640,10 @@ export async function inspectMla(
       ? { ...artifact, status: "selected" as const, reason: undefined }
       : artifact,
   ).map(({ reason, ...artifact }) => reason === undefined ? artifact : { ...artifact, reason });
+  const duplicateObservations = findCrossArtifactDuplicateObservations(
+    evidence,
+    artifacts.map((artifact) => artifact.id),
+  );
   const pipelineOverridesTotal = loadedTargets.reduce(
     (total, target) => total + target.pipelineOverridesTotal,
     0,
@@ -2757,7 +2769,7 @@ export async function inspectMla(
       ? []
       : [{
         code: "mla_cross_artifact_duplicate_observations",
-        message: `${duplicateObservations.duplicateRecords} evidence records share a kind/summary/task/node fingerprint with a record in another artifact, forming ${duplicateObservations.observationGroups} repeated observation ${duplicateObservations.observationGroups === 1 ? "group" : "groups"} across ${duplicateObservations.artifactIds.length} artifacts (${duplicateObservations.artifactIds.join(", ")}). Timestamps are not part of the fingerprint, so the group count is a lower bound on distinct observations. Mirrored logs keep separate provenance and records remain unmerged; filter with a single --artifact-id before counting an event.`,
+        message: `${duplicateObservations.duplicateRecords} evidence records share a kind/summary/task/node fingerprint with a record in another artifact, forming ${duplicateObservations.observationGroups} repeated observation ${duplicateObservations.observationGroups === 1 ? "group" : "groups"} across ${duplicateObservations.artifactIds.length} artifacts (${duplicateObservations.artifactIds.join(", ")}). Timestamps are not part of the fingerprint, so the group count is a lower bound on distinct observations. Mirrored logs keep separate provenance and records remain unmerged: details.mirrorGroups names each group with its preferredArtifactId, and filtering search with that single --artifact-id counts one event once. statistics.crossArtifactDuplicateObservationRecords and ...Artifacts carry the totals; ...GroupsReported says how many of ${duplicateObservations.observationGroups} groups fit in details.mirrorGroups.`,
       }]),
   ];
   return {
@@ -2804,6 +2816,12 @@ export async function inspectMla(
       pipelineOverridesTotal,
       pipelineOverrideActivityLines,
       crossArtifactDuplicateObservations: duplicateObservations.observationGroups,
+      crossArtifactDuplicateObservationRecords: duplicateObservations.duplicateRecords,
+      crossArtifactDuplicateObservationArtifacts: duplicateObservations.artifactIds.length,
+      crossArtifactDuplicateObservationGroupsReported: Math.min(
+        duplicateObservations.groups.length,
+        MAX_MIRROR_GROUPS,
+      ),
       repeatedNodeSegments: completeSignalCounts.repeatedNodeSegments,
       repeatedNodeSegmentsFocused: focusedSignalCounts.repeatedNodeSegments,
       repeatedNodeTotalRepeatCount: completeSignalCounts.repeatedNodeTotalRepeatCount,
@@ -2813,6 +2831,7 @@ export async function inspectMla(
     details: {
       runtime,
       taskTimelines,
+      mirrorGroups: duplicateObservations.groups.slice(0, MAX_MIRROR_GROUPS),
       selection: {
         ...(options.timeRange === undefined ? {} : { requestedTimeRange: options.timeRange }),
         keywords: focus?.keywords ?? [],

@@ -4,6 +4,7 @@ export {
   findByteIdenticalArtifacts,
   findCrossArtifactDuplicateObservations,
   type ByteIdenticalArtifacts,
+  type CrossArtifactDuplicateObservationGroup,
   type CrossArtifactDuplicateObservations,
 } from "./ledger.js";
 export {

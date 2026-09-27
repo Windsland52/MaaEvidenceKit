@@ -1790,6 +1790,50 @@ test("emits structured evidence for possible mirrored tasks across log targets",
   ]);
 });
 
+test("names mirrored observation groups with the artifact to count from", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-mirror-groups-"));
+  temporaryRoots.push(root);
+  const mirror = path.join(root, "mirror");
+  await mkdir(mirror);
+  await writeFile(path.join(root, "package.json"), "{}", "utf8");
+  const log = (): string => [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Tasker.Task.Starting", {
+      task_id: 7, entry: "MirrorTask", hash: "mirror-hash", uuid: "mirror-uuid",
+    }),
+    event("2026-07-19 10:01:01.000", "Tasker.Task.Succeeded", {
+      task_id: 7, entry: "MirrorTask", hash: "mirror-hash", uuid: "mirror-uuid",
+    }),
+  ].join("\n");
+  await writeFile(path.join(root, "maafw.log"), log(), "utf8");
+  await writeFile(path.join(mirror, "maafw.log"), log(), "utf8");
+
+  const result = await inspectMla(root);
+  const groups = result.details.mirrorGroups;
+
+  expect(result.statistics.crossArtifactDuplicateObservations).toBe(groups.length);
+  expect(result.statistics.crossArtifactDuplicateObservationRecords).toBeGreaterThan(0);
+  expect(result.statistics.crossArtifactDuplicateObservationArtifacts).toBe(2);
+  expect(result.statistics.crossArtifactDuplicateObservationGroupsReported).toBe(groups.length);
+  expect(groups.length).toBeGreaterThan(0);
+  for (const group of groups) {
+    expect(group.artifactIds.length).toBeGreaterThan(1);
+    expect(group.artifactIds).toContain(group.preferredArtifactId);
+    expect(group.recordCount).toBeGreaterThanOrEqual(group.artifactIds.length);
+    expect(group.recordIds.length).toBeLessThanOrEqual(group.recordCount);
+  }
+  // The preferred artifact is the one discovery listed first among the group's members, so a
+  // harness can filter with --artifact-id instead of grouping the records by hand.
+  const discoveryOrder = result.artifacts.map((artifact) => artifact.id);
+  const first = discoveryOrder[0] as string;
+  expect(groups.some((group) => group.preferredArtifactId === first)).toBe(true);
+  expect(result.warnings.some((item) => item.code === "mla_cross_artifact_duplicate_observations")).toBe(true);
+  expect(
+    result.warnings.find((item) => item.code === "mla_cross_artifact_duplicate_observations")?.message,
+  ).toContain("details.mirrorGroups");
+});
+
 test("summarizes anomalies for succeeded tasks with timeouts, action failures, or endless repetition", () => {
   const position = {
     timestamp: "2026-07-19 10:00:00.000",

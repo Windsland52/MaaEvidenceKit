@@ -23,11 +23,33 @@ function evidenceKey<T>(draft: EvidenceDraft<T>): string {
   });
 }
 
+export type CrossArtifactDuplicateObservationGroup = {
+  kind: string;
+  summary: string;
+  task?: string;
+  node?: string;
+  /** Every artifact that reported this fingerprint, sorted. */
+  artifactIds: string[];
+  /** Records in the group, bounded; the fingerprint below identifies the rest. */
+  recordIds: string[];
+  recordCount: number;
+  /**
+   * The artifact to filter on when an event must be counted once. It is the member that discovery
+   * listed first, falling back to the lexicographically first ID: a stable tie-break, not a claim
+   * that one copy is authoritative.
+   */
+  preferredArtifactId: string;
+};
+
 export type CrossArtifactDuplicateObservations = {
   observationGroups: number;
   duplicateRecords: number;
   artifactIds: string[];
+  /** Full group list, ordered by record count so a bounded report keeps the largest first. */
+  groups: CrossArtifactDuplicateObservationGroup[];
 };
+
+const MAX_GROUP_RECORD_IDS = 8;
 
 function observationFingerprint(evidence: Evidence): string {
   return canonicalJson([
@@ -50,32 +72,70 @@ function observationFingerprint(evidence: Evidence): string {
  * that two genuinely distinct events sharing all four fields collapse into one group, which
  * understates `observationGroups`. This is a fingerprint match, not proof of identity, and the
  * group count is a lower bound on distinct observations.
+ *
+ * `preferredArtifactOrder` is the inspection's artifact order. Reporting a preferred artifact exists
+ * so a harness can count an event once with `--artifact-id` instead of working the grouping out by
+ * hand; the records themselves are never merged or hidden.
  */
 export function findCrossArtifactDuplicateObservations(
   evidence: readonly Evidence[],
+  preferredArtifactOrder: readonly string[] = [],
 ): CrossArtifactDuplicateObservations {
-  const groups = new Map<string, Set<string>>();
-  const counts = new Map<string, number>();
+  type Bucket = {
+    kind: string;
+    summary: string;
+    task?: string;
+    node?: string;
+    records: Evidence[];
+    artifacts: Set<string>;
+  };
+  const buckets = new Map<string, Bucket>();
   for (const item of evidence) {
     const fingerprint = observationFingerprint(item);
-    const artifacts = groups.get(fingerprint) ?? new Set<string>();
-    artifacts.add(item.source.artifactId);
-    groups.set(fingerprint, artifacts);
-    counts.set(fingerprint, (counts.get(fingerprint) ?? 0) + 1);
+    const bucket = buckets.get(fingerprint) ?? {
+      kind: item.kind,
+      summary: item.summary,
+      ...(item.source.task === undefined ? {} : { task: item.source.task }),
+      ...(item.source.node === undefined ? {} : { node: item.source.node }),
+      records: [],
+      artifacts: new Set<string>(),
+    };
+    bucket.records.push(item);
+    bucket.artifacts.add(item.source.artifactId);
+    buckets.set(fingerprint, bucket);
   }
+
+  const order = new Map(preferredArtifactOrder.map((id, index) => [id, index]));
+  const rank = (id: string): number => order.get(id) ?? Number.MAX_SAFE_INTEGER;
   const artifactIds = new Set<string>();
-  let observationGroups = 0;
+  const groups: CrossArtifactDuplicateObservationGroup[] = [];
   let duplicateRecords = 0;
-  for (const [fingerprint, artifacts] of groups) {
-    if (artifacts.size < 2) continue;
-    observationGroups += 1;
-    duplicateRecords += (counts.get(fingerprint) ?? 0);
-    for (const id of artifacts) artifactIds.add(id);
+  for (const bucket of buckets.values()) {
+    if (bucket.artifacts.size < 2) continue;
+    const members = [...bucket.artifacts].sort((left, right) =>
+      rank(left) - rank(right) || left.localeCompare(right));
+    duplicateRecords += bucket.records.length;
+    for (const id of members) artifactIds.add(id);
+    groups.push({
+      kind: bucket.kind,
+      summary: bucket.summary,
+      ...(bucket.task === undefined ? {} : { task: bucket.task }),
+      ...(bucket.node === undefined ? {} : { node: bucket.node }),
+      artifactIds: [...members].sort((left, right) => left.localeCompare(right)),
+      recordIds: bucket.records.slice(0, MAX_GROUP_RECORD_IDS).map((record) => record.id),
+      recordCount: bucket.records.length,
+      preferredArtifactId: members[0] as string,
+    });
   }
+  groups.sort((left, right) =>
+    right.recordCount - left.recordCount
+    || left.kind.localeCompare(right.kind)
+    || left.summary.localeCompare(right.summary));
   return {
-    observationGroups,
+    observationGroups: groups.length,
     duplicateRecords,
     artifactIds: [...artifactIds].sort((left, right) => left.localeCompare(right)),
+    groups,
   };
 }
 
