@@ -37,9 +37,12 @@ const AUTO_UPDATE_ENVIRONMENT_KEY = "MAA_EVIDENCE_AUTO_UPDATE";
  * `maa-evidence-probe` bin, so a legacy global shim cannot answer for this name.
  *
  * The alias is defense in depth, not the correctness argument: npm's command-name resolution is an
- * uncontrolled variable (pinned-first where it works, PATH fallback when an install fails), so the
- * handoff is verified by the marker the child writes, and a wrong or missing marker falls back to
- * the behind hint regardless of how the name resolved.
+ * uncontrolled variable (measured on npm 10-12: the pinned copy answers when it ships the name,
+ * PATH is consulted when it does not, and a failed install is a hard error), so the handoff is
+ * verified by the marker the child writes, and a wrong or missing marker falls back to the behind
+ * hint regardless of how the name resolved. One measured exception, relevant only to dev checkouts:
+ * when the current directory's own package.json matches the probed name@version, npm exec skips
+ * the scratch install and resolves through the inherited PATH instead.
  */
 const PROBE_BIN = "maa-evidence-probe";
 
