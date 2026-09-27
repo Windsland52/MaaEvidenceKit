@@ -35,20 +35,16 @@ sentry explore <org>/<project> `
 With Sentry MCP, use the equivalent structured project, issue-search, aggregate, and event-detail
 tools. Use only fields actually present in the project.
 
-Verify an aggregate before you rank or quantify with it. Behavior observed with the TypeScript
-`sentry` CLI 0.40.0 that silently corrupts triage:
+Verify an aggregate before you rank or quantify with it:
 
 - `issue list --query 'release:"X"'` selects which groups are returned, but `count`/`userCount` can
   still be period-wide totals across every release. Confirm any release-scoped number with a scalar
   `count()` query carrying the same filter before reporting it.
-- Multi-dimension `explore` aggregates on `errors` may return duplicate rows and a sum that does not
-  reconcile with the scalar `count()` for the same filter, while still reporting `hasMore: false`.
-  Reconcile the sum, deduplicate, and re-query any single row you intend to cite.
-- `--sort` is ignored on the `errors` dataset, so an `explore` result is an arbitrary N rows, not a
-  top N. Pull the full set and rank locally, or order through the events endpoint.
-- In PowerShell, quote any argument containing a comma (`--fields 'id,shortId'`). An unquoted comma
-  is parsed as an array and reaches the CLI as separate arguments, which returns empty objects
-  instead of an error.
+- Before treating an `explore` result as a top N, confirm the ordering was actually applied: some
+  datasets reject `--sort`, and an unordered result is an arbitrary N rows. When in doubt, pull the
+  full set and rank locally.
+- In PowerShell, quote any argument containing a comma (`--fields 'id,shortId'`); unquoted, the array
+  reaches the CLI as separate arguments and it returns empty objects instead of an error.
 
 ## Release-scoped triage
 

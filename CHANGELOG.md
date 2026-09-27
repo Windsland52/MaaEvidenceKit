@@ -50,6 +50,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   deliberately stays on 10.x because 11.0.0 removes `sendDefaultPii` in favor of a `dataCollection`
   option with broader defaults, which is its own change, and `@types/node` stays on the major that
   keeps the Node 22 floor enforced.
+- The Skill's Sentry reference drops the `sentry` CLI 0.40.0 anchor and the two aggregate caveats
+  that CLI 0.45.0 fixed, and keeps the release-scoped count check and the PowerShell quoting note as
+  version-independent advice.
 
 ### Fixed
 
