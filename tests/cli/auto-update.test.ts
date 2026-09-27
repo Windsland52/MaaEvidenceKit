@@ -29,6 +29,7 @@ test("disabled automatic updates run the local CLI without network or subprocess
   await expect(runWithAutomaticUpdates(["--version"], runLocal, {
     environment: { MAA_EVIDENCE_AUTO_UPDATE: "0" },
     fetchLatestVersion,
+    isInteractive: () => true,
     runCommand,
   })).resolves.toBe(4);
   expect(fetchLatestVersion).not.toHaveBeenCalled();
@@ -44,6 +45,7 @@ test("CI disables automatic updates unless explicitly enabled", async () => {
   await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, {
     environment: { CI: "true" },
     fetchLatestVersion,
+    isInteractive: () => true,
     runCommand,
   })).resolves.toBe(0);
   expect(fetchLatestVersion).not.toHaveBeenCalled();
@@ -52,9 +54,13 @@ test("CI disables automatic updates unless explicitly enabled", async () => {
 
 test("a newer registry version receives the original command through an exact npm handoff", async () => {
   const directory = await temporaryConfigDirectory();
-  const calls: Array<{ args: string[]; inheritStdio: boolean }> = [];
-  const runCommand = vi.fn(async (args: string[], options: { inheritStdio: boolean }) => {
-    calls.push({ args, inheritStdio: options.inheritStdio });
+  const calls: Array<{ args: string[]; inheritStdio: boolean; timeoutMs?: number }> = [];
+  const runCommand = vi.fn(async (args: string[], options: { inheritStdio: boolean; timeoutMs?: number }) => {
+    calls.push({
+      args,
+      inheritStdio: options.inheritStdio,
+      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    });
     if (args.at(-1) === "--version") {
       return { spawned: true, exitCode: 0, stdout: "0.2.0\n", stderr: "" };
     }
@@ -71,6 +77,7 @@ test("a newer registry version receives the original command through an exact np
     currentVersion: "0.1.1",
     environment: {},
     fetchLatestVersion: async () => "0.2.0",
+    isInteractive: () => true,
     now: () => new Date("2026-08-09T12:00:00.000Z"),
     runCommand,
     runSkillCommand,
@@ -78,9 +85,14 @@ test("a newer registry version receives the original command through an exact np
   expect(runLocal).not.toHaveBeenCalled();
   expect(calls).toHaveLength(2);
   expect(calls[0]?.args).toContain("--package=maa-evidence-kit@0.2.0");
+  expect(calls[0]?.args).toContain("--loglevel=error");
+  // The probe is ours, so it is captured and bounded.
   expect(calls[0]?.inheritStdio).toBe(false);
+  expect(calls[0]?.timeoutMs).toBeDefined();
+  // The handoff is the caller's command: it owns both streams and must not be killed by us.
   expect(calls[1]?.args.slice(-2)).toEqual(["inspect", "materials"]);
   expect(calls[1]?.inheritStdio).toBe(true);
+  expect(calls[1]?.timeoutMs).toBeUndefined();
   expect(runSkillCommand).not.toHaveBeenCalled();
 });
 
@@ -100,6 +112,7 @@ test("the handed-off runtime skips a second registry check and synchronizes its 
     currentVersion: "0.2.0",
     environment: { MAA_EVIDENCE_UPDATE_HANDOFF: "1" },
     fetchLatestVersion,
+    isInteractive: () => true,
     runSkillCommand,
   })).resolves.toBe(5);
   expect(fetchLatestVersion).not.toHaveBeenCalled();
@@ -128,6 +141,7 @@ test("the current runtime updates the managed global Skill once per version", as
     currentVersion: "0.2.0",
     environment: {},
     fetchLatestVersion,
+    isInteractive: () => true,
     now: () => new Date("2026-08-09T12:00:00.000Z"),
     runSkillCommand,
   };
@@ -166,6 +180,7 @@ test("registry and Skill updater failures fall back to the local CLI", async () 
     currentVersion: "0.2.0",
     environment: {},
     fetchLatestVersion: async () => undefined,
+    isInteractive: () => true,
     now: () => new Date("2026-08-09T12:00:00.000Z"),
     runSkillCommand,
     writeDiagnostic: (message: string) => diagnostics.push(message),
@@ -192,9 +207,172 @@ test("an active updater lock lets concurrent commands use the local runtime imme
     configDirectory: directory,
     environment: {},
     fetchLatestVersion,
+    isInteractive: () => true,
     now: () => new Date(),
     runCommand,
   })).resolves.toBe(6);
+  expect(fetchLatestVersion).not.toHaveBeenCalled();
+  expect(runCommand).not.toHaveBeenCalled();
+});
+
+test("a non-interactive caller never checks the registry, probes, or synchronizes the Skill", async () => {
+  const directory = await temporaryConfigDirectory();
+  const fetchLatestVersion = vi.fn(async () => "0.2.0");
+  const runCommand = vi.fn();
+  const runSkillCommand = vi.fn();
+  const runLocal = vi.fn(async () => 8);
+
+  await expect(runWithAutomaticUpdates(["mla", "inspect", "logs"], runLocal, {
+    configDirectory: directory,
+    currentVersion: "0.1.1",
+    environment: {},
+    fetchLatestVersion,
+    isInteractive: () => false,
+    runCommand,
+    runSkillCommand,
+  })).resolves.toBe(8);
+  expect(fetchLatestVersion).not.toHaveBeenCalled();
+  expect(runCommand).not.toHaveBeenCalled();
+  expect(runSkillCommand).not.toHaveBeenCalled();
+  expect(runLocal).toHaveBeenCalledWith(["mla", "inspect", "logs"]);
+});
+
+test("an explicit opt-in updates without an interactive terminal", async () => {
+  const directory = await temporaryConfigDirectory();
+  const runSkillCommand = vi.fn(async () => ({
+    spawned: true,
+    exitCode: 0,
+    stdout: "",
+    stderr: "",
+  }));
+  const fetchLatestVersion = vi.fn(async () => "0.2.0");
+  const runLocal = vi.fn(async () => 9);
+
+  await expect(runWithAutomaticUpdates(["view", "--input", "result.json"], runLocal, {
+    configDirectory: directory,
+    currentVersion: "0.2.0",
+    environment: { MAA_EVIDENCE_AUTO_UPDATE: "1" },
+    fetchLatestVersion,
+    isInteractive: () => false,
+    runSkillCommand,
+  })).resolves.toBe(9);
+  expect(fetchLatestVersion).toHaveBeenCalledOnce();
+  expect(runSkillCommand).toHaveBeenCalledOnce();
+});
+
+test("a failed probe is not repeated until its suppression window expires", async () => {
+  const directory = await temporaryConfigDirectory();
+  const runCommand = vi.fn(async () => ({
+    spawned: true,
+    exitCode: 0,
+    stdout: "0.1.0\n",
+    stderr: "",
+  }));
+  const runLocal = vi.fn(async () => 2);
+  let now = new Date("2026-08-09T12:00:00.000Z");
+  const options = {
+    configDirectory: directory,
+    currentVersion: "0.1.1",
+    environment: {},
+    fetchLatestVersion: async () => "0.2.0",
+    isInteractive: () => true,
+    now: () => now,
+    runCommand,
+    runSkillCommand: async () => ({ spawned: true, exitCode: 0, stdout: "", stderr: "" }),
+    writeDiagnostic: () => undefined,
+  };
+
+  await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, options)).resolves.toBe(2);
+  expect(runCommand).toHaveBeenCalledOnce();
+
+  now = new Date("2026-08-09T18:00:00.000Z");
+  await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, options)).resolves.toBe(2);
+  expect(runCommand).toHaveBeenCalledOnce();
+
+  now = new Date("2026-08-10T18:00:00.000Z");
+  await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, options)).resolves.toBe(2);
+  expect(runCommand).toHaveBeenCalledTimes(2);
+});
+
+test("a failed npm probe reports its output only when debugging is requested", async () => {
+  const directory = await temporaryConfigDirectory();
+  const runCommand = vi.fn(async () => ({
+    spawned: true,
+    exitCode: 0,
+    stdout: "0.1.0\n",
+    stderr: "npm error 404 Not Found - maa-evidence-kit@0.2.0\n",
+  }));
+  const runLocal = vi.fn(async () => 0);
+  const base = {
+    configDirectory: directory,
+    currentVersion: "0.1.1",
+    fetchLatestVersion: async () => "0.2.0",
+    isInteractive: () => true,
+    now: () => new Date("2026-08-09T12:00:00.000Z"),
+    runCommand,
+    runSkillCommand: async () => ({ spawned: true, exitCode: 0, stdout: "", stderr: "" }),
+  };
+
+  const quiet: string[] = [];
+  await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, {
+    ...base,
+    environment: {},
+    writeDiagnostic: (message: string) => quiet.push(message),
+  })).resolves.toBe(0);
+  expect(quiet.join("\n")).toContain("could not be prepared");
+  expect(quiet.join("\n")).not.toContain("npm error 404");
+
+  const debug: string[] = [];
+  await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, {
+    ...base,
+    // A fresh config directory: the first run remembered this failed probe for 24 hours.
+    configDirectory: await temporaryConfigDirectory(),
+    environment: { MAA_EVIDENCE_DEBUG: "1" },
+    writeDiagnostic: (message: string) => debug.push(message),
+  })).resolves.toBe(0);
+  expect(debug.join("\n")).toContain("npm error 404");
+});
+
+test("a runtime ahead of the published version does not install the published Skill", async () => {
+  const directory = await temporaryConfigDirectory();
+  const runSkillCommand = vi.fn(async () => ({
+    spawned: true,
+    exitCode: 0,
+    stdout: "",
+    stderr: "",
+  }));
+  const runLocal = vi.fn(async () => 0);
+
+  await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, {
+    configDirectory: directory,
+    currentVersion: "0.3.0",
+    environment: {},
+    fetchLatestVersion: async () => "0.2.0",
+    isInteractive: () => true,
+    now: () => new Date("2026-08-09T12:00:00.000Z"),
+    runSkillCommand,
+  })).resolves.toBe(0);
+  expect(runSkillCommand).not.toHaveBeenCalled();
+  const state = JSON.parse(
+    await readFile(path.join(directory, "updates.json"), "utf8"),
+  ) as Record<string, unknown>;
+  expect(state["skillSyncVersion"]).toBeUndefined();
+});
+
+test("local Skill inspection never detours through the updater", async () => {
+  const directory = await temporaryConfigDirectory();
+  const fetchLatestVersion = vi.fn(async () => "0.2.0");
+  const runCommand = vi.fn();
+  const runLocal = vi.fn(async () => 0);
+
+  await expect(runWithAutomaticUpdates(["skill", "--print"], runLocal, {
+    configDirectory: directory,
+    currentVersion: "0.1.1",
+    environment: {},
+    fetchLatestVersion,
+    isInteractive: () => true,
+    runCommand,
+  })).resolves.toBe(0);
   expect(fetchLatestVersion).not.toHaveBeenCalled();
   expect(runCommand).not.toHaveBeenCalled();
 });

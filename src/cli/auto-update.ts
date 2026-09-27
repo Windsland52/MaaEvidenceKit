@@ -17,11 +17,23 @@ const REGISTRY_LATEST_URL = "https://registry.npmjs.org/maa-evidence-kit/latest"
 const SKILLS_CLI_VERSION = "1.5.22";
 const HANDOFF_ENVIRONMENT_KEY = "MAA_EVIDENCE_UPDATE_HANDOFF";
 const PROBE_ENVIRONMENT_KEY = "MAA_EVIDENCE_UPDATE_PROBE";
+const DEBUG_ENVIRONMENT_KEY = "MAA_EVIDENCE_DEBUG";
+const AUTO_UPDATE_ENVIRONMENT_KEY = "MAA_EVIDENCE_AUTO_UPDATE";
+
+/** Commands whose whole purpose is local, version-exact behavior: never worth an update detour. */
+const UPDATE_EXEMPT_COMMANDS = new Set(["telemetry", "feedback", "skill"]);
 
 type UpdateState = {
   schemaVersion: typeof UPDATE_STATE_SCHEMA_VERSION;
   checkedAt?: string;
   latestVersion?: string;
+  /**
+   * The last version whose npm probe failed, and when. Without this a probe that keeps failing
+   * (for example when `npm exec` resolves a different global binary) would pay its full
+   * subprocess cost on every single invocation.
+   */
+  probeAttemptedVersion?: string;
+  probeAttemptedAt?: string;
   skillSyncVersion?: string;
   skillSyncAttemptedAt?: string;
   skillSyncAttemptedVersion?: string;
@@ -29,6 +41,16 @@ type UpdateState = {
 
 type CommandOptions = {
   environment: NodeJS.ProcessEnv;
+  /**
+   * Forward the child's stdout and stderr instead of capturing them.
+   *
+   * Only the version handoff uses this: that child is the caller's own command running from another
+   * install, so its streams are the caller's streams. Its diagnostics must arrive in real time and
+   * unmodified - a handed-off command that fails has to look exactly like a local failure - and
+   * npm's own `notice` lines are suppressed with `--loglevel=error` so inheriting stderr stays
+   * clean. Capturing them here instead would silently swallow every error the handed-off command
+   * prints.
+   */
   inheritStdio: boolean;
   timeoutMs?: number;
 };
@@ -45,6 +67,11 @@ type AutoUpdateDependencies = {
   currentVersion?: string;
   environment?: NodeJS.ProcessEnv;
   fetchLatestVersion?: () => Promise<string | undefined>;
+  /**
+   * Whether this invocation may spend time on update work. Defaults to the real stdout TTY check,
+   * so an agent or a piped command never pays for a probe it did not ask for.
+   */
+  isInteractive?: () => boolean;
   now?: () => Date;
   runCommand?: (args: string[], options: CommandOptions) => Promise<CommandResult>;
   runSkillCommand?: (args: string[], options: CommandOptions) => Promise<CommandResult>;
@@ -104,6 +131,12 @@ async function readUpdateState(directory: string): Promise<UpdateState> {
       ...(typeof record["checkedAt"] === "string" ? { checkedAt: record["checkedAt"] } : {}),
       ...(typeof record["latestVersion"] === "string"
         ? { latestVersion: record["latestVersion"] }
+        : {}),
+      ...(typeof record["probeAttemptedVersion"] === "string"
+        ? { probeAttemptedVersion: record["probeAttemptedVersion"] }
+        : {}),
+      ...(typeof record["probeAttemptedAt"] === "string"
+        ? { probeAttemptedAt: record["probeAttemptedAt"] }
         : {}),
       ...(typeof record["skillSyncVersion"] === "string"
         ? { skillSyncVersion: record["skillSyncVersion"] }
@@ -171,7 +204,7 @@ async function runProgram(
     let timeout: NodeJS.Timeout | undefined;
     const child = spawn(executable, args, {
       env: options.environment,
-      stdio: options.inheritStdio ? "inherit" : ["ignore", "pipe", "pipe"],
+      stdio: options.inheritStdio ? ["ignore", "inherit", "inherit"] : ["ignore", "pipe", "pipe"],
     });
     child.stdout?.on("data", (chunk: Buffer | string) => {
       stdout += chunk.toString().slice(0, CAPTURE_LIMIT_CHARACTERS - stdout.length);
@@ -202,16 +235,62 @@ async function runNpm(args: string[], options: CommandOptions): Promise<CommandR
   return runProgram("npm", args, options);
 }
 
+/**
+ * Run one exact package version through npm.
+ *
+ * `--loglevel=error` is what keeps this quiet: npm prints `npm notice run ...` lines to stderr for
+ * every `exec`, and those lines must never reach a caller as if MEK had written them. With the
+ * wrapper's log level raised, the only stderr left is a real failure - npm's or the child's.
+ */
 function npmExec(packageSpecification: string, executable: string, args: string[]): string[] {
-  return ["exec", "--yes", `--package=${packageSpecification}`, "--", executable, ...args];
+  return [
+    "exec",
+    "--yes",
+    "--loglevel=error",
+    `--package=${packageSpecification}`,
+    "--",
+    executable,
+    ...args,
+  ];
 }
 
-function updatesEnabled(args: string[], environment: NodeJS.ProcessEnv): boolean {
+/**
+ * Decide whether this invocation may spend time on update work.
+ *
+ * The npm probe and handoff cost seconds of subprocess time each (measured 4-6 s per `npm exec`
+ * call on Windows), so they stay behind an interactive terminal or an explicit
+ * `MAA_EVIDENCE_AUTO_UPDATE=1`. An agent, a harness, or anything with a redirected stdout is not
+ * asking to be updated, and previously paid that cost on every single command.
+ */
+function updatesEnabled(
+  args: string[],
+  environment: NodeJS.ProcessEnv,
+  interactive: boolean,
+): boolean {
   if (environment[PROBE_ENVIRONMENT_KEY] === "1") return false;
-  if (environment["MAA_EVIDENCE_AUTO_UPDATE"] === "0") return false;
-  if (environment["CI"] !== undefined && environment["MAA_EVIDENCE_AUTO_UPDATE"] !== "1") return false;
+  if (environment[AUTO_UPDATE_ENVIRONMENT_KEY] === "0") return false;
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) return false;
-  return args[0] !== "telemetry" && args[0] !== "feedback";
+  if (UPDATE_EXEMPT_COMMANDS.has(args[0] ?? "")) return false;
+  if (environment[AUTO_UPDATE_ENVIRONMENT_KEY] === "1") return true;
+  if (environment["CI"] !== undefined) return false;
+  return interactive;
+}
+
+function debugEnabled(environment: NodeJS.ProcessEnv): boolean {
+  return environment[DEBUG_ENVIRONMENT_KEY] === "1";
+}
+
+/**
+ * Whether the npm-published Skill can be assumed to match this running version.
+ *
+ * `skills update` installs whatever npm publishes, while the state file records the *running*
+ * version. Syncing from npm while this runtime is ahead of (a dev checkout) or behind (a failed
+ * handoff) the published version would install a Skill from a different release and then claim it
+ * was current, which is how an installed Skill silently drifted one version behind.
+ */
+function skillSyncMatchesRuntime(running: string, publishedLatest: string | undefined): boolean {
+  if (publishedLatest === undefined) return true;
+  return publishedLatest === running;
 }
 
 async function latestVersion(
@@ -292,6 +371,7 @@ async function probeVersion(
   version: string,
   environment: NodeJS.ProcessEnv,
   command: (args: string[], options: CommandOptions) => Promise<CommandResult>,
+  diagnostic: (message: string) => void,
 ): Promise<boolean> {
   const packageSpecification = `maa-evidence-kit@${version}`;
   const probeEnvironment = { ...environment, [PROBE_ENVIRONMENT_KEY]: "1" };
@@ -303,7 +383,15 @@ async function probeVersion(
       timeoutMs: UPDATE_SUBPROCESS_TIMEOUT_MS,
     },
   );
-  return probe.spawned && probe.exitCode === 0 && probe.stdout.trim() === version;
+  const matched = probe.spawned && probe.exitCode === 0 && probe.stdout.trim() === version;
+  // The probe's output is npm's, so it is captured rather than shown; a failing probe is the one
+  // case where reading it is the only way to learn why the update never happens.
+  if (!matched && debugEnabled(environment)) {
+    diagnostic(
+      `maa-evidence: update probe output for ${version}:\n${probe.stdout}${probe.stderr}`,
+    );
+  }
+  return matched;
 }
 
 async function handOffToVersion(
@@ -314,6 +402,9 @@ async function handOffToVersion(
 ): Promise<number | undefined> {
   const packageSpecification = `maa-evidence-kit@${version}`;
   const handoffEnvironment = { ...environment, [HANDOFF_ENVIRONMENT_KEY]: "1" };
+  // No timeout: this child is the caller's command, and an inspection that legitimately runs for
+  // minutes must not be killed by the updater. The probe and the Skill sync, whose commands are
+  // ours, keep their budget.
   const handoff = await command(
     npmExec(packageSpecification, "maa-evidence", args),
     { environment: handoffEnvironment, inheritStdio: true },
@@ -328,7 +419,8 @@ export async function runWithAutomaticUpdates(
   dependencies: AutoUpdateDependencies = {},
 ): Promise<number> {
   const environment = dependencies.environment ?? process.env;
-  if (!updatesEnabled(args, environment)) return runLocal(args);
+  const interactive = (dependencies.isInteractive ?? (() => process.stdout.isTTY === true))();
+  if (!updatesEnabled(args, environment, interactive)) return runLocal(args);
 
   const currentVersion = dependencies.currentVersion ?? MAA_EVIDENCE_VERSION;
   const now = (dependencies.now ?? (() => new Date()))();
@@ -342,6 +434,7 @@ export async function runWithAutomaticUpdates(
 
   try {
     let state = await readUpdateState(directory);
+    let publishedLatest: string | undefined;
     if (environment[HANDOFF_ENVIRONMENT_KEY] !== "1") {
       const resolved = await latestVersion(
         state,
@@ -350,37 +443,50 @@ export async function runWithAutomaticUpdates(
         dependencies.fetchLatestVersion ?? fetchLatestStableVersion,
       );
       state = resolved.state;
+      publishedLatest = resolved.latest;
       if (
         resolved.latest !== undefined
         && valid(currentVersion) !== null
         && gt(resolved.latest, currentVersion)
       ) {
-        if (!await probeVersion(resolved.latest, environment, command)) {
+        const probedRecently = state.probeAttemptedVersion === resolved.latest
+          && fresh(state.probeAttemptedAt, now);
+        if (!probedRecently) {
+          if (await probeVersion(resolved.latest, environment, command, diagnostic)) {
+            await releaseLock();
+            const exitCode = await handOffToVersion(resolved.latest, args, environment, command);
+            if (exitCode !== undefined) return exitCode;
+            diagnostic(
+              `maa-evidence: version ${resolved.latest} was prepared but could not be started.\n`,
+            );
+            return 1;
+          }
+          // Remember the failure only: a version that probed successfully is handed off now, so a
+          // later invocation must still be allowed to try again.
+          state = {
+            ...state,
+            probeAttemptedAt: now.toISOString(),
+            probeAttemptedVersion: resolved.latest,
+          };
+          await writeUpdateState(directory, state);
           diagnostic(
             `maa-evidence: version ${resolved.latest} is available but could not be prepared; continuing with ${currentVersion}.\n`,
           );
-          await releaseLock();
-          return runLocal(args);
         }
-        await releaseLock();
-        const exitCode = await handOffToVersion(resolved.latest, args, environment, command);
-        if (exitCode !== undefined) return exitCode;
-        diagnostic(
-          `maa-evidence: version ${resolved.latest} was prepared but could not be started.\n`,
-        );
-        return 1;
       }
     }
 
-    await synchronizeSkill(
-      state,
-      directory,
-      currentVersion,
-      now,
-      environment,
-      skillCommand,
-      diagnostic,
-    );
+    if (skillSyncMatchesRuntime(currentVersion, publishedLatest)) {
+      await synchronizeSkill(
+        state,
+        directory,
+        currentVersion,
+        now,
+        environment,
+        skillCommand,
+        diagnostic,
+      );
+    }
     await releaseLock();
     return runLocal(args);
   } finally {
