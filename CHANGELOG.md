@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.0] - 2026-09-27
 
 ### Added
 
@@ -72,6 +72,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cores. Fixture tests that materialize a git ref or scan hundreds of files genuinely run for
   seconds, and the default 5 s budget with one worker per CPU failed them intermittently while the
   suite ran in parallel.
+
+### Performance
+
+- A command no longer pays for the SDK facade and the Sentry client before it parses its arguments;
+  both moved behind one dynamic import per command. On a 153 MB log corpus with
+  `MAA_EVIDENCE_AUTO_UPDATE=0`, `--version` fell from 1123 ms to 270 ms, `--help` from 1460 ms to
+  367 ms, and `skill --print` from 1331 ms to 268 ms, while commands that read a saved report
+  reached their first output in 461-593 ms instead of 1259-1433 ms. The client's cost on the parse
+  path stays an unexplained, condition-dependent observation rather than a property of this change,
+  and no command, option, output, or exit code moved.
 
 ## [0.7.0] - 2026-09-13
 
@@ -440,7 +450,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Whitelist-only operational telemetry, disabled default PII, and mandatory preview/confirmation for
   feedback attachments.
 
-[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.4.0...v0.5.0
