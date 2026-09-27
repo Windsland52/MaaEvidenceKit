@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, stat, unlink, writeFile, type FileHandle } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, rename, stat, unlink, writeFile, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
 import spawn from "cross-spawn";
@@ -12,6 +12,7 @@ const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const UPDATE_REQUEST_TIMEOUT_MS = 1500;
 const UPDATE_LOCK_STALE_MS = 10 * 60 * 1000;
 const UPDATE_SUBPROCESS_TIMEOUT_MS = 2 * 60 * 1000;
+const HANDOFF_MARKER_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const CAPTURE_LIMIT_CHARACTERS = 64 * 1024;
 const REGISTRY_LATEST_URL = "https://registry.npmjs.org/maa-evidence-kit/latest";
 const REGISTRY_PACKUMENT_URL = "https://registry.npmjs.org/maa-evidence-kit";
@@ -19,6 +20,7 @@ const PACKUMENT_ACCEPT = "application/vnd.npm.install-v1+json";
 const SKILLS_CLI_VERSION = "1.5.22";
 const HANDOFF_ENVIRONMENT_KEY = "MAA_EVIDENCE_UPDATE_HANDOFF";
 const HANDOFF_FROM_ENVIRONMENT_KEY = "MAA_EVIDENCE_UPDATE_HANDOFF_FROM";
+const HANDOFF_MARKER_ENVIRONMENT_KEY = "MAA_EVIDENCE_UPDATE_HANDOFF_MARKER";
 const PROBE_ENVIRONMENT_KEY = "MAA_EVIDENCE_UPDATE_PROBE";
 const DEBUG_ENVIRONMENT_KEY = "MAA_EVIDENCE_DEBUG";
 const AUTO_UPDATE_ENVIRONMENT_KEY = "MAA_EVIDENCE_AUTO_UPDATE";
@@ -31,9 +33,12 @@ const AUTO_UPDATE_ENVIRONMENT_KEY = "MAA_EVIDENCE_AUTO_UPDATE";
  * host with a global 0.6.0 installed: `npm exec --package=maa-evidence-kit@<newer> -- maa-evidence
  * --version` printed 0.6.0 twice, so on exactly the machines that need an update the probe could
  * never succeed and every attempt was paid in full. No release older than the alias ships a
- * `maa-evidence-probe` bin, so this name can only resolve to the pinned copy - for the probe and
- * for the handed-off command alike, because a handoff under the old name would run the shadowing
- * install while looking successful.
+ * `maa-evidence-probe` bin, so a legacy global shim cannot answer for this name.
+ *
+ * The alias is defense in depth, not the correctness argument: npm's command-name resolution is an
+ * uncontrolled variable (pinned-first where it works, PATH fallback when an install fails), so the
+ * handoff is verified by the marker the child writes, and a wrong or missing marker falls back to
+ * the behind hint regardless of how the name resolved.
  */
 const PROBE_BIN = "maa-evidence-probe";
 
@@ -61,6 +66,26 @@ type UpdateState = {
   skillSyncVersion?: string;
   skillSyncAttemptedAt?: string;
   skillSyncAttemptedVersion?: string;
+};
+
+/**
+ * What a handed-off command records about itself before anything runs. The parent compares
+ * `version` against the handoff target after the command exits; the other fields are context for a
+ * human inspecting the file. Versions, a process ID, and a timestamp only - never uploaded.
+ */
+type HandoffMarker = {
+  version: string;
+  base?: string;
+  pid: number;
+  timestamp: string;
+};
+
+/** What the parent learns from the marker after the handed-off command exits. */
+type HandoffOutcome = {
+  spawned: boolean;
+  exitCode: number | null;
+  /** The version the marker recorded, or undefined when the marker is missing or unreadable. */
+  ranVersion: string | undefined;
 };
 
 type CommandOptions = {
@@ -117,6 +142,17 @@ function updateStatePath(directory: string): string {
 function updateLockPath(directory: string): string {
   return path.join(directory, "updates.lock");
 }
+
+function handoffMarkerPath(directory: string, now: Date): string {
+  return path.join(directory, `handoff-${process.pid}-${now.getTime()}.json`);
+}
+
+/**
+ * Only files of this exact parent-generated shape are ever swept - the marker, or a child's
+ * temporary file that a death between write and rename left behind. Nothing else in the config
+ * directory is touched.
+ */
+const HANDOFF_MARKER_FILE = /^handoff-\d+-\d+\.json(?:\.\d+\.tmp)?$/;
 
 async function acquireUpdateLock(
   directory: string,
@@ -413,6 +449,44 @@ function reportHandoff(environment: NodeJS.ProcessEnv, diagnostic: (message: str
 }
 
 /**
+ * Record, before any gate, which version is actually executing a handed-off command.
+ *
+ * npm's command-name resolution is an uncontrolled variable, so the parent cannot tell from the
+ * spawn alone whether the pinned copy or a shadowed install answered; this marker is the fact the
+ * parent reads after the command exits. The write is atomic (temporary file plus rename inside the
+ * config directory) and every failure is ignored: update bookkeeping must never block evidence
+ * extraction. A child that predates marker verification writes nothing, which the parent reads as
+ * "unverified" - the safety net for a shadowed legacy global executing the handoff silently.
+ */
+export async function writeHandoffMarker(environment: NodeJS.ProcessEnv): Promise<void> {
+  const markerPath = environment[HANDOFF_MARKER_ENVIRONMENT_KEY];
+  if (
+    environment[HANDOFF_ENVIRONMENT_KEY] !== "1"
+    || markerPath === undefined
+    || markerPath === ""
+  ) {
+    return;
+  }
+  const base = environment[HANDOFF_FROM_ENVIRONMENT_KEY];
+  const marker: HandoffMarker = {
+    version: MAA_EVIDENCE_VERSION,
+    ...(base === undefined ? {} : { base }),
+    pid: process.pid,
+    timestamp: new Date().toISOString(),
+  };
+  const temporaryPath = `${markerPath}.${process.pid}.tmp`;
+  try {
+    await writeFile(temporaryPath, `${JSON.stringify(marker)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    await rename(temporaryPath, markerPath);
+  } catch {
+    await unlink(temporaryPath).catch(() => undefined);
+  }
+}
+
+/**
  * Whether the npm-published Skill can be assumed to match this running version.
  *
  * `skills update` installs whatever npm publishes, while the state file records the *running*
@@ -529,32 +603,79 @@ async function probeVersion(
   return matched;
 }
 
+async function readHandoffMarkerVersion(markerPath: string): Promise<string | undefined> {
+  try {
+    const value: unknown = JSON.parse(await readFile(markerPath, "utf8"));
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    const version = (value as Record<string, unknown>)["version"];
+    return typeof version === "string" && version !== "" ? version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Delete handoff markers left by parents that died before reading theirs.
+ *
+ * Runs under the update lock at the start of an update pass. Only files matching the exact
+ * parent-generated shape are considered; anything else in the config directory stays untouched.
+ */
+async function sweepStaleHandoffMarkers(directory: string, now: Date): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await readdir(directory);
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!HANDOFF_MARKER_FILE.test(entry)) continue;
+    const markerPath = path.join(directory, entry);
+    try {
+      const markerStat = await stat(markerPath);
+      if (now.getTime() - markerStat.mtimeMs >= HANDOFF_MARKER_MAX_AGE_MS) {
+        await unlink(markerPath).catch(() => undefined);
+      }
+    } catch {
+      // Gone or unreadable between readdir and stat: nothing left to clean.
+    }
+  }
+}
+
+/**
+ * Run the caller's command through the pinned release and report what actually executed.
+ *
+ * The base version rides along so the child can disclose which version is executing; the marker
+ * path rides along so the child can record it. No timeout: this child is the caller's command, and
+ * an inspection that legitimately runs for minutes must not be killed by the updater. The probe
+ * and the Skill sync, whose commands are ours, keep their budget. The child runs under the alias
+ * bin for the same reason the probe does: under the `maa-evidence` name, a shadowing global
+ * install would answer instead of the pinned version. The alias is best effort - the marker is
+ * what turns "which version ran" into a parent-verifiable fact.
+ */
 async function handOffToVersion(
   version: string,
   baseVersion: string,
   args: string[],
   environment: NodeJS.ProcessEnv,
   command: (args: string[], options: CommandOptions) => Promise<CommandResult>,
-): Promise<number | undefined> {
-  const packageSpecification = `maa-evidence-kit@${version}`;
-  // The base version rides along so the child can disclose which version is actually executing; a
-  // child that predates the marker simply never reads it.
+  directory: string,
+  now: Date,
+): Promise<HandoffOutcome> {
+  const markerPath = handoffMarkerPath(directory, now);
   const handoffEnvironment = {
     ...environment,
     [HANDOFF_ENVIRONMENT_KEY]: "1",
     [HANDOFF_FROM_ENVIRONMENT_KEY]: baseVersion,
+    [HANDOFF_MARKER_ENVIRONMENT_KEY]: markerPath,
   };
-  // No timeout: this child is the caller's command, and an inspection that legitimately runs for
-  // minutes must not be killed by the updater. The probe and the Skill sync, whose commands are
-  // ours, keep their budget. The child runs under the alias bin for the same reason the probe
-  // does: under the `maa-evidence` name, a shadowing global install would answer instead of the
-  // pinned version, and the caller would run stale code while the handoff looked successful.
   const handoff = await command(
-    npmExec(packageSpecification, PROBE_BIN, args),
+    npmExec(`maa-evidence-kit@${version}`, PROBE_BIN, args),
     { environment: handoffEnvironment, inheritStdio: true },
   );
-  if (!handoff.spawned) return undefined;
-  return handoff.exitCode ?? 1;
+  const ranVersion = await readHandoffMarkerVersion(markerPath);
+  // The marker exists for exactly this one verdict: read once, then delete.
+  await unlink(markerPath).catch(() => undefined);
+  return { spawned: handoff.spawned, exitCode: handoff.exitCode, ranVersion };
 }
 
 export async function runWithAutomaticUpdates(
@@ -565,6 +686,9 @@ export async function runWithAutomaticUpdates(
   const environment = dependencies.environment ?? process.env;
   const diagnostic = dependencies.writeDiagnostic
     ?? ((message: string) => process.stderr.write(message));
+  // Before any gate: a handed-off command records which version is actually executing, so the
+  // parent can verify the handoff no matter how npm resolved the command name.
+  await writeHandoffMarker(environment);
   // Before any gating: a handed-off command discloses the version that actually runs even when it
   // would never be allowed to spend time on update work itself.
   reportHandoff(environment, diagnostic);
@@ -581,6 +705,7 @@ export async function runWithAutomaticUpdates(
   if (releaseLock === undefined) return runLocal(args);
 
   try {
+    await sweepStaleHandoffMarkers(directory, now);
     let state = await readUpdateState(directory);
     let publishedLatest: string | undefined;
     if (environment[HANDOFF_ENVIRONMENT_KEY] !== "1") {
@@ -602,20 +727,36 @@ export async function runWithAutomaticUpdates(
         if (!probedRecently) {
           if (await probeVersion(resolved.latest, environment, command, diagnostic)) {
             await releaseLock();
-            const exitCode = await handOffToVersion(
+            const handoff = await handOffToVersion(
               resolved.latest,
               currentVersion,
               args,
               environment,
               command,
+              directory,
+              now,
             );
-            if (exitCode !== undefined) return exitCode;
-            // The handoff held no lock for minutes; the hint timestamp must be written by a fresh
-            // read under a re-acquired lock, not merged into the pre-handoff snapshot.
+            // Verified delivery: the marker names the target, so the pinned copy really ran and
+            // the command's exit code is the whole answer.
+            if (handoff.spawned && handoff.ranVersion === resolved.latest) {
+              return handoff.exitCode ?? 1;
+            }
+            if (!handoff.spawned) {
+              diagnostic(
+                `maa-evidence: version ${resolved.latest} was prepared but could not be started.\n`,
+              );
+            } else if (handoff.ranVersion === undefined) {
+              // No marker: the child predates marker verification - the shape of a shadowed legacy
+              // global answering npm exec's command name - or died before writing one.
+              diagnostic(
+                `maa-evidence: could not verify which version the handed-off command ran.\n`,
+              );
+            } else {
+              diagnostic(
+                `maa-evidence: the handed-off command ran ${handoff.ranVersion}, not ${resolved.latest}.\n`,
+              );
+            }
             const hintDue = await recordBehindHint(directory, now);
-            diagnostic(
-              `maa-evidence: version ${resolved.latest} was prepared but could not be started.\n`,
-            );
             if (hintDue) {
               diagnostic(behindHint(
                 await countReleasesBehind(currentVersion, resolved.latest),
@@ -623,7 +764,7 @@ export async function runWithAutomaticUpdates(
                 resolved.latest,
               ));
             }
-            return 1;
+            return handoff.exitCode ?? 1;
           }
           // Remember the failure only: a version that probed successfully is handed off now, so a
           // later invocation must still be allowed to try again.

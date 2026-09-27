@@ -1,10 +1,10 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { afterEach, expect, test, vi } from "vitest";
 
-import { runWithAutomaticUpdates } from "../../src/cli/auto-update.js";
+import { runWithAutomaticUpdates, writeHandoffMarker } from "../../src/cli/auto-update.js";
 import { MAA_EVIDENCE_VERSION } from "../../src/version.js";
 
 const roots: string[] = [];
@@ -57,6 +57,7 @@ test("a newer registry version receives the original command through an exact np
   const directory = await temporaryConfigDirectory();
   const calls: Array<{ args: string[]; inheritStdio: boolean; timeoutMs?: number }> = [];
   const environments: NodeJS.ProcessEnv[] = [];
+  const diagnostics: string[] = [];
   const runCommand = vi.fn(async (args: string[], options: { inheritStdio: boolean; timeoutMs?: number; environment: NodeJS.ProcessEnv }) => {
     calls.push({
       args,
@@ -65,8 +66,10 @@ test("a newer registry version receives the original command through an exact np
     });
     environments.push(options.environment);
     if (args.at(-1) === "--version") {
-      return { spawned: true, exitCode: 0, stdout: "0.2.0\n", stderr: "" };
+      return { spawned: true, exitCode: 0, stdout: `${MAA_EVIDENCE_VERSION}\n`, stderr: "" };
     }
+    // The pinned copy runs the command and records itself, exactly as the real child would.
+    await writeHandoffMarker(options.environment);
     return { spawned: true, exitCode: 7, stdout: "", stderr: "" };
   });
   const runSkillCommand = vi.fn(async (args: string[], options: { inheritStdio: boolean }) => {
@@ -79,15 +82,16 @@ test("a newer registry version receives the original command through an exact np
     configDirectory: directory,
     currentVersion: "0.1.1",
     environment: {},
-    fetchLatestVersion: async () => "0.2.0",
+    fetchLatestVersion: async () => MAA_EVIDENCE_VERSION,
     isInteractive: () => true,
     now: () => new Date("2026-08-09T12:00:00.000Z"),
     runCommand,
     runSkillCommand,
+    writeDiagnostic: (message: string) => diagnostics.push(message),
   })).resolves.toBe(7);
   expect(runLocal).not.toHaveBeenCalled();
   expect(calls).toHaveLength(2);
-  expect(calls[0]?.args).toContain("--package=maa-evidence-kit@0.2.0");
+  expect(calls[0]?.args).toContain(`--package=maa-evidence-kit@${MAA_EVIDENCE_VERSION}`);
   expect(calls[0]?.args).toContain("--loglevel=error");
   // The probe and the handoff run under the alias bin: a same-name global shim would otherwise
   // answer for the pinned version on exactly the machines that need the update.
@@ -100,9 +104,23 @@ test("a newer registry version receives the original command through an exact np
   expect(calls[1]?.args[calls[1]?.args.indexOf("--") + 1]).toBe("maa-evidence-probe");
   expect(calls[1]?.inheritStdio).toBe(true);
   expect(calls[1]?.timeoutMs).toBeUndefined();
-  // The child learns the base version so it can disclose the handoff on stderr.
+  // The child learns the base version so it can disclose the handoff on stderr, and the marker
+  // path it must record itself under. The probe's environment carries no marker: only the handoff
+  // is verified.
   expect(environments[1]?.MAA_EVIDENCE_UPDATE_HANDOFF).toBe("1");
   expect(environments[1]?.MAA_EVIDENCE_UPDATE_HANDOFF_FROM).toBe("0.1.1");
+  const markerPath = environments[1]?.MAA_EVIDENCE_UPDATE_HANDOFF_MARKER ?? "";
+  expect(path.dirname(markerPath)).toBe(directory);
+  expect(path.basename(markerPath)).toMatch(/^handoff-\d+-\d+\.json$/);
+  expect(environments[0]?.MAA_EVIDENCE_UPDATE_HANDOFF_MARKER).toBeUndefined();
+  // A marker naming the target is verified delivery: no diagnostic, no hint, no write-back, and
+  // the marker is consumed after the single read.
+  await expect(readFile(markerPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  expect(diagnostics).toHaveLength(0);
+  const state = JSON.parse(
+    await readFile(path.join(directory, "updates.json"), "utf8"),
+  ) as Record<string, unknown>;
+  expect(state["behindHintAt"]).toBeUndefined();
   expect(runSkillCommand).not.toHaveBeenCalled();
 });
 
@@ -565,6 +583,144 @@ test("a busy update lock skips the post-handoff write-back instead of writing ou
   expect(state["skillSyncVersion"]).toBe("0.9.0");
   expect(diagnostics.join("\n")).toContain("could not be started");
   expect(diagnostics.filter((message) => message.includes("install is"))).toHaveLength(0);
+});
+
+test("a handoff whose marker names a different version reports it and falls back to the hint", async () => {
+  const directory = await temporaryConfigDirectory();
+  const diagnostics: string[] = [];
+  let markerPath = "";
+  const runCommand = vi.fn(async (args: string[], options: {
+    environment: NodeJS.ProcessEnv;
+  }) => {
+    if (args.at(-1) === "--version") {
+      return { spawned: true, exitCode: 0, stdout: "0.9.0\n", stderr: "" };
+    }
+    // The command ran, but not the pinned copy - npm resolved the name to some other install that
+    // still writes markers. Its marker names what actually executed.
+    markerPath = options.environment["MAA_EVIDENCE_UPDATE_HANDOFF_MARKER"] ?? "";
+    await writeFile(
+      markerPath,
+      `${JSON.stringify({
+        version: "0.1.0",
+        base: "0.8.0",
+        pid: 4242,
+        timestamp: "2026-09-27T12:00:00.000Z",
+      })}\n`,
+      "utf8",
+    );
+    return { spawned: true, exitCode: 0, stdout: "", stderr: "" };
+  });
+  const runLocal = vi.fn(async () => 0);
+
+  await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, {
+    configDirectory: directory,
+    currentVersion: "0.8.0",
+    environment: {},
+    fetchLatestVersion: async () => "0.9.0",
+    countReleasesBehind: async () => 1,
+    isInteractive: () => true,
+    now: () => new Date("2026-09-27T12:00:00.000Z"),
+    runCommand,
+    runSkillCommand: async () => ({ spawned: true, exitCode: 0, stdout: "", stderr: "" }),
+    writeDiagnostic: (message: string) => diagnostics.push(message),
+  })).resolves.toBe(0);
+
+  // The command's own exit code survives - it did run - and the verification failure lives on
+  // stderr with the throttled hint behind it.
+  expect(diagnostics.join("\n")).toContain("the handed-off command ran 0.1.0, not 0.9.0");
+  expect(diagnostics.filter((message) => message.includes("install is"))).toHaveLength(1);
+  await expect(readFile(markerPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  const state = JSON.parse(
+    await readFile(path.join(directory, "updates.json"), "utf8"),
+  ) as Record<string, unknown>;
+  expect(state["behindHintAt"]).toBe("2026-09-27T12:00:00.000Z");
+});
+
+test("a handoff without a marker is unverifiable and still falls back to the hint", async () => {
+  const directory = await temporaryConfigDirectory();
+  const diagnostics: string[] = [];
+  let markerPath = "";
+  const runCommand = vi.fn(async (args: string[], options: {
+    environment: NodeJS.ProcessEnv;
+  }) => {
+    if (args.at(-1) === "--version") {
+      return { spawned: true, exitCode: 0, stdout: "0.9.0\n", stderr: "" };
+    }
+    // A child old enough to predate marker verification writes nothing at all: the shape of a
+    // shadowed legacy global executing the handoff silently.
+    markerPath = options.environment["MAA_EVIDENCE_UPDATE_HANDOFF_MARKER"] ?? "";
+    return { spawned: true, exitCode: 0, stdout: "", stderr: "" };
+  });
+  const runLocal = vi.fn(async () => 0);
+
+  await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, {
+    configDirectory: directory,
+    currentVersion: "0.8.0",
+    environment: {},
+    fetchLatestVersion: async () => "0.9.0",
+    countReleasesBehind: async () => 1,
+    isInteractive: () => true,
+    now: () => new Date("2026-09-27T12:00:00.000Z"),
+    runCommand,
+    runSkillCommand: async () => ({ spawned: true, exitCode: 0, stdout: "", stderr: "" }),
+    writeDiagnostic: (message: string) => diagnostics.push(message),
+  })).resolves.toBe(0);
+
+  expect(diagnostics.join("\n")).toContain(
+    "could not verify which version the handed-off command ran",
+  );
+  expect(diagnostics.filter((message) => message.includes("install is"))).toHaveLength(1);
+  const state = JSON.parse(
+    await readFile(path.join(directory, "updates.json"), "utf8"),
+  ) as Record<string, unknown>;
+  expect(state["behindHintAt"]).toBe("2026-09-27T12:00:00.000Z");
+  expect(markerPath).not.toBe("");
+});
+
+test("a handoff marker write failure is silent and leaves no temporary file behind", async () => {
+  const root = await temporaryConfigDirectory();
+  // The marker path points into a directory that does not exist: every write step fails.
+  const missing = path.join(root, "absent", "handoff-1-2.json");
+
+  await expect(writeHandoffMarker({
+    MAA_EVIDENCE_UPDATE_HANDOFF: "1",
+    MAA_EVIDENCE_UPDATE_HANDOFF_MARKER: missing,
+  })).resolves.toBeUndefined();
+  await expect(readdir(root)).resolves.toHaveLength(0);
+
+  // Without the handoff environment the writer is a no-op, even if a marker path is set.
+  await expect(writeHandoffMarker({
+    MAA_EVIDENCE_UPDATE_HANDOFF_MARKER: path.join(root, "handoff-1-2.json"),
+  })).resolves.toBeUndefined();
+  await expect(readdir(root)).resolves.toHaveLength(0);
+});
+
+test("a lock-holding updater sweeps handoff markers older than 24 hours", async () => {
+  const directory = await temporaryConfigDirectory();
+  const stale = path.join(directory, "handoff-111-222.json");
+  const freshMarker = path.join(directory, "handoff-333-444.json");
+  const unrelated = path.join(directory, "handoff-notes.txt");
+  await writeFile(stale, "{}\n", "utf8");
+  await writeFile(freshMarker, "{}\n", "utf8");
+  await writeFile(unrelated, "keep\n", "utf8");
+  const staleDate = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  await utimes(stale, staleDate, staleDate);
+
+  const runLocal = vi.fn(async () => 0);
+  await runWithAutomaticUpdates(["view"], runLocal, {
+    configDirectory: directory,
+    currentVersion: MAA_EVIDENCE_VERSION,
+    environment: {},
+    // Not newer than the running version: the update pass reduces to the lock and the sweep.
+    fetchLatestVersion: async () => MAA_EVIDENCE_VERSION,
+    isInteractive: () => true,
+    runSkillCommand: async () => ({ spawned: true, exitCode: 0, stdout: "", stderr: "" }),
+  });
+
+  await expect(readFile(stale, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  // Fresh markers and files that are not parent-generated markers stay untouched.
+  await expect(readFile(freshMarker, "utf8")).resolves.toBe("{}\n");
+  await expect(readFile(unrelated, "utf8")).resolves.toBe("keep\n");
 });
 
 test("a runtime ahead of the published version does not install the published Skill", async () => {

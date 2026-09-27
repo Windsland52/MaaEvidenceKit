@@ -20,6 +20,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   before the command runs, `--version` included, whose stdout stays the bare version string. The
   SKILL's Start small section now says to read that line before judging the feature level, because
   its first step is `--version` on an install the updater could not replace.
+- The version handoff is verified instead of assumed. The parent generates a unique
+  `handoff-<pid>-<timestamp>.json` marker path in the config directory and passes it to the child
+  through `MAA_EVIDENCE_UPDATE_HANDOFF_MARKER`; the child writes the version actually executing,
+  the base version, its process ID, and a timestamp there before any gate, atomically and silently
+  skipping the write on failure. After the handed-off command exits, the parent reads the marker
+  once and deletes it: a marker naming the target version means the pinned copy really ran; a
+  wrong version or a missing marker - an old child without marker code, or npm resolving the
+  command name somewhere unexpected - prints one diagnostic line and falls back to the throttled
+  behind hint, while the command's own exit code and stdout stay untouched. A lock-holding updater
+  start sweeps markers older than 24 hours. Markers stay in the config directory and are never
+  uploaded.
 
 ### Fixed
 
