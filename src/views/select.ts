@@ -121,6 +121,7 @@ export function parseFields(values: readonly string[]): string[] {
 export function selectFields(value: unknown, fields: readonly string[]): unknown {
   const context: Context = {};
   let projected: unknown = MISSING;
+  let mergedFields: readonly string[] = [];
   for (const field of fields) {
     const segments = field.split(".");
     if (segments.some((segment) => segment.length === 0)) {
@@ -130,29 +131,52 @@ export function selectFields(value: unknown, fields: readonly string[]): unknown
     // Every requested path must resolve. Continuing here would return a partial document whose
     // missing field looks like a fact the report does not contain.
     if (selection === MISSING) throw selectionFailure(fields, context);
-    projected = projected === MISSING ? selection : mergeSelections(projected, selection, "");
+    projected = projected === MISSING
+      ? selection
+      : mergeSelections(projected, selection, "", mergedFields, field);
+    mergedFields = [...mergedFields, field];
   }
   if (projected === MISSING) throw selectionFailure(fields, context);
   // Field order follows the request order, so the rendered key order stays deterministic.
   return projected;
 }
 
-function mergeSelections(left: unknown, right: unknown, path: string): unknown {
+function quoteFieldNames(names: readonly string[]): string {
+  const quoted = names.map((name) => `"${name}"`);
+  if (quoted.length < 3) return quoted.join(" and ");
+  return `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1)}`;
+}
+
+function mergeSelections(
+  left: unknown,
+  right: unknown,
+  path: string,
+  leftFields: readonly string[],
+  rightField: string,
+): unknown {
   if (Array.isArray(left) && Array.isArray(right)) {
     if (left.length !== right.length) {
       throw new UsageError(
-        `--fields selected ${left.length} and ${right.length} elements at "${path.length === 0 ? "<document root>" : path}". `
-        + "A path that reaches an array applies only to the elements that have it, so merging these "
-        + "paths by position would attach a value to the wrong element. Project one path per call.",
+        `--fields paths ${quoteFieldNames([...leftFields, rightField])} project arrays of different `
+        + `lengths (${left.length} vs ${right.length}) at "${path.length === 0 ? "<document root>" : path}". `
+        + "A path that reaches an array applies only to the elements that have it, so pairing them "
+        + "by position would attach a value to the wrong element. Request them separately.",
       );
     }
-    return left.map((element, index) => mergeSelections(element, right[index], path));
+    return left.map((element, index) =>
+      mergeSelections(element, right[index], path, leftFields, rightField));
   }
   if (isRecord(left) && isRecord(right)) {
     const merged: Record<string, unknown> = { ...left };
     for (const [key, value] of Object.entries(right)) {
       merged[key] = Object.hasOwn(merged, key)
-        ? mergeSelections(merged[key], value, path.length === 0 ? key : `${path}.${key}`)
+        ? mergeSelections(
+          merged[key],
+          value,
+          path.length === 0 ? key : `${path}.${key}`,
+          leftFields,
+          rightField,
+        )
         : value;
     }
     return merged;

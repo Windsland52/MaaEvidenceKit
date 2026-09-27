@@ -50,16 +50,51 @@ test("refuses to merge paths that select different numbers of elements", () => {
   };
   // evidence.id selects two elements and evidence.source.node selects one, because the element
   // without source is omitted. Pairing them by position would put NodeA next to evidence-b, and
-  // keeping only the first selection would drop the node silently.
+  // keeping only the first selection would drop the node silently. The error names both paths so
+  // the request can be split into the separate projections it asks for.
   expect(() => selectFields(partial, ["evidence.id", "evidence.source.node"]))
-    .toThrow(/--fields selected 2 and 1 elements at "evidence"/u);
+    .toThrow(/--fields paths "evidence\.id" and "evidence\.source\.node" project arrays of different lengths \(2 vs 1\) at "evidence"/u);
   expect(() => selectFields(partial, ["evidence.source.node", "evidence.id"]))
-    .toThrow(/--fields selected 1 and 2 elements at "evidence"/u);
+    .toThrow(/--fields paths "evidence\.source\.node" and "evidence\.id" project arrays of different lengths \(1 vs 2\) at "evidence"/u);
   // Each path on its own still projects the elements that carry it.
   expect(selectFields(partial, ["evidence.source.node"]))
     .toEqual({ evidence: [{ source: { node: "NodeA" } }] });
   expect(selectFields(partial, ["evidence.id"]))
     .toEqual({ evidence: [{ id: "evidence-a" }, { id: "evidence-b" }] });
+});
+
+test("refuses a length mismatch one level below the array the paths share", () => {
+  const nested = {
+    evidence: [
+      { source: { nodes: [{ id: "n1", kind: "k" }, { id: "n2" }] } },
+      { source: { nodes: [{ id: "n3", kind: "k" }] } },
+    ],
+  };
+  // Both paths select two evidence elements, so the top-level arrays are equal; the conflict sits
+  // inside the first element, where evidence.source.nodes.kind omits the node without a kind. A
+  // deep merge must refuse exactly like a shallow one instead of quietly keeping one side.
+  expect(() => selectFields(nested, ["evidence.source.nodes.id", "evidence.source.nodes.kind"]))
+    .toThrow(/--fields paths "evidence\.source\.nodes\.id" and "evidence\.source\.nodes\.kind" project arrays of different lengths \(2 vs 1\) at "evidence\.source\.nodes"/u);
+  // Single-path projection still omits the elements that lack the path, at this depth too.
+  expect(selectFields(nested, ["evidence.source.nodes.kind"])).toEqual({
+    evidence: [
+      { source: { nodes: [{ kind: "k" }] } },
+      { source: { nodes: [{ kind: "k" }] } },
+    ],
+  });
+});
+
+test("names every request merged so far when the accumulated selections disagree", () => {
+  const partial = {
+    evidence: [
+      { id: "evidence-a", kind: "mla.task", source: { line: 1 } },
+      { id: "evidence-b", kind: "mla.signal" },
+    ],
+  };
+  // evidence.id and evidence.kind select two elements each and merge cleanly; evidence.source.line
+  // selects one, so the refusal lists the whole merged side against the field that disagrees.
+  expect(() => selectFields(partial, ["evidence.id", "evidence.kind", "evidence.source.line"]))
+    .toThrow(/--fields paths "evidence\.id", "evidence\.kind" and "evidence\.source\.line" project arrays of different lengths \(2 vs 1\) at "evidence"/u);
 });
 
 test("refuses an unknown path with the keys that exist", () => {
