@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `maa-evidence skill --print` / `--install <dir>` / `--check <dir>`: read the host-agent Skill that
+  ships inside the package, install that payload offline, and compare an installed copy against it
+  file by file (`same`, `different`, `missing`, plus files the payload does not ship). `--format
+  json` carries the running package version and per-file `sha256`. The Skill and the CLI are
+  installed separately and can drift; because the payload states no version of its own, the
+  comparison is bytes rather than numbers and no release has to edit the Skill.
+- `--fields PATH,...` on the inspection commands and `view`/`window`/`search`/`batch`/`timeline`:
+  project JSON output onto dotted paths (a path through an array applies to every element; there is
+  no index syntax). Every requested path must resolve, so a misspelled name is refused with the keys
+  that do exist instead of quietly shrinking the document, and text formats reject the option rather
+  than ignoring it.
+- Per-command `--help`. `inspect --help`, `mla inspect --help`, and `timeline --help` used to be
+  byte-identical top-level usage; each command now shows its own purpose, usage, accepted options,
+  and defaults, with the option list generated from the same table that rejects misplaced options.
+- `view --max-lines` / `--max-characters`, defaulting to 400 lines and 40000 characters, with an
+  explicit truncation marker. `--output FILE` still receives the complete rendering.
+- `details.mirrorGroups`: bounded cross-artifact duplicate observation groups naming their
+  `artifactIds`, a `preferredArtifactId` chosen by discovery order, and a `recordIds` sample, plus
+  `statistics.crossArtifactDuplicateObservationRecords` / `...Artifacts` / `...GroupsReported`, so an
+  event can be counted once with `search --artifact-id` instead of being grouped by hand.
+- `maa-evidence skill` is exempt from update work, like `telemetry` and `feedback`.
+
+### Changed
+
+- Automatic updates now run only for an interactive terminal (or with an explicit
+  `MAA_EVIDENCE_AUTO_UPDATE=1`). Every non-interactive invocation used to probe npm with `npm exec`
+  on each call, which cost seconds per command and printed the npm wrapper's `notice` lines to
+  stderr; a failed probe was also retried forever. npm's own output is now silenced with
+  `--loglevel=error` rather than by capturing the child's streams, a failed probe is remembered for
+  24 hours and reports its captured npm output only with `MAA_EVIDENCE_DEBUG=1`, and the npm-based
+  Skill sync is skipped when the published `latest` is known not to match the running version, which
+  is how an installed Skill had been recorded as synced while containing older text.
+- `view` text output is bounded by default; JSON output is never truncated and points at `--fields`.
+- `timeline --evidence-id` is rejected instead of accepted and ignored.
+
+### Fixed
+
+- A handed-off command is no longer killed by the updater's two-minute subprocess budget, and it
+  inherits stdout and stderr so a failing handed-off command reports exactly as a local one does.
+  npm's own `notice` lines are suppressed with `--loglevel=error` instead of by capturing the
+  child's stderr; a failed version probe reports its captured npm output with
+  `MAA_EVIDENCE_DEBUG=1`.
+- `skill --install` refuses a pre-existing directory symlink inside the install root instead of
+  writing the payload through it, and `skill --check` reports a link where the install should be and
+  links inside a copy instead of raising a raw filesystem error.
+- The test suite runs with a 30 s per-test budget and caps its worker pool at half the available
+  cores. Fixture tests that materialize a git ref or scan hundreds of files genuinely run for
+  seconds, and the default 5 s budget with one worker per CPU failed them intermittently while the
+  suite ran in parallel.
+
 ## [0.7.0] - 2026-09-13
 
 ### Added

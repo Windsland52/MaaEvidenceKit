@@ -32,9 +32,40 @@ for `skills update` to follow.
 
 After migration, the published `maa-evidence` launcher checks npm `latest` at most once every 24
 hours and hands commands to a newer stable runtime when available. Once per MEK version it also
-asks the skills CLI to update the managed global installation. Set
-`MAA_EVIDENCE_AUTO_UPDATE=0` to disable both operations. Network or updater failures fall back to
-the installed runtime and Skill.
+asks the skills CLI to update the managed global installation. Both operations run only in an
+interactive terminal: an agent or a piped command never pays for them. Set
+`MAA_EVIDENCE_AUTO_UPDATE=0` to disable them everywhere, or `MAA_EVIDENCE_AUTO_UPDATE=1` to force
+them on outside a terminal. Network or updater failures fall back to the installed runtime and
+Skill.
+
+## Skill and CLI versions
+
+The Skill is published inside the npm package and carries no version of its own: a version written
+into `SKILL.md` would have to be edited on every release, and it would still be wrong for a copy
+installed from the repository instead of a published tarball. Compare bytes instead.
+
+```bash
+# Is the copy at <dir>/maa-evidence/ the one this CLI ships? Per file: same / different / missing
+maa-evidence skill --check /path/to/agent-skills
+
+# The copy inside the installed package (no network), with per-file digests as JSON
+maa-evidence skill --print
+maa-evidence skill --print --format json
+
+# Write that exact copy to <dir>/maa-evidence/ instead of using the skills CLI
+maa-evidence skill --install /path/to/agent-skills
+```
+
+`--check` also reports files the payload does not ship (agent metadata) without counting them as
+drift, and it follows the directory symlink that the skills CLI creates for an agent target. A copy
+rewritten by another tool, for example with different line endings, compares as `different`.
+
+Nothing in the payload has to change when the package version does, so releasing a version that does
+not touch the Skill needs no Skill edit at all.
+
+Keep using `npx skills add` / `npx skills update` for agent-managed installs: they maintain the
+symlink layout and per-agent targets. `skill --install` is for harnesses that manage their own copy
+and want a byte-exact, offline install.
 
 When developing from a local checkout, use the checkout path instead of the GitHub URL:
 

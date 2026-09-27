@@ -228,6 +228,25 @@ MaaFramework 会按 pipeline 协议和当时已有节点数据解析覆盖，并
 观测到的任务记录数,而非已证明唯一的执行数。namespace 是 MEK 为日志目标生成的 execution ID
 前缀,只能作为同包来源线索,不能替代 harness 的 issue/run 关联。
 
+## 跨 artifact 重复观测(`mirrorGroups`)
+
+镜像日志不只重复任务,也重复普通记录:同一条运行时事件在启动器副本与 agent 副本中各得一条
+evidence,provenance 不同,因此 ID 不同,记录也不合并。此时输出
+`mla_cross_artifact_duplicate_observations` warning,并在 `details.mirrorGroups` 中给出**有界**的
+分组列表(按记录数从多到少,最多 25 组):
+
+- 指纹是 `kind` + `summary` + `task` + `node`。时间戳**故意不参与**:实测 131 组镜像中只有 99 组
+  时间戳一致,纳入时间戳会漏掉约四分之一。代价是四个字段都相同的两次真实事件会被并成一组,
+  所以组数是"不同观测数"的**下界**,指纹相同不等于同一次观测。
+- 每组给出 `artifactIds`、`recordCount`、有界的 `recordIds` 样本,以及 `preferredArtifactId`
+  —— 按 discovery 顺序取的第一个成员,只是稳定的 tie-break,不代表哪份日志更权威。
+- `statistics.crossArtifactDuplicateObservations` 是组数,`...ObservationRecords` 与
+  `...ObservationArtifacts` 是记录数与涉及的 artifact 数,`...ObservationGroupsReported` 说明
+  有界列表收了多少组。
+
+harness 若要把一次事件计成一次,应显式用 `search --artifact-id <preferredArtifactId>` 过滤;
+MEK 不会自动去重,也不会因为指纹相同就合并记录或 evidence ID。
+
 ## 组合检查(`inspect`)的关联证据
 
 当 MLA 与 MSE 同时可用时,`inspect` 会额外输出 `combined.pipeline_reference`

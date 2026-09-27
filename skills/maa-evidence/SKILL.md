@@ -5,6 +5,12 @@ description: Extract and correlate traceable MaaFramework evidence with MaaEvide
 
 # Maa Evidence
 
+This Skill ships inside the `maa-evidence-kit` package and states no version of its own, because the
+Skill and its CLI are installed separately and can drift. Before trusting this copy, compare it with
+the CLI you run: `maa-evidence skill --check <this-skill-directory>` reports each file as `same`,
+`different`, or `missing` against the packaged copy, and `maa-evidence skill --print` prints that
+copy (`--format json` adds the running package version and per-file digests).
+
 MaaEvidenceKit (MEK) is a deterministic evidence CLI/SDK. The host agent understands issue text,
 generic GUI/service/custom logs, images, source semantics, and Sentry. MEK does not form diagnostic
 conclusions and does not query application Sentry.
@@ -12,8 +18,11 @@ conclusions and does not query application Sentry.
 ## Start small
 
 Before the first MEK command, run `maa-evidence --version`. Use the installed CLI rather than a
-checkout's `dist` files. Respect `MAA_EVIDENCE_AUTO_UPDATE=0`, `MAA_EVIDENCE_TELEMETRY=0`, and an
-existing telemetry opt-out.
+checkout's `dist` files. MEK checks for a newer release only in an interactive terminal, so an agent
+or a piped command pays nothing for it; to keep that guarantee independent of environment, prefix
+commands with `MAA_EVIDENCE_AUTO_UPDATE=0` (PowerShell: `$env:MAA_EVIDENCE_AUTO_UPDATE = "0"`
+before the call) and keep `MAA_EVIDENCE_TELEMETRY=0` plus any existing telemetry opt-out the same
+way.
 
 Choose the smallest operation that answers the question:
 
@@ -80,13 +89,18 @@ paths, source refs, or request shapes. Stop optional branches when their evidenc
   `--text` against `patchPaths` (`Node.field.subfield`) when the question is which field was set.
 - Mirrored MaaFramework logs (a launcher copy plus an agent copy) report the same runtime events as
   separate evidence records with separate provenance. When
-  `mla_cross_artifact_duplicate_observations` is present, pin one `--artifact-id` before counting
-  occurrences, and do not read one event as two.
+  `mla_cross_artifact_duplicate_observations` is present, read `details.mirrorGroups`: each group names
+  its `artifactIds`, a `preferredArtifactId` chosen by discovery order, and a bounded `recordIds` list.
+  Pin that one `--artifact-id` before counting occurrences, and do not read one event as two.
 - Keep issue-time source configuration, runtime override inputs, observed framework results, and
   later application state as separate layers.
 - Missing multipart archives, empty windows, truncation, unreadable files, unsupported formats, and
   unavailable source/Sentry/images remain explicit evidence gaps.
 - `--all-signals` expands supported MLA signals; it never makes MEK parse unsupported generic logs.
+- `--keyword` is a loading focus, not an evidence filter: a log bundle that contains none of the
+  keywords is skipped whole, and records from a bundle that was loaded are never filtered by keyword.
+  It changes which files are read, so it is not a way to search a report; narrow the evidence set with
+  `--from`/`--to` and filter a saved report with `search --text`/`--node`/`--kind`.
 - Do not silently substitute current HEAD for historical source.
 
 ## Read focused output
@@ -122,6 +136,33 @@ For common follow-ups, prefer a single batch:
 Search and dependent window requests require two batches because a batch request cannot consume an ID
 returned by another request in the same batch; a dependent `view` no longer does, because it also
 accepts the same `query` object as `search` and reports `matchCount`.
+
+Read only what the next step needs. `--fields statistics` or `--fields evidence.id,evidence.summary`
+projects JSON output onto named paths and refuses a path that does not exist, which is cheaper and
+safer than piping a whole report through a hand-written script. Every requested path must resolve,
+and a path through an array applies to each element (there is no index syntax). `window` and `view` bound their text
+output (`--max-lines`, `--max-characters`) and mark truncation explicitly; `--output FILE` always
+receives the complete rendering. Every command answers `--help` with its own usage, defaults, and
+limits.
+
+## Harness integration
+
+Drive MEK through the CLI. A harness that re-exports SDK results renames fields and drops the ones it
+does not model, and the drift stays invisible until an evidence ID cited in a report no longer
+resolves; the CLI is the supported surface for exactly that reason.
+
+Keep one saved report as the handle for an investigation:
+
+1. `maa-evidence mla inspect <material> --summary --output REPORT` bounds stdout and keeps the full
+   document on disk.
+2. Answer every later question about that material from REPORT with `search`, `view`, `window`,
+   `timeline`, or one `batch`. Re-run the inspection only for new material or a new time window.
+3. Bound each read with `--fields` (JSON) or `--max-lines`/`--max-characters` (text), and treat a
+   `truncated` marker as a reason to read a smaller window, never as "nothing else matched".
+
+MEK ships no tool-protocol wrapper. The `tool-adapter/v1` JSON-line adapter that older 0.x checkouts
+still carry under `packages/tool-adapter/dist` is a build artifact of a removed package, not a
+supported interface; the CLI and the TypeScript SDK are.
 
 ## Progressive references
 

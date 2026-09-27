@@ -46,11 +46,19 @@ npx skills add https://github.com/Windsland52/MaaEvidenceKit `
 独立的分发物,安装 Skill 不会自动安装 npm 包;Skill 需从 GitHub 地址安装以保留远端来源,本地路径
 安装只适合开发,无法被 `skills update` 跟踪远端版本。
 
-发布版 CLI 在分析命令和 `--version` 启动时自动维护 CLI 与受管 Skill 的版本:至多每 24 小时
-检查一次 npm `latest`,发现更高稳定版就让本次命令由该精确版本执行并同步一次 Skill;准备或网络
-失败时沿用当前版本。`MAA_EVIDENCE_AUTO_UPDATE=0` 关闭更新,CI 默认关闭(可显式设为 `1`),
-SDK import 不执行更新。机制与 `updates.json` 的说明见 [`docs/cli.md`](docs/cli.md),网络与
-本地状态见 [`PRIVACY.md`](PRIVACY.md)。
+发布版 CLI 在分析命令和 `--version` 启动时自动维护 CLI 与受管 Skill 的版本。**只有交互式终端**
+(或显式设置 `MAA_EVIDENCE_AUTO_UPDATE=1`)才会做更新工作:非交互调用、agent、管道输出都不再为
+它付出 `npm exec` 的秒级开销,也不会被 npm 的 `notice` 行污染 stderr。检查至多每 24 小时一次,
+发现更高稳定版就让本次命令由该精确版本执行;探测失败会记住该版本并在 24 小时内不再重试,准备
+或网络失败时沿用当前版本。`MAA_EVIDENCE_AUTO_UPDATE=0` 完全关闭更新,CI 默认关闭,SDK import
+不执行更新。机制与 `updates.json` 的说明见 [`docs/cli.md`](docs/cli.md),网络与本地状态见
+[`PRIVACY.md`](PRIVACY.md)。
+
+Skill 与 CLI 分开分发,可能版本不一致。Skill 正文**不写版本号**(写死就得每次发版改,而且对从
+仓库安装的副本仍是错的):用 `maa-evidence skill --check <skill-dir>` 逐文件比对已安装副本与当前
+CLI 自带的那份(`same`/`different`/`missing`),用 `maa-evidence skill --print --format json` 取
+包版本与逐文件 sha256,用 `maa-evidence skill --install <dir>` 从包内离线写入一份字节精确的副本。
+受管安装仍由 `skills` CLI 维护。
 
 开发本仓库时使用本地构建:
 
@@ -89,9 +97,21 @@ maa-evidence repo-docs C:\path\to\issue-checkout --format json
 maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format text
 maa-evidence window --input inspection.json --evidence-id evidence-abc123
 
+# 只要结构化结果里的几个字段,不必自己写脚本解析整份 JSON
+maa-evidence view --input inspection.json --fields statistics --format json
+maa-evidence search --input inspection.json --kind mla.failure `
+  --fields totalMatches,returned,evidence.id --format json
+
 # 每任务的“时间 事件 节点名”压缩时间线,可用 --task 过滤
 maa-evidence timeline --input inspection.json --task Combat --format text
+
+# 确认正在读的 Skill 与正在跑的 CLI 是否为同一份(逐文件 same/different/missing)
+maa-evidence skill --check ~/.agents/skills
 ```
+
+每个命令都有自己的 `--help`(`maa-evidence mla inspect --help`),列出该命令真正接受的选项、
+默认值与上限;`inspect`(MLA+MSE 组合)与 `mla inspect`(仅运行时)是两条不同代价的路径,不要
+混用。
 
 ## SDK
 
@@ -102,6 +122,7 @@ import {
   inspectMse,
   inspectRepositoryDocs,
   searchEvidence,
+  selectFields,
   view,
 } from "maa-evidence-kit";
 
@@ -117,6 +138,8 @@ const matches = searchEvidence(combined, {
   nodes: ["DailyProtocolMissionsPick"],
   limit: 20,
 });
+// 只取需要的字段:路径不存在会报错,不会静默得到 undefined
+const counters = selectFields(combined, ["statistics.failures"]);
 ```
 
 完整 API、选项语义与后续追问建议见 [`docs/sdk.md`](docs/sdk.md)。

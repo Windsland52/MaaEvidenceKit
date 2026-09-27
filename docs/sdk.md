@@ -78,6 +78,10 @@ const answers = await queryEvidenceBatch(runtime, [
   (两者不能同时使用),按 `query` 解析时结果带 `matchCount`,查询无匹配会让整批失败。
 - MLA 信号穷举:设置 `includeAllSignals: true`(对应 CLI `--all-signals`),见
   [输出模型](evidence-model.md)。
+- `selectFields` / `parseFields`:与 CLI `--fields` 相同的点分路径投影。`selectFields(value, paths)`
+  返回保持嵌套形状的新值(路径穿过数组时逐元素投影),路径不存在时抛出 `UsageError` 并列出该层
+  可用 key;`parseFields` 负责把重复、逗号分隔的 `--fields` 取值解析成去重后的路径列表。harness
+  用它替代"整份文档丢给 `JSON.parse` 再手写取字段"的写法,也不会把拼错字段静默变成 `undefined`。
 
 ## 输出模型
 

@@ -17,11 +17,24 @@ harness explicitly supplies a local development build.
 
 Treat published MEK's updater as the version owner. It checks npm at most once every 24 hours,
 hands the command to a newer stable runtime, and delegates managed Skill updates to the `skills`
-CLI. Never guess or write Codex, Claude Code, Cursor, Pi, or other agent Skill paths. If the user is
-migrating from `0.1.x` or installed this Skill from a local path, tell them to reinstall it once
-from `https://github.com/Windsland52/MaaEvidenceKit` with `--skill maa-evidence --global`; this gives
-the installer a remote source and lets it preserve the selected agent targets. Respect
-`MAA_EVIDENCE_AUTO_UPDATE=0` and do not re-enable updates for an offline or reproducible run.
+CLI. It does none of that for a non-interactive caller, so an agent or a piped command never pays for
+a probe it did not ask for; prefixing a command with `MAA_EVIDENCE_AUTO_UPDATE=0` (PowerShell:
+`$env:MAA_EVIDENCE_AUTO_UPDATE = "0"`) makes that explicit, and `MAA_EVIDENCE_AUTO_UPDATE=1` forces
+the check back on. Never guess or write Codex, Claude Code, Cursor, Pi, or other agent Skill paths.
+If the user is migrating from `0.1.x` or installed this Skill from a local path, tell them to
+reinstall it once from `https://github.com/Windsland52/MaaEvidenceKit` with
+`--skill maa-evidence --global`; this gives the installer a remote source and lets it preserve the
+selected agent targets.
+
+This Skill ships inside the npm package and states no version of its own, so compare bytes instead of
+numbers: `maa-evidence skill --check <dir>` reports each installed file as `same`, `different`, or
+`missing` against the payload this CLI ships, and `maa-evidence skill --print --format json` gives the
+running package version plus per-file `sha256`. Refresh a copy you manage with
+`maa-evidence skill --install <dir>`, which writes the package's own payload without network access.
+Do not silently work around a mismatch: a Skill from another release can describe flags and fields
+that changed. Note that a copy rewritten by another tool (line endings, for example) compares as
+`different` even when it reads the same; a Skill that a release did not touch still compares as
+`same` even though the package version moved on.
 
 ## Choose the smallest useful operation
 
@@ -439,6 +452,16 @@ namespaces, and source locations, but do not claim the records are unique execut
 without instance or run correlation evidence. The namespace is only the MEK execution-ID prefix;
 issue/run correlation remains the harness's responsibility.
 
+Mirrored logs also duplicate ordinary records, not just tasks. When
+`mla_cross_artifact_duplicate_observations` is present, `details.mirrorGroups` lists each
+kind/summary/task/node fingerprint seen in more than one artifact, with its `artifactIds`,
+`recordCount`, a bounded `recordIds` sample, and a `preferredArtifactId` picked by discovery order.
+Filter `search --artifact-id <preferredArtifactId>` before counting an occurrence, or state the
+count as records rather than events. The records stay unmerged, and the totals live in
+`statistics.crossArtifactDuplicateObservationRecords` and `...Artifacts`; `...GroupsReported` says how
+many groups fit in the bounded list. A fingerprint match is a lower bound on distinct observations, not proof of
+identity: two genuinely different events can share all four fields.
+
 Request raw context only for a cited location:
 
 ```powershell
@@ -458,6 +481,22 @@ maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format
 maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format text
 maa-evidence timeline --input inspection.json --task TaskName --format text
 ```
+
+Read the smallest projection that answers the question instead of piping a whole document through a
+hand-written script:
+
+```powershell
+maa-evidence view --input inspection.json --fields statistics --format json
+maa-evidence view --input inspection.json --fields evidence.id,evidence.summary --format json
+maa-evidence search --input inspection.json --kind mla.failure --fields totalMatches,returned,truncated --format json
+```
+
+`--fields` keeps the JSON valid, preserves the shape of the paths it selects, and refuses a path that
+does not exist (naming the keys that do) rather than returning undefined. Text output is bounded
+instead: `window` and `view` default to 400 lines and 40000 characters, accept
+`--max-lines`/`--max-characters`, and mark truncation explicitly; `--output FILE` receives the
+complete rendering. Every command answers `--help` with its own usage, defaults, and limits, so read
+that instead of guessing which flags a command takes.
 
 When one follow-up needs two or more independent queries against the same saved inspection, prefer
 one batch so the CLI starts and parses the inspection only once:

@@ -11,7 +11,7 @@
 Unknown option for mla inspect:
 - --syntax-mode: this option belongs to mse inspect, mse resolve, or inspect
 - --token: this option belongs to feedback
-mla inspect accepts: --all-signals, --format, --from, --help, --keyword, --output, --profile, --summary, --to, --version, -h.
+mla inspect accepts: --all-signals, --fields, --format, --from, --help, --keyword, --output, --profile, --summary, --to, --version, -h.
 ```
 
 `--summary` 只被检查类命令接受(`mla inspect`、`mse inspect`、`mse resolve`、`repo-docs`、`inspect`)
@@ -20,6 +20,12 @@ mla inspect accepts: --all-signals, --format, --from, --help, --keyword, --outpu
 `Did you mean --output?` 这类建议。
 
 这条规则的目的很简单:一个看起来生效、实际什么也没做的旗标,比直接报错更危险。
+
+每个命令都有自己的 `--help`,列出该命令的用途、用法行、实际接受的选项以及默认值与上限,例如
+`maa-evidence mla inspect --help`、`maa-evidence window --help`、`maa-evidence skill --help`;
+不带参数或未知命令的 `--help` 才回落到顶层用法。help 中的选项列表由上面那张校验表生成,因此
+不会出现"help 里写了、命令却不接受"的漂移。`inspect` 与 `mla inspect` 是两个不同代价的命令
+(前者同时跑 MLA 与 MSE),两者的 help 各自说明了区别。
 
 ## 使用前提
 
@@ -30,19 +36,32 @@ mla inspect accepts: --all-signals, --format, --from, --help, --keyword, --outpu
 ## 发布版自动更新
 
 通过 npm 安装的 CLI 在分析命令及 `--version` 启动时至多每 24 小时检查一次 npm `latest`。
-发现更高稳定版后,它先验证该精确版本可启动,再将原命令和标准输入输出完整交给新版本。
-全局安装作为稳定启动器保留,不会在当前进程中覆盖自身文件。准备或网络失败时继续使用本地
-版本;已经成功接力后则保留新版本命令的退出码,不会重复执行旧版本。
+发现更高稳定版后,它先验证该精确版本可启动,再把原命令原样交给新版本执行:接力子进程继承调用方
+的 stdout 与 stderr,且**不设超时**(那条命令是调用方自己的,合法的长检查不能被更新器中途杀掉)。
+npm 自身的 `npm notice` 行由 `--loglevel=error` 压制,而不是靠吞掉 stderr——吞掉就等于让接力后的
+命令失败变成静默。只有 MEK 自己的探测与 Skill 同步子进程才使用捕获输出与 2 分钟预算;探测失败时,
+它的 npm 输出在 `MAA_EVIDENCE_DEBUG=1` 下打印。全局安装作为稳定启动器保留,不会在当前进程中覆盖自身文件。准备或网络失败时
+继续使用本地版本;已经成功接力后则保留新版本命令的退出码,不会重复执行旧版本。
 
-每个 MEK 版本还会调用一次 `skills update maa-evidence --global`,同步受管的用户级 Skill。
-具体 Agent 目录、安装目标及符号链接/副本由 `skills` CLI 根据原安装记录处理,MEK 不直接
-访问任何 Agent 的 Skill 目录。自动更新状态保存在 MEK 配置目录的 `updates.json`,只包含
-检查时间、已知版本和同步状态。
+**更新工作只在交互式终端进行**:`--version`、分析命令默认仅在 stdout 是 TTY 时检查更新。
+agent、harness、被重定向或管道输出的调用不探测、不接力、不写状态,因此不会为一次普通命令付出
+`npm exec` 的秒级开销。`MAA_EVIDENCE_AUTO_UPDATE=1` 可在非交互环境显式开启,
+`MAA_EVIDENCE_AUTO_UPDATE=0` 关闭;CI 默认关闭。无参数、`--help`、`telemetry`、`feedback` 和
+`skill` 不触发更新;SDK import 也不触发。
 
-设置 `MAA_EVIDENCE_AUTO_UPDATE=0` 可关闭这两类更新。CI 默认关闭自动更新,显式设置为 `1`
-才会启用。无参数、`--help`、`telemetry` 和 `feedback` 不触发更新;SDK import 也不触发。
+某个版本的探测失败后,`updates.json` 会记住该版本与时间,24 小时内不再重试(否则一次失败会让
+之后每条命令都重复等待一次注定失败的 `npm exec`)。这只是在同样不改变证据的前提下省掉重复等待。
+
+每个 MEK 版本还会调用一次 `skills update maa-evidence --global`,同步受管的用户级 Skill;当已知
+npm `latest` 与当前运行版本不一致(开发中的 checkout,或接力失败后仍在跑旧版)时**跳过**这一步
+——从 npm 装上另一个版本的 Skill 再把它记成本版本已同步,正是已安装 Skill 悄悄落后一版的成因。
+具体 Agent 目录、安装目标及符号链接/副本仍由 `skills` CLI 根据原安装记录处理,MEK 不直接访问
+任何 Agent 的 Skill 目录。自动更新状态保存在 MEK 配置目录的 `updates.json`,只包含检查时间、
+已知版本、失败的探测版本与同步状态。
 
 ## 命令速查
+
+CLI 与 Skill 的一致性比对与离线安装见下文 [`skill`](#skill读取安装或校验包内-skill)。
 
 ### `inspect`:自动选择可用适配器
 
@@ -168,10 +187,44 @@ maa-evidence batch --input inspection.json `
   --requests queries.json `
   --output answers.json
 
+# 只要几个字段,不写脚本解析整份 JSON;未知路径会报错并列出可用 key
+maa-evidence view --input inspection.json --fields statistics --format json
+maa-evidence search --input inspection.json --kind mla.failure `
+  --fields totalMatches,returned,evidence.id --format json
+
+# 文本视图有默认上限;--output 始终拿到完整渲染
+maa-evidence view --input inspection.json --format text --max-lines 200
+maa-evidence view --input inspection.json --format text --output full.txt
+
 # 将已有结果渲染为通用文本或 Mermaid
 maa-evidence view --input inspection.json --format text
 maa-evidence view --input inspection.json --format mermaid
 ```
+
+### `skill`:读取、安装或校验包内 Skill
+
+```powershell
+# 打印包内的 SKILL.md(默认 text);--format json 附带包版本与逐文件 sha256
+maa-evidence skill --print
+maa-evidence skill --print --format json
+maa-evidence skill --print --file references/full-guide.md
+
+# 把包内 Skill 写到 <dir>/maa-evidence/,不联网;目标为符号链接时拒绝写入
+maa-evidence skill --install <agent-skill-dir>
+
+# 比对 <dir>/maa-evidence/ 与当前 CLI 自带的那份:逐文件 same / different / missing
+maa-evidence skill --check <agent-skill-dir>
+```
+
+该命令永远读**当前包自带**的副本。Skill 正文**不写版本号**:写死的版本号每发一次版都要改,
+而且对"从仓库而不是从 npm 包安装的副本"仍然是错的;所以判定方式是比较字节而不是比较数字。
+`--check` 给出逐文件结论(另附 payload 未包含的文件,如 agent 自己的元数据,不计为漂移),
+并跟随 `skills` CLI 为 agent 目标创建的目录符号链接;命令退出码始终为 0,结论读 `match`。
+被别的工具重写过的副本(例如行尾不同)会报 `different`;某次发版没动过的文件仍是 `same`,
+即使包版本已经前进——因此发版本身不需要改 Skill 任何一行。
+
+受管安装(符号链接、多 agent 目标)仍应使用 `npx skills add` / `npx skills update`;
+`--install` 面向自己管理副本的 harness。
 
 ### `telemetry`
 
@@ -259,10 +312,26 @@ maa-evidence mla inspect C:\path\to\materials --format json --output inspection.
 已知事发时间时先用 `--from` / `--to` 收窄窗口:实测一份 16 MB 的产物在收窄到十分钟窗口后
 降到约 8%,而结论所需证据完全保留。
 
+读回单个事实用 `view --evidence-id` 或 `window`;只要统计与计数用
+`view --fields statistics`。实测的教训:直接 `view --format json` 打整份文档会一次返回数万字符,
+而投影或窗口预算能把同样的结论压到几百字符。
+
 ## 查询命令语义
 
 `view --evidence-id` 支持 JSON 和 text;`window` 默认保持 JSON,也支持 `--format text`。
 未知 evidence ID 会明确报错,不会静默返回空结果。
+
+`--fields` 把 JSON 输出投影到点分路径上,可用于检查类命令与 `view`、`window`、`search`、
+`batch`、`timeline`。它保持 JSON 合法与原有嵌套形状(路径穿过数组时对该数组的每个元素应用剩余
+路径,**没有下标语法**),并且要求**每个**请求的路径都能解析:任一字段不存在就整体报错并列出该层
+可用的 key,而不是悄悄少给一个字段——少给的字段看起来会像"报告里没有这个事实"。它只作用于 JSON:
+`--format text|mermaid` 下会报错,而不会被静默忽略。
+
+文本输出用预算而不是投影来收敛:`window` 与 `view` 默认 **400 行 / 40000 字符**(也是上限),
+可用 `--max-lines`、`--max-characters` 调整,触顶时在输出里附上明确的截断标记
+(`window` 的 `truncated: true`、`view` 的 `… truncated: N of M lines ...`)。JSON 输出**永不截断**,
+所以给 JSON 传这两个选项会直接报错并指向 `--fields`;`--output FILE` 始终收到完整渲染,不受 stdout
+预算影响。
 `window` 的行数与字符预算同时受上界约束;当 `--max-characters` 连第一条候选行都放不下时,窗口返回
 该行按预算截断后的前缀并标记 `truncated: true`,因此有内容的窗口不会退化成 `startLine` 大于
 `endLine` 的空范围。

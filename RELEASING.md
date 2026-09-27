@@ -11,7 +11,8 @@ must remain outside Git.
    of the file. A released version must never leave `[Unreleased]` pointing at the previous tag.
 2. Keep `package.json` and `src/version.ts` versions identical. Update version assertions in tests.
    Release every Skill behavior change with a new package version because automatic Skill sync is
-   keyed by the executing MEK version.
+   keyed by the executing MEK version. The Skill payload itself carries no version and needs no edit:
+   installed copies are compared by content (`maa-evidence skill --check`), not by a number.
 3. Run `pnpm install --frozen-lockfile`. Resolve a lockfile conflict by regenerating
    `pnpm-lock.yaml`, never by picking one side; `tests/deps/lockfile.test.ts` compares every lockfile
    specifier with `package.json`.
