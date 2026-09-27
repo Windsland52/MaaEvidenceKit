@@ -1,8 +1,23 @@
-import * as Sentry from "@sentry/node";
-
 import { UsageError } from "../evidence/index.js";
 import { MAA_EVIDENCE_VERSION } from "../version.js";
 import { getOrCreateInstallationId } from "./installation.js";
+
+type SentryModule = typeof import("@sentry/node");
+
+let sentryModule: Promise<SentryModule> | undefined;
+
+/**
+ * Import @sentry/node on first use.
+ *
+ * The SDK facade re-exports this module, so a static import here would pull the whole Sentry client
+ * into every CLI command, including the ones that only print a version or a help page where no
+ * telemetry is ever sent. The promise is memoized, so the cost is paid once and only by a command
+ * that actually reports something.
+ */
+function loadSentry(): Promise<SentryModule> {
+  sentryModule ??= import("@sentry/node");
+  return sentryModule;
+}
 
 const DEFAULT_SENTRY_DSN =
   "https://ed349e23de6a10cf40c71af3ec19c730@o4511840769277952.ingest.us.sentry.io/4511840804929536";
@@ -83,10 +98,13 @@ export function scrubFeedbackEvent(event: ScrubbableFeedbackEvent): void {
   removeDisallowed(event.extra, ALLOWED_EXTRA);
 }
 
-function initializeSentry(): void {
-  if (initialized) return;
+async function initializeSentry(): Promise<SentryModule> {
+  const sentry = await loadSentry();
+  // The guard is unchanged, and nothing is awaited between reading and setting it, so the client is
+  // configured exactly once even when two senders run in the same process.
+  if (initialized) return sentry;
   initialized = true;
-  Sentry.init({
+  sentry.init({
     dsn: process.env["MAA_EVIDENCE_SENTRY_DSN"] ?? DEFAULT_SENTRY_DSN,
     defaultIntegrations: false,
     environment: "production",
@@ -117,7 +135,8 @@ function initializeSentry(): void {
       return event;
     },
   });
-  Sentry.getClient()?.on("beforeSendFeedback", scrubFeedbackEvent);
+  sentry.getClient()?.on("beforeSendFeedback", scrubFeedbackEvent);
+  return sentry;
 }
 
 export type OperationalCounts = {
@@ -193,8 +212,8 @@ function evidenceBucket(evidenceCount: number): string {
 export async function sendOperationalTelemetry(event: OperationalTelemetry): Promise<void> {
   const startedAt = performance.now();
   const installationId = await getOrCreateInstallationId();
-  initializeSentry();
-  Sentry.captureMessage("maa-evidence.command", {
+  const sentry = await initializeSentry();
+  sentry.captureMessage("maa-evidence.command", {
     level: event.status === "ok" ? "info" : "error",
     user: { id: installationId },
     ...(event.status === "error"
@@ -238,7 +257,7 @@ export async function sendOperationalTelemetry(event: OperationalTelemetry): Pro
     },
   });
   const remainingMs = Math.max(0, OPERATIONAL_TELEMETRY_FLUSH_TIMEOUT_MS - (performance.now() - startedAt));
-  await Sentry.flush(Math.ceil(remainingMs));
+  await sentry.flush(Math.ceil(remainingMs));
 }
 
 export type SentryFeedback = {
@@ -250,15 +269,15 @@ export type SentryFeedback = {
 };
 
 export async function sendSentryFeedback(feedback: SentryFeedback): Promise<string> {
-  initializeSentry();
-  const eventId = Sentry.withScope((scope) => {
+  const sentry = await initializeSentry();
+  const eventId = sentry.withScope((scope) => {
     scope.addEventProcessor((event) => {
       if (event.type === "feedback" && event.contexts?.["feedback"] !== undefined) {
         scrubFeedbackEvent(event as unknown as ScrubbableFeedbackEvent);
       }
       return event;
     });
-    return Sentry.captureFeedback(
+    return sentry.captureFeedback(
       {
         message: feedback.message,
         source: "maa-evidence-cli",
@@ -277,6 +296,6 @@ export async function sendSentryFeedback(feedback: SentryFeedback): Promise<stri
       },
     );
   });
-  await Sentry.flush(10_000);
+  await sentry.flush(10_000);
   return eventId;
 }

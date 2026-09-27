@@ -4,50 +4,17 @@ import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { createInterface } from "node:readline/promises";
 
-import {
-  inspect,
-  inspectMla,
-  inspectMse,
-  inspectRepositoryDocs,
-  MAA_EVIDENCE_VERSION,
-  VIEW_DEFAULT_MAX_CHARACTERS,
-  VIEW_DEFAULT_MAX_LINES,
-  VIEW_MAX_CHARACTERS,
-  VIEW_MAX_LINES,
-  boundText,
-  budgetInteger,
-  getTelemetryStatus,
-  parseFields,
-  createApprovalToken,
-  consumeApprovalToken,
-  previewFeedback,
-  writeApprovalToken,
-  queryEvidenceBatch,
-  UsageError,
-  type FeedbackCategory,
-  type OperationalCounts,
-  type OperationalErrorStage,
-  queryEvidenceWindow,
-  recordOperationalTelemetry,
-  renderEvidenceWindow,
-  evidenceById,
-  renderEvidence,
-  renderEvidenceSearch,
-  renderInspectionSummary,
-  renderTaskTimeline,
-  selectFields,
-  taskTimeline,
-  resolveMse,
-  searchEvidence,
-  setTelemetryEnabled,
-  submitFeedback,
-  view,
-  type InspectionResult,
-  type MseSyntaxMode,
-  type TimeRange,
-  type ViewFormat,
+import type {
+  FeedbackCategory,
+  InspectionResult,
+  MseSyntaxMode,
+  OperationalCounts,
+  OperationalErrorStage,
+  TimeRange,
+  ViewFormat,
 } from "../index.js";
-import { classifyOperationalError } from "../feedback/sentry.js";
+import { UsageError } from "../evidence/usage-error.js";
+import { MAA_EVIDENCE_VERSION } from "../version.js";
 import { profileStage, profileStageSync } from "../profiling.js";
 import {
   PACKAGED_SKILL_ENTRY,
@@ -64,6 +31,18 @@ import { emit, readInspection } from "./io.js";
 import { rejectUnknownOptions } from "./options.js";
 import { withLocalProfile } from "./profile.js";
 
+type Sdk = typeof import("../index.js");
+
+/**
+ * Load the SDK facade for the command that needs it.
+ *
+ * Commands that print one line (`--version`, `--help`, `skill --print`) and commands that only read
+ * a saved report never touch the inspection engine, and importing it for them costs about a second of
+ * startup. Node caches the module, so every call after the first is a map lookup.
+ */
+function loadSdk(): Promise<Sdk> {
+  return import("../index.js");
+}
 
 function requirePositional(parsed: ParsedArguments, index: number, label: string): string {
   const value = parsed.positionals[index];
@@ -110,8 +89,8 @@ function outputFormat(parsed: ParsedArguments): ViewFormat {
   return value;
 }
 
-function requestedFields(parsed: ParsedArguments): string[] {
-  return options(parsed, "--fields").length === 0 ? [] : parseFields(options(parsed, "--fields"));
+function requestedFields(sdk: Sdk, parsed: ParsedArguments): string[] {
+  return options(parsed, "--fields").length === 0 ? [] : sdk.parseFields(options(parsed, "--fields"));
 }
 
 /**
@@ -121,41 +100,42 @@ function requestedFields(parsed: ParsedArguments): string[] {
  * document valid and fails on a field name that does not exist instead of returning undefined.
  */
 async function emitSelection(
+  sdk: Sdk,
   value: unknown,
   parsed: ParsedArguments,
   format: string,
 ): Promise<boolean> {
-  const fields = requestedFields(parsed);
+  const fields = requestedFields(sdk, parsed);
   if (fields.length === 0) return false;
   if (format !== "json") {
     throw new UsageError("--fields projects JSON output; add --format json or drop --fields.");
   }
-  await emit(JSON.stringify(selectFields(value, fields), null, 2), option(parsed, "--output"));
+  await emit(JSON.stringify(sdk.selectFields(value, fields), null, 2), option(parsed, "--output"));
   return true;
 }
 
-async function emitInspection(result: InspectionResult, parsed: ParsedArguments): Promise<void> {
+async function emitInspection(sdk: Sdk, result: InspectionResult, parsed: ParsedArguments): Promise<void> {
   const format = outputFormat(parsed);
   const output = option(parsed, "--output");
   if (flag(parsed, "--summary")) {
     if (format === "mermaid") throw new UsageError("--summary supports --format json or text.");
-    if (requestedFields(parsed).length > 0) {
+    if (requestedFields(sdk, parsed).length > 0) {
       throw new UsageError("--summary already bounds stdout; --fields projects the full JSON document, so use one of them.");
     }
-    const summary = profileStageSync("render", () => renderInspectionSummary(result, format));
+    const summary = profileStageSync("render", () => sdk.renderInspectionSummary(result, format));
     if (output === undefined) {
       await emit(summary);
       return;
     }
     // A saved report must stay consumable by view/search/window, so --output always
     // receives the full document; --summary only decides what stdout shows.
-    const rendered = profileStageSync("render", () => view(result, { format }));
+    const rendered = profileStageSync("render", () => sdk.view(result, { format }));
     await emit(rendered, output);
     await emit(summary);
     return;
   }
-  if (await emitSelection(result, parsed, format)) return;
-  const rendered = profileStageSync("render", () => view(result, { format }));
+  if (await emitSelection(sdk, result, parsed, format)) return;
+  const rendered = profileStageSync("render", () => sdk.view(result, { format }));
   await emit(rendered, output);
 }
 
@@ -164,12 +144,13 @@ async function runMla(parsed: ParsedArguments): Promise<InspectionResult> {
     throw new UsageError("The MLA namespace currently supports only 'inspect'.");
   }
   const range = timeRange(parsed);
-  const result = await inspectMla(requirePositional(parsed, 2, "input path"), {
+  const sdk = await loadSdk();
+  const result = await sdk.inspectMla(requirePositional(parsed, 2, "input path"), {
     ...(range === undefined ? {} : { timeRange: range }),
     keywords: options(parsed, "--keyword"),
     includeAllSignals: flag(parsed, "--all-signals"),
   });
-  await emitInspection(result, parsed);
+  await emitInspection(sdk, result, parsed);
   return result;
 }
 
@@ -190,23 +171,25 @@ async function runMse(parsed: ParsedArguments): Promise<InspectionResult> {
       ? {}
       : { depth: integerOption(parsed, "--depth") as number }),
   };
+  const sdk = await loadSdk();
   const result = command === "inspect"
-    ? await inspectMse(inputPath, {
+    ? await sdk.inspectMse(inputPath, {
       ...commonOptions,
       ...(option(parsed, "--git-ref") === undefined
         ? {}
         : { gitRef: option(parsed, "--git-ref") as string }),
     })
-    : await resolveMse(inputPath, commonOptions);
-  await emitInspection(result, parsed);
+    : await sdk.resolveMse(inputPath, commonOptions);
+  await emitInspection(sdk, result, parsed);
   return result;
 }
 
 async function runRepoDocs(parsed: ParsedArguments): Promise<InspectionResult> {
   const format = option(parsed, "--format");
   if (format === "mermaid") throw new UsageError("repo-docs --format must be json or text.");
-  const result = await inspectRepositoryDocs(requirePositional(parsed, 1, "checkout path"));
-  await emitInspection(result, parsed);
+  const sdk = await loadSdk();
+  const result = await sdk.inspectRepositoryDocs(requirePositional(parsed, 1, "checkout path"));
+  await emitInspection(sdk, result, parsed);
   return result;
 }
 
@@ -220,7 +203,8 @@ async function runCombined(parsed: ParsedArguments): Promise<InspectionResult> {
     : flag(parsed, "--no-referencers")
       ? false
       : undefined;
-  const result = await inspect(requirePositional(parsed, 1, "input path"), {
+  const sdk = await loadSdk();
+  const result = await sdk.inspect(requirePositional(parsed, 1, "input path"), {
     mla: flag(parsed, "--no-mla")
       ? false
       : {
@@ -245,13 +229,14 @@ async function runCombined(parsed: ParsedArguments): Promise<InspectionResult> {
           : { depth: integerOption(parsed, "--depth") as number }),
       },
   });
-  await emitInspection(result, parsed);
+  await emitInspection(sdk, result, parsed);
   return result;
 }
 
 async function runWindow(parsed: ParsedArguments): Promise<void> {
   const result = await readInspection(option(parsed, "--input") ?? "");
-  const evidenceWindow = await profileStage("evidence.window", () => queryEvidenceWindow(result, {
+  const sdk = await loadSdk();
+  const evidenceWindow = await profileStage("evidence.window", () => sdk.queryEvidenceWindow(result, {
     ...(option(parsed, "--evidence-id") === undefined
       ? {}
       : { evidenceId: option(parsed, "--evidence-id") as string }),
@@ -272,8 +257,8 @@ async function runWindow(parsed: ParsedArguments): Promise<void> {
   if (format !== "json" && format !== "text") {
     throw new UsageError("window --format must be json or text.");
   }
-  if (await emitSelection(evidenceWindow, parsed, format)) return;
-  const rendered = profileStageSync("render", () => renderEvidenceWindow(evidenceWindow, format));
+  if (await emitSelection(sdk, evidenceWindow, parsed, format)) return;
+  const rendered = profileStageSync("render", () => sdk.renderEvidenceWindow(evidenceWindow, format));
   await emit(rendered, option(parsed, "--output"));
 }
 
@@ -283,7 +268,11 @@ async function runWindow(parsed: ParsedArguments): Promise<void> {
  * JSON is never truncated, so a text budget asked for with `--format json` is refused rather than
  * ignored: silently dropping either one is exactly how a caller ends up trusting a partial document.
  */
-function viewTextBudget(parsed: ParsedArguments, format: string): { maxLines: number; maxCharacters: number } {
+function viewTextBudget(
+  sdk: Sdk,
+  parsed: ParsedArguments,
+  format: string,
+): { maxLines: number; maxCharacters: number } {
   const requested = integerOption(parsed, "--max-lines") !== undefined
     || integerOption(parsed, "--max-characters") !== undefined;
   if (requested && format !== "text") {
@@ -292,18 +281,19 @@ function viewTextBudget(parsed: ParsedArguments, format: string): { maxLines: nu
     );
   }
   return {
-    maxLines: budgetInteger("--max-lines", integerOption(parsed, "--max-lines"), VIEW_DEFAULT_MAX_LINES, VIEW_MAX_LINES),
-    maxCharacters: budgetInteger(
+    maxLines: sdk.budgetInteger("--max-lines", integerOption(parsed, "--max-lines"), sdk.VIEW_DEFAULT_MAX_LINES, sdk.VIEW_MAX_LINES),
+    maxCharacters: sdk.budgetInteger(
       "--max-characters",
       integerOption(parsed, "--max-characters"),
-      VIEW_DEFAULT_MAX_CHARACTERS,
-      VIEW_MAX_CHARACTERS,
+      sdk.VIEW_DEFAULT_MAX_CHARACTERS,
+      sdk.VIEW_MAX_CHARACTERS,
     ),
   };
 }
 
 /** Bound stdout; `--output FILE` keeps the complete rendering, as it does for an inspection. */
 async function emitRendered(
+  sdk: Sdk,
   rendered: string,
   parsed: ParsedArguments,
   format: string,
@@ -314,33 +304,35 @@ async function emitRendered(
     await emit(rendered, output);
     return;
   }
-  await emit(format === "text" ? boundText(rendered, budget).text : rendered);
+  await emit(format === "text" ? sdk.boundText(rendered, budget).text : rendered);
 }
 
 async function runView(parsed: ParsedArguments): Promise<void> {
   const result = await readInspection(option(parsed, "--input") ?? "");
   const evidenceId = option(parsed, "--evidence-id");
   const format = outputFormat(parsed);
+  const sdk = await loadSdk();
   // Validated up front: a budget asked for with a format that cannot honor it must fail even when
   // the rendering path would never read it.
-  const budget = viewTextBudget(parsed, format);
+  const budget = viewTextBudget(sdk, parsed, format);
   if (evidenceId === undefined) {
-    if (await emitSelection(result, parsed, format)) return;
-    const rendered = profileStageSync("render", () => view(result, { format }));
-    await emitRendered(rendered, parsed, format, budget);
+    if (await emitSelection(sdk, result, parsed, format)) return;
+    const rendered = profileStageSync("render", () => sdk.view(result, { format }));
+    await emitRendered(sdk, rendered, parsed, format, budget);
     return;
   }
   if (format === "mermaid") throw new UsageError("view --evidence-id supports only json or text.");
-  const evidence = profileStageSync("evidence.view", () => evidenceById(result.evidence, evidenceId));
-  if (await emitSelection(evidence, parsed, format)) return;
-  const rendered = profileStageSync("render", () => renderEvidence(evidence, format));
-  await emitRendered(rendered, parsed, format, budget);
+  const evidence = profileStageSync("evidence.view", () => sdk.evidenceById(result.evidence, evidenceId));
+  if (await emitSelection(sdk, evidence, parsed, format)) return;
+  const rendered = profileStageSync("render", () => sdk.renderEvidence(evidence, format));
+  await emitRendered(sdk, rendered, parsed, format, budget);
 }
 
 async function runSearch(parsed: ParsedArguments): Promise<void> {
   const result = await readInspection(option(parsed, "--input") ?? "");
   const range = timeRange(parsed);
-  const search = profileStageSync("evidence.search", () => searchEvidence(result, {
+  const sdk = await loadSdk();
+  const search = profileStageSync("evidence.search", () => sdk.searchEvidence(result, {
     artifactIds: options(parsed, "--artifact-id"),
     kinds: options(parsed, "--kind"),
     nodes: options(parsed, "--node"),
@@ -351,8 +343,8 @@ async function runSearch(parsed: ParsedArguments): Promise<void> {
   }));
   const format = option(parsed, "--format") ?? (process.stdout.isTTY ? "text" : "json");
   if (format !== "json" && format !== "text") throw new UsageError("search --format must be json or text.");
-  if (await emitSelection(search, parsed, format)) return;
-  const rendered = profileStageSync("render", () => renderEvidenceSearch(search, format));
+  if (await emitSelection(sdk, search, parsed, format)) return;
+  const rendered = profileStageSync("render", () => sdk.renderEvidenceSearch(search, format));
   await emit(rendered, option(parsed, "--output"));
 }
 
@@ -363,8 +355,9 @@ async function runTimeline(parsed: ParsedArguments): Promise<void> {
     throw new UsageError("timeline --format must be json or text.");
   }
   const tasks = options(parsed, "--task");
-  if (await emitSelection(taskTimeline(result, { tasks }), parsed, format)) return;
-  const rendered = profileStageSync("render", () => renderTaskTimeline(result, format, {
+  const sdk = await loadSdk();
+  if (await emitSelection(sdk, sdk.taskTimeline(result, { tasks }), parsed, format)) return;
+  const rendered = profileStageSync("render", () => sdk.renderTaskTimeline(result, format, {
     tasks,
   }));
   await emit(rendered, option(parsed, "--output"));
@@ -372,10 +365,11 @@ async function runTimeline(parsed: ParsedArguments): Promise<void> {
 
 async function runBatch(parsed: ParsedArguments): Promise<void> {
   const result = await readInspection(option(parsed, "--input") ?? "");
+  const sdk = await loadSdk();
   const requests = await profileStage("batch.requests_load", () =>
     readBatchRequests(option(parsed, "--requests") ?? ""));
-  const batch = await profileStage("evidence.batch", () => queryEvidenceBatch(result, requests));
-  if (await emitSelection(batch, parsed, "json")) return;
+  const batch = await profileStage("evidence.batch", () => sdk.queryEvidenceBatch(result, requests));
+  if (await emitSelection(sdk, batch, parsed, "json")) return;
   const rendered = profileStageSync("render", () => JSON.stringify(batch, null, 2));
   await emit(rendered, option(parsed, "--output"));
 }
@@ -450,12 +444,13 @@ async function runSkill(parsed: ParsedArguments): Promise<void> {
 
 async function runTelemetry(parsed: ParsedArguments): Promise<void> {
   const action = requirePositional(parsed, 1, "telemetry action");
+  const sdk = await loadSdk();
   if (action === "status") {
-    await emit(JSON.stringify({ status: await getTelemetryStatus() }, null, 2), option(parsed, "--output"));
+    await emit(JSON.stringify({ status: await sdk.getTelemetryStatus() }, null, 2), option(parsed, "--output"));
     return;
   }
   if (action === "enable" || action === "disable") {
-    await setTelemetryEnabled(action === "enable");
+    await sdk.setTelemetryEnabled(action === "enable");
     await emit(JSON.stringify({ status: action === "enable" ? "enabled" : "disabled" }, null, 2), option(parsed, "--output"));
     return;
   }
@@ -483,7 +478,8 @@ async function runFeedbackApprove(parsed: ParsedArguments): Promise<void> {
   if (message === undefined) throw new UsageError("feedback approve requires --message.");
   const out = option(parsed, "--out");
   if (out === undefined) throw new UsageError("feedback approve requires --out.");
-  const preview = await previewFeedback({
+  const sdk = await loadSdk();
+  const preview = await sdk.previewFeedback({
     message,
     category: feedbackCategory(parsed),
     component: feedbackComponent(parsed),
@@ -513,13 +509,13 @@ async function runFeedbackApprove(parsed: ParsedArguments): Promise<void> {
   } finally {
     reader.close();
   }
-  const token = createApprovalToken({
+  const token = sdk.createApprovalToken({
     message: preview.message,
     category: preview.category,
     component: preview.component,
     attachments: preview.attachments,
   });
-  await writeApprovalToken(out, token);
+  await sdk.writeApprovalToken(out, token);
   process.stderr.write(
     `Approved until ${token.expiresAt}. Submit with: maa-evidence feedback --message ... --token ${out}\n`,
   );
@@ -529,7 +525,8 @@ async function runFeedback(parsed: ParsedArguments): Promise<void> {
   const message = option(parsed, "--message");
   if (message === undefined) throw new UsageError("feedback requires --message.");
   const attachments = options(parsed, "--attachment");
-  const preview = await previewFeedback({
+  const sdk = await loadSdk();
+  const preview = await sdk.previewFeedback({
     message,
     category: feedbackCategory(parsed),
     component: feedbackComponent(parsed),
@@ -560,13 +557,13 @@ async function runFeedback(parsed: ParsedArguments): Promise<void> {
     // A valid approval stands in for the terminal prompt; an invalid or mismatched token is refused
     // rather than silently falling back to prompting. Consuming the token before uploading keeps one
     // approval to one submission.
-    await consumeApprovalToken(tokenPath, {
+    await sdk.consumeApprovalToken(tokenPath, {
       message: preview.message,
       category: preview.category,
       component: preview.component,
       attachments: preview.attachments,
     });
-    const eventId = await submitFeedback(preview);
+    const eventId = await sdk.submitFeedback(preview);
     await emit(JSON.stringify({ sent: true, eventId, approvedBy: tokenPath }, null, 2), option(parsed, "--output"));
     return;
   }
@@ -592,7 +589,7 @@ async function runFeedback(parsed: ParsedArguments): Promise<void> {
   } finally {
     reader.close();
   }
-  const eventId = await submitFeedback(preview);
+  const eventId = await sdk.submitFeedback(preview);
   await emit(JSON.stringify({ sent: true, eventId }, null, 2), option(parsed, "--output"));
 }
 
@@ -639,6 +636,7 @@ async function withOperationalTelemetry(
   const startedAt = performance.now();
   try {
     const result = await operation();
+    const { recordOperationalTelemetry } = await loadSdk();
     await recordOperationalTelemetry({
       command,
       component,
@@ -647,6 +645,10 @@ async function withOperationalTelemetry(
       ...(result === undefined ? {} : { counts: countsFromInspection(result) }),
     });
   } catch (error: unknown) {
+    // Both the reporter and the classifier are only needed once a command has ended, so neither is
+    // imported while a command is still running.
+    const { recordOperationalTelemetry } = await loadSdk();
+    const { classifyOperationalError } = await import("../feedback/sentry.js");
     const errorStage: OperationalErrorStage = component === "repo-docs"
       ? "repository_scan"
       : ["window", "view", "search", "batch", "timeline"].includes(component)
