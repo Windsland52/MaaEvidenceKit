@@ -43,6 +43,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   is how an installed Skill had been recorded as synced while containing older text.
 - `view` text output is bounded by default; JSON output is never truncated and points at `--fields`.
 - `timeline --evidence-id` is rejected instead of accepted and ignored.
+- Update `@sentry/node` to 10.75.3, `@nekosu/maa-pipeline-manager` to 1.1.0, `@maaxyz/maa-node` to
+  5.14.0, `@types/node` to 22.20.4, `oxlint` to 1.85.0, and `vitest` to 5.0.2. The MSE release adds
+  Linux controllers, which MEK only reads statically: a project that declares one produces the same
+  evidence before and after, and the change is purely additive to the exported types. `@sentry/node`
+  deliberately stays on 10.x because 11.0.0 removes `sendDefaultPii` in favor of a `dataCollection`
+  option with broader defaults, which is its own change, and `@types/node` stays on the major that
+  keeps the Node 22 floor enforced.
 
 ### Fixed
 

@@ -56,20 +56,20 @@
     "access": "public"
   },
   "dependencies": {
-    "@nekosu/maa-pipeline-manager": "1.0.14",
+    "@nekosu/maa-pipeline-manager": "1.1.0",
     "@nekosu/maa-tasker": "1.0.0",
-    "@sentry/node": "10.75.0",
+    "@sentry/node": "10.75.3",
     "@windsland52/maa-log-tools": "2.0.0",
     "cross-spawn": "7.0.6",
     "semver": "7.8.5"
   },
   "devDependencies": {
-    "@maaxyz/maa-node": "5.13.0",
+    "@maaxyz/maa-node": "5.14.0",
     "@types/cross-spawn": "6.0.6",
     "@types/node": "22.20.4",
     "@types/semver": "7.8.0",
-    "oxlint": "1.83.0",
+    "oxlint": "1.85.0",
     "typescript": "7.0.2",
-    "vitest": "5.0.1"
+    "vitest": "5.0.2"
   }
 }
