@@ -12,6 +12,7 @@ const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const UPDATE_REQUEST_TIMEOUT_MS = 1500;
 const UPDATE_LOCK_STALE_MS = 10 * 60 * 1000;
 const UPDATE_SUBPROCESS_TIMEOUT_MS = 2 * 60 * 1000;
+const DEBUG_NPM_VERSION_TIMEOUT_MS = 10_000;
 const HANDOFF_MARKER_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const CAPTURE_LIMIT_CHARACTERS = 64 * 1024;
 const REGISTRY_LATEST_URL = "https://registry.npmjs.org/maa-evidence-kit/latest";
@@ -573,6 +574,27 @@ async function synchronizeSkill(
   });
 }
 
+/**
+ * Name the npm that ran a failed probe, for the debug diagnostic only.
+ *
+ * Command-name resolution is npm behavior and it drifts between npm releases, so the shape of a
+ * probe failure depends on which npm is on PATH; recording its version next to the captured output
+ * turns a one-off "the probe answered something else" report into a reproducible one. Version
+ * number only, stderr only, never telemetry.
+ */
+async function npmVersionLabel(
+  environment: NodeJS.ProcessEnv,
+  command: (args: string[], options: CommandOptions) => Promise<CommandResult>,
+): Promise<string> {
+  const result = await command(["--version"], {
+    environment,
+    inheritStdio: false,
+    timeoutMs: DEBUG_NPM_VERSION_TIMEOUT_MS,
+  });
+  const version = result.stdout.trim();
+  return result.spawned && version !== "" ? `npm ${version}` : "npm version unavailable";
+}
+
 async function probeVersion(
   version: string,
   environment: NodeJS.ProcessEnv,
@@ -594,10 +616,13 @@ async function probeVersion(
   );
   const matched = probe.spawned && probe.exitCode === 0 && probe.stdout.trim() === version;
   // The probe's output is npm's, so it is captured rather than shown; a failing probe is the one
-  // case where reading it is the only way to learn why the update never happens.
+  // case where reading it is the only way to learn why the update never happens. The npm version
+  // rides along because resolution behavior drifts between npm releases.
   if (!matched && debugEnabled(environment)) {
+    const npmVersion = await npmVersionLabel(environment, command);
     diagnostic(
-      `maa-evidence: update probe output for ${version}:\n${probe.stdout}${probe.stderr}`,
+      `maa-evidence: update probe output for ${version} (${npmVersion}):\n`
+      + `${probe.stdout}${probe.stderr}`,
     );
   }
   return matched;

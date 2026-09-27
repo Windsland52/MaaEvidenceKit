@@ -31,6 +31,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   behind hint, while the command's own exit code and stdout stay untouched. A lock-holding updater
   start sweeps markers older than 24 hours. Markers stay in the config directory and are never
   uploaded.
+- The debug diagnostic for a failed update probe (`MAA_EVIDENCE_DEBUG=1`) also names the npm
+  version that ran it, next to the captured probe output: command-name resolution is npm behavior
+  and drifts between npm releases, so the version turns a one-off probe-failure report into a
+  reproducible one. Version number only, stderr only, never telemetry.
 
 ### Fixed
 

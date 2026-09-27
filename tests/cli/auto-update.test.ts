@@ -369,12 +369,15 @@ test("a failed probe is not repeated until its suppression window expires", asyn
 
 test("a failed npm probe reports its output only when debugging is requested", async () => {
   const directory = await temporaryConfigDirectory();
-  const runCommand = vi.fn(async () => ({
-    spawned: true,
-    exitCode: 0,
-    stdout: "0.1.0\n",
-    stderr: "npm error 404 Not Found - maa-evidence-kit@0.2.0\n",
-  }));
+  const runCommand = vi.fn(async (args: string[]) =>
+    args.length === 1 && args[0] === "--version"
+      ? { spawned: true, exitCode: 0, stdout: "10.8.2\n", stderr: "" }
+      : {
+          spawned: true,
+          exitCode: 0,
+          stdout: "0.1.0\n",
+          stderr: "npm error 404 Not Found - maa-evidence-kit@0.2.0\n",
+        });
   const runLocal = vi.fn(async () => 0);
   const base = {
     configDirectory: directory,
@@ -398,6 +401,8 @@ test("a failed npm probe reports its output only when debugging is requested", a
     "install is behind (running 0.1.1, latest 0.2.0); run: npm i -g maa-evidence-kit@0.2.0",
   );
   expect(quiet.join("\n")).not.toContain("npm error 404");
+  // Naming the npm that ran the probe is debug-only bookkeeping.
+  expect(quiet.join("\n")).not.toContain("(npm ");
 
   const debug: string[] = [];
   await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, {
@@ -408,6 +413,9 @@ test("a failed npm probe reports its output only when debugging is requested", a
     writeDiagnostic: (message: string) => debug.push(message),
   })).resolves.toBe(0);
   expect(debug.join("\n")).toContain("npm error 404");
+  // The npm version rides along so "resolution behavior differs between npm releases" becomes a
+  // decidable record instead of an argument.
+  expect(debug.join("\n")).toContain("update probe output for 0.2.0 (npm 10.8.2):");
 });
 
 test("a shadowed probe states the way out once and stays quiet until its window expires", async () => {
