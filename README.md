@@ -88,6 +88,9 @@ maa-evidence inspect C:\path\to\materials --format json --output inspection.json
 maa-evidence mla inspect C:\path\to\materials --from 2026-09-01T20:12:00 --to 2026-09-01T20:22:00 `
   --format json --output inspection.json
 
+# 先看覆盖再决定是否支付解析:清单只有 artifact 清单,不跑抽取
+maa-evidence mla inspect C:\path\to\materials --format manifest
+
 # 先读摘要:artifacts / warnings / statistics 和各 evidence kind 的数量
 maa-evidence mla inspect C:\path\to\materials --summary --format text
 
@@ -100,6 +103,9 @@ maa-evidence repo-docs C:\path\to\issue-checkout --format json
 # 从已有结果中读取某条证据及其来源上下文
 maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format text
 maa-evidence window --input inspection.json --evidence-id evidence-abc123
+
+# 事后复核:从已存报告出同一份清单,零语料访问
+maa-evidence view --input inspection.json --format manifest
 
 # 只要结构化结果里的几个字段,不必自己写脚本解析整份 JSON
 maa-evidence view --input inspection.json --fields statistics --format json

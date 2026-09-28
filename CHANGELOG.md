@@ -9,6 +9,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A coverage manifest: `mla inspect <dir> --format manifest` (`--format manifest-compact` for the
+  same document on one line).** It is a discovery-state short circuit - walk, classify, and stream a
+  sha256 for every artifact, then stop - and it says so in `input.extraction: "not-run"`; the document
+  carries no `evidence` or `statistics` key because nothing was extracted. This is the entry point for
+  "see the coverage before deciding whether to pay for parsing": against the reference corpus the
+  manifest costs about 0.45 s / 7.6 KB (compact 6.4 KB) where the full inspection costs about 10 s /
+  18 MB. `view --input REPORT --format manifest` renders the same manifest from a saved report through
+  the same renderer with **zero corpus access**, so it still answers after the corpus was renamed or
+  deleted.
+- **An explicit `coverage` annotation on every inspection result**, not only the manifest:
+  `readForRuntimeFacts` counts `kind === "maa_log" && status === "selected"`, `notRead` is the
+  remainder, and `byStatus`/`byKind` report the artifact list's own vocabulary unchanged. A
+  directory-level silence about what was left unread is the defect this closes. The manifest re-derives
+  the counts from the rows it prints and refuses a report whose stored annotation disagrees.
+- **Filename-derived rotation coverage.** MaaFramework log rows carry `rotation`
+  (`family` + `index`) and `timeCoverage` (`from`/`to` with `fromKnown`/`toKnown`,
+  `basis: "rotation-filename"`), derived from the rotation timestamp in the file name alone. Since the
+  name boundary equals the file's last log-line timestamp (measured within 0-32 ms), a chain of names
+  gives a monotonic boundary sequence with no content reads. Unknown endpoints stay explicitly `null`.
+  File modification times never participate: extracted corpora stamp every file with one extraction time.
+- Content digests now cover **every discovered artifact**, not only the failure-referenced images, and a
+  digest that cannot be computed is preserved as an explicit `digestStatus`
+  (`unreadable` / `empty` / `too_large`) plus an `artifact_content_digest_unavailable`
+  missing-evidence entry instead of being silently treated as absent or distinct.
+- A benchmark harness under `scripts/bench/` with required `--root`/`--corpus`/`--workdir`
+  parameters, a corpus fingerprint gate, a second comparison window, a per-question maximum single-return
+  byte measurement, and a re-specified question 5 that scores whether the manifest alone names the
+  artifact carrying the root-cause line. No real log, archive, or report is committed.
 - A second public bin, `maa-evidence-probe`, pointing at the same CLI entry as `maa-evidence`.
   Installing the package now creates both commands. The alias exists for the automatic update probe
   and the version handoff, which must run the pinned release rather than whatever a same-name

@@ -436,8 +436,11 @@ associated node, so a visual harness can open the exact screenshot without re-pa
 Each failure-referenced image additionally carries a `contentDigest` (`sha256:<hex>`) on both the
 `image` artifact and the `mla.failure_image` data. Equal digests prove the two files have identical
 bytes - a deterministic equality fact, not a visual judgement - which is how you establish that the
-screen did not change between two failures. A missing digest means "not determined" (empty,
-unreadable, or above the size cap), never "different"; absence is not evidence of inequality. When
+screen did not change between two failures. Every discovered artifact is digested, not only the
+failure-referenced images, so "does this record have a digest?" never depends on a window or adapter
+decision. A missing digest means "not determined" (empty, unreadable, or above the size cap), never
+"different"; absence is not evidence of inequality, and the record names the reason in
+`digestStatus` plus an `artifact_content_digest_unavailable` missing-evidence entry. When
 several byte-identical artifacts exist, `mla_byte_identical_artifacts` reports them and
 `statistics.artifacts` / `statistics.byteIdenticalArtifactRecords` /
 `statistics.byteIdenticalArtifactRecordsDeduplicated` let you recheck a count with copies removed.

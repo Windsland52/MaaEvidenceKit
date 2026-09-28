@@ -118,14 +118,20 @@ MEK 只保证它知道**哪些文件存在、多大、何时修改**。`modified
 被失败事实引用的图片会额外输出为 `mla.failure_image` evidence,直接携带图片路径和关联节点,
 便于 harness 按需打开截图或调用视觉工具。
 
-被失败引用的图片还会记录内容摘要(`Artifact.contentDigest`,以及 `mla.failure_image.data` 的
-`contentDigest`),格式为 `sha256:<64 位十六进制>`。摘要只回答"这两个文件的字节是否相同"这一
-确定性等值问题,不做像素比较、不做画面相似性判断,也不声称两张截图属于同一界面——它把该判断
-所需的事实交给 harness。典型用途是按捕获画面聚类失败:两次独立失败写出同一张截图时,画面在两次
-失败之间没有变化。
-摘要只对确实被读取到的文件记录。空文件、不可读文件和超过 `MAX_CONTENT_DIGEST_BYTES` 的文件
-不记录摘要,这些记录按"摘要未知"处理,不会与任何其他记录被判为相同;摘要缺失本身不新增
-warning,消费者看到 `contentDigest` 不存在时应理解为"未判定"而不是"与其他都不同"。
+**每一个已发现的 artifact** 都会记录内容摘要(`Artifact.contentDigest`,以及被失败引用的图片在
+`mla.failure_image.data` 上的 `contentDigest`),格式为 `sha256:<64 位十六进制>`。摘要只回答
+"这两个文件的字节是否相同"这一确定性等值问题,不做像素比较、不做画面相似性判断,也不声称两张
+截图属于同一界面——它把该判断所需的事实交给 harness。典型用途是按捕获画面聚类失败:两次独立
+失败写出同一张截图时,画面在两次失败之间没有变化。
+摘要覆盖**全部** artifact 而不是"仅 selected",这是一条契约而不是优化:若某个文件"有没有摘要"
+取决于窗口或 adapter 决策,同一文件在不同调用间的摘要存在性就会变,消费者无法据此判断。代价实测
+可忽略(160 MB / 22 个文件约 170 ms,占一次完整检查的 2%)。
+空文件、不可读文件和超过 `MAX_CONTENT_DIGEST_BYTES` 的文件不产生 `contentDigest`,而是在同一
+记录上写 `digestStatus`(`unreadable` / `empty` / `too_large`),并作为
+`artifact_content_digest_unavailable` 进入 `missingEvidence`。这些记录按"摘要未知"处理,不会与
+任何其他记录被判为相同;消费者看到 `contentDigest` 不存在时应理解为"未判定"而不是"与其他都
+不同"。清单视图还会把缺失原因写成 `digestStatus: "not-recorded"`,用于区分"这次读了但读不到"
+与"这份报告生成时还没有逐 artifact 摘要"。
 当输入里出现多份字节完全相同的 artifact 时,输出 `mla_byte_identical_artifacts` 警告,并给出
 `statistics.artifacts`(原始记录数)、`statistics.byteIdenticalArtifactRecords`(其中的副本记录数)
 与 `statistics.byteIdenticalArtifactRecordsDeduplicated`(去掉副本后的差值),便于用去重口径复核

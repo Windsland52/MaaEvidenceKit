@@ -28,6 +28,10 @@ way.
 
 Choose the smallest operation that answers the question:
 
+- Coverage before cost: `maa-evidence mla inspect <extracted-folder> --format manifest`. Inventory,
+  classification, and a sha256 for every artifact, with no parsing: read it first when you do not yet
+  know what the folder holds or which timestamped rotation carries the moment in question. It is the
+  only view that shows what an extraction left behind.
 - Runtime MaaFramework facts: `maa-evidence mla inspect <extracted-folder>`.
 - Known static task and forward path: `maa-evidence mse resolve <issue-time-project> --task <name> --no-referencers`.
 - Interface/resource/configuration diagnosis: `maa-evidence mse inspect <issue-time-project> --task <name>`.
@@ -105,6 +109,35 @@ paths, source refs, or request shapes. Stop optional branches when their evidenc
   `--from`/`--to` and filter a saved report with `search --text`/`--node`/`--kind`.
 - Do not silently substitute current HEAD for historical source.
 
+## Coverage and the manifest
+
+`mla inspect <dir> --format manifest` stops at the discovery layer: it walks, classifies, and streams a
+sha256 for **every** artifact, then returns. It never selects a target, loads a log, or materializes
+evidence, and says so in `input.extraction: "not-run"`. Read it before paying for a full inspection
+when the folder's contents are unknown.
+
+- `view --input REPORT --format manifest` renders the same manifest from a saved report with **zero
+  corpus access**; the digests come from the report itself, so it still works after the corpus was
+  moved or deleted. Its `input.extraction` is `"reported"`.
+- Row keys are exactly `{path, sha256, sizeBytes, kind, status, rotation?, timeCoverage?, reason?, digestStatus?}`.
+  There is no `role`: that contract slot is the existing `kind`. Do not invent a second vocabulary.
+- `rotation` and `timeCoverage` exist only on MaaFramework logs and come from the **file name**.
+  `basis` is always `"rotation-filename"`, and these are inferred boundaries accurate to about ±25 ms,
+  not timestamps read out of the file. Fewer than 64 hex characters never happens for a readable file;
+  `sha256: null` together with `digestStatus` means the bytes could not be digested, which is neither
+  equality nor existence.
+- **Never use a file's modification time** to reason about when a run happened. Extracted corpora carry
+  one extraction mtime for every file, and a name-derived boundary is the only time evidence available
+  without reading content.
+- `coverage` appears on every inspection result. `readForRuntimeFacts` counts `kind === "maa_log" && status === "selected"`;
+  `byStatus` reports the report's own vocabulary unchanged; the two are meant to be read side by side
+  and never merged. A `coverage` block that disagrees with the artifact list it annotates is refused
+  rather than printed.
+- **An upstream analyzer pointed at a directory is a per-file probe, not a corpus sweep.** It reads the
+  literal name it looks for and silently drops timestamped rotations in the same folder. If a question
+  spans more than one rotation, name the artifact you want; the manifest is how you find out that you
+  must.
+
 ## Read focused output
 
 Always inspect `evidence`, `missingEvidence`, `warnings`, `artifacts`, `statistics`, and `details`.
@@ -159,9 +192,12 @@ Keep one saved report as the handle for an investigation:
 1. `maa-evidence mla inspect <material> --summary --output REPORT` bounds stdout and keeps the full
    document on disk.
 2. Answer every later question about that material from REPORT with `search`, `view`, `window`,
-   `timeline`, or one `batch`. Re-run the inspection only for new material or a new time window.
+   `timeline`, `view --format manifest`, or one `batch`. Re-run the inspection only for new material or
+   a new time window.
 3. Bound each read with `--fields` (JSON) or `--max-lines`/`--max-characters` (text), and treat a
-   `truncated` marker as a reason to read a smaller window, never as "nothing else matched".
+   `truncated` marker as a reason to read a smaller window, never as "nothing else matched". When the
+   question is which artifact a moment belongs to, `view --format manifest` answers it in a few KB
+   from REPORT alone, without touching the corpus.
 
 MEK ships no tool-protocol wrapper. The `tool-adapter/v1` JSON-line adapter that older 0.x checkouts
 still carry under `packages/tool-adapter/dist` is a build artifact of a removed package, not a

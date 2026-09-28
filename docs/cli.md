@@ -107,6 +107,79 @@ maa-evidence mla inspect C:\path\to\materials `
   --profile profile.json
 ```
 
+**`--format manifest` = 发现态短路(先看覆盖,再决定是否支付解析)。** 它只做发现层工作——遍历、
+分类、对**全部** artifact 流式算 sha256——然后**停下**:不选 target、不 load 日志、不物化 evidence。
+输出是一份 `maa-evidence/manifest-v1` 清单,其中 `input.extraction` 固定为 `"not-run"`,顶层**没有**
+`evidence`/`statistics` 键。代价差异是数量级的:同一语料完整 `mla inspect` 约 10 秒 / 18 MB 报告,
+清单约 0.45 秒 / 7.6 KB(实测见下)。因此它是"先看这个目录到底有什么、我漏了什么"的入口,而不是
+事后说明。
+
+```powershell
+# 一条命令拿到覆盖清单:22 个 artifact,每个都有 64 位十六进制 sha256
+maa-evidence mla inspect C:\path\to\materials --format manifest
+
+# 同一份文档压成一行(便于逐字节比对或按字节计费的下游)
+maa-evidence mla inspect C:\path\to\materials --format manifest-compact
+
+# 事后复核:从已存报告出同一份清单,零语料访问
+maa-evidence view --input inspection.json --format manifest
+```
+
+清单每行键集合固定为 `{path, sha256, sizeBytes, kind, status, rotation?, timeCoverage?, reason?, digestStatus?}`,
+并且**不出现** `role`:该槽位由既有 `kind` 承担(`archive_part|interface|image|pipeline|other|maa_log|log`),
+不新造平行枚举。`sha256` 是裸 64 位十六进制(报告里存的是 `sha256:<hex>`,清单把算法名放进键名,
+省下每行 8 字节并让字典序等价于字节序)。`sha256: null` + `digestStatus` 表示这份摘要不是"相等"也
+不是"存在",而是"读不到/空文件/超上限"。
+
+`rotation` 与 `timeCoverage` 只出现在 MaaFramework 日志上,且**只从文件名导出**:
+
+| 字段 | 语义 |
+| --- | --- |
+| `rotation.family` | 轮转族 = (目录, maafw 家族)。`ext/` 与 `cpp-algo/debug/` 各自一族,各自从 `index: 1` 起 |
+| `rotation.index` | 族内序号,按文件名时间戳排序,**无时间戳的活文件排在末位** |
+| `timeCoverage.from` | 同族紧前一个轮转边界(下界,**开**区间);最老一轮为 `null` |
+| `timeCoverage.to` | 本文件自己的文件名边界(上界,**闭**区间);活文件为 `null` |
+| `timeCoverage.basis` | 恒为 `"rotation-filename"`。这是**推断边界**(实测精度 ±25 ms),不是内容事实 |
+| `fromKnown` / `toKnown` | 显式说"这个名字给不出端点",避免把"不知道"读成"没有" |
+
+**`mtime` 绝不参与**,这是实测陷阱:`maafw.bak.<T>.log` 的 `T` 等于该文件**最后一行**日志的时间戳
+(实测偏差 0–32 ms),而解压落盘的 22 个文件 `mtime` 全都是同一个时刻——用 `mtime` 只会给出自信的
+错误答案。有回归测试守住这一点。
+
+**这不是上游 CLI 的探针行为。** 上游 `MaaLogAnalyzer` 指一个目录时,只按字面量表取 `maafw.log`;
+同目录下 5 个时间戳轮转(共约 130 MB)会被整体丢弃,而调用方不会看到任何提示。需要逐个文件探针,
+或需要知道"这份目录到底覆盖了哪一段时间",就用 `--format manifest`——它把覆盖面本身变成输出。
+
+### 覆盖标注:`coverage`
+
+**每个**检查结果顶层都带 `coverage` 块(不只 manifest):
+
+```json
+{
+  "coverage": {
+    "artifacts": 22, "readForRuntimeFacts": 7, "notRead": 15,
+    "byKind": { "image": 5, "log": 3, "maa_log": 7, "other": 7 },
+    "byStatus": { "selected": 12, "skipped": 10 },
+    "rotations": { "families": 2, "members": 7, "timestampedMembers": 5, "readMembers": 7 },
+    "selected": 12, "skipped": 10
+  }
+}
+```
+
+词汇是精确的,避免与报告既有 `status` 撞车:
+
+- `readForRuntimeFacts` := `kind === "maa_log" && status === "selected"` 的 artifact 数。**结构性判定**,
+  不依赖任何 evidence,所以不可能与它所标注的 artifact 列表不一致。
+- `notRead` := `artifacts − readForRuntimeFacts`。
+- `byStatus` 保留报告自己的 `selected|available|skipped|unreadable` 词汇**原样**,与上面两项**不合并、
+  **不互相改写。两者对不上是**有意义的信号**,不是矛盾——本语料里 `byStatus.selected: 12` 包含 5 张
+  被选中的图片(它们不承载运行时事实),所以 `readForRuntimeFacts` 是 7 而不是 12。
+- 带 `--from/--to` 时 `readForRuntimeFacts` 随窗口变:全目录 7 → 窗口 `18:38–18:42:20` 为 4
+  (`notRead` 15 → 18,`byStatus {selected:6, available:6, skipped:10}`)。
+
+预算:覆盖标注 ≤ 2 KB;清单 ≤ 8 KB(pretty)/ ≤ 7 KB(紧凑)。**超限是 bug,不是截断理由**——清单永不
+截断,也没有 `--max-lines` 之类的旋钮:一个装不下的清单说明它报的东西错了,而不是该少报几行。
+
 ### `mse inspect` / `mse resolve`:只检查项目静态定义
 
 ```powershell
@@ -186,6 +259,12 @@ Skill 根内目录深度 8。输出区分已知列表遗漏与扫描提前结束
 
 ### `window` / `view` / `search` / `batch`:查询已有结果
 
+`view --format manifest` 与 `mla inspect --format manifest` 共用同一个渲染器与同一份契约
+(`src/views/manifest.ts`),因此两者不可能漂移;**零语料访问**是硬性质,不是实现细节:该路径不
+resolve、不 stat、不打开 `input.path`,摘要直接取报告内的 `contentDigest`,所以报告指向的目录被改名、
+移走或删除后,清单照样渲染。它的 `input.extraction` 是 `"reported"`(抽取发生在另一个进程、另一个时刻),
+`generatedAt` 沿用报告自己的值,于是"同一份报告的清单"逐字节确定。
+
 ```powershell
 # 读取某条证据附近的原始行
 maa-evidence window --input inspection.json --evidence-id evidence-abc123
@@ -193,6 +272,9 @@ maa-evidence window --input inspection.json --evidence-id evidence-abc123
 # 查看某条证据的完整结构化数据
 maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format json
 maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format text
+
+# 从已存报告出覆盖清单:与 mla inspect --format manifest 同一渲染器,但零语料访问
+maa-evidence view --input inspection.json --format manifest
 
 # 从已有结果中快速查找相关 evidence ID
 maa-evidence search --input inspection.json `
