@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-29
+
 ### Added
 
 - **A coverage manifest: `mla inspect <dir> --format manifest` (`--format manifest-compact` for the
@@ -66,6 +68,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- An inspection's `statistics.mlaEvidence` is lower than 0.8.0 produced on the same material, and a
+  `mla.recognition_detail` record's `source.line` is now the line of its group's first observation.
+  `@windsland52/maa-log-tools` 2.1.1 consolidates recognition activity by `node + algorithm + status`
+  instead of by source line, so MEK emits fewer, larger records. No observed fact is lost, which an
+  A/B of the two dependency versions on identical material confirms per key across all 307
+  `node|algorithm|status` keys: the summed `occurrenceCount`, the `textCounts` histogram, the
+  aggregate score `count`/`minimum`/`maximum`, and the `candidateCounts` totals are identical, and
+  only the bounded `samples` arrays shrink, because fewer observations per record expose fewer
+  samples. Comparing records one-to-one instead of comparing the facts they carry reports this as
+  lost records; it is a regrouping.
 - Update `@windsland52/maa-log-tools` to 2.1.1 and `@maaxyz/maa-node` to 5.14.1. The MLA release
   recognises a `*.bak.<timestamp>.log` rotation fragment as a member of its directory, so a debug
   directory now loads its rotated facts as one bundle instead of leaving the fragment to be parsed
@@ -558,7 +570,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Whitelist-only operational telemetry, disabled default PII, and mandatory preview/confirmation for
   feedback attachments.
 
-[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.5.0...v0.6.0

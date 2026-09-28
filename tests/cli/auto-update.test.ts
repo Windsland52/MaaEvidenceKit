@@ -422,8 +422,10 @@ test("a shadowed probe states the way out once and stays quiet until its window 
   const directory = await temporaryConfigDirectory();
   const diagnostics: string[] = [];
   const runCommand = vi.fn(async () => ({
-    // Whatever version the probe pins, the command name answers with the stale copy: the shape of
-    // a machine where an old global install shadows npm exec's command-name resolution.
+    // Whatever version the probe pins, the command name answers with a stale copy: the shape of a
+    // machine where an old global install shadows npm exec's command-name resolution. The version
+    // has to differ from the one the probe pinned, or the handoff would verify and this would stop
+    // being the shadowed case at all.
     spawned: true,
     exitCode: 0,
     stdout: "0.8.0\n",
@@ -433,9 +435,9 @@ test("a shadowed probe states the way out once and stays quiet until its window 
   let now = new Date("2026-09-27T12:00:00.000Z");
   const options = {
     configDirectory: directory,
-    currentVersion: "0.8.0",
+    currentVersion: "0.9.0",
     environment: {},
-    fetchLatestVersion: async () => "0.9.0",
+    fetchLatestVersion: async () => "0.10.0",
     countReleasesBehind: async () => 1,
     isInteractive: () => true,
     now: () => now,
@@ -451,7 +453,7 @@ test("a shadowed probe states the way out once and stays quiet until its window 
   expect(runCommand).toHaveBeenCalledOnce();
   expect(diagnostics.filter((message) => message.includes("install is"))).toHaveLength(1);
   expect(diagnostics.join("\n")).toContain(
-    "install is 1 release behind (running 0.8.0, latest 0.9.0); run: npm i -g maa-evidence-kit@0.9.0",
+    "install is 1 release behind (running 0.9.0, latest 0.10.0); run: npm i -g maa-evidence-kit@0.10.0",
   );
 
   diagnostics.length = 0;
@@ -466,14 +468,14 @@ test("a handoff that cannot start hints once per window without caching the prob
   const diagnostics: string[] = [];
   const runCommand = vi.fn(async (args: string[]) =>
     args.at(-1) === "--version"
-      ? { spawned: true, exitCode: 0, stdout: "0.9.0\n", stderr: "" }
+      ? { spawned: true, exitCode: 0, stdout: "0.10.0\n", stderr: "" }
       : { spawned: false, exitCode: null, stdout: "", stderr: "" });
   const runLocal = vi.fn(async () => 0);
   const options = {
     configDirectory: directory,
-    currentVersion: "0.8.0",
+    currentVersion: "0.9.0",
     environment: {},
-    fetchLatestVersion: async () => "0.9.0",
+    fetchLatestVersion: async () => "0.10.0",
     countReleasesBehind: async () => 2,
     isInteractive: () => true,
     now: () => new Date("2026-09-27T12:00:00.000Z"),
@@ -488,7 +490,7 @@ test("a handoff that cannot start hints once per window without caching the prob
   // the second failed handoff from repeating it.
   expect(diagnostics.filter((message) => message.includes("install is"))).toHaveLength(1);
   expect(diagnostics.join("\n")).toContain(
-    "install is 2 releases behind (running 0.8.0, latest 0.9.0); run: npm i -g maa-evidence-kit@0.9.0",
+    "install is 2 releases behind (running 0.9.0, latest 0.10.0); run: npm i -g maa-evidence-kit@0.10.0",
   );
   expect(runLocal).not.toHaveBeenCalled();
 });
@@ -498,7 +500,7 @@ test("the post-handoff write-back preserves what the handed-off child wrote unde
   const diagnostics: string[] = [];
   const runCommand = vi.fn(async (args: string[]) => {
     if (args.at(-1) === "--version") {
-      return { spawned: true, exitCode: 0, stdout: "0.9.0\n", stderr: "" };
+      return { spawned: true, exitCode: 0, stdout: "0.10.0\n", stderr: "" };
     }
     // The handed-off child runs its own update pass under its own lock while the parent waits with
     // its lock released; its Skill sync timestamps land in the state file first.
@@ -508,10 +510,10 @@ test("the post-handoff write-back preserves what the handed-off child wrote unde
         {
           schemaVersion: "maa-evidence-updates/v1",
           checkedAt: "2026-09-27T12:00:00.000Z",
-          latestVersion: "0.9.0",
-          skillSyncVersion: "0.9.0",
+          latestVersion: "0.10.0",
+          skillSyncVersion: "0.10.0",
           skillSyncAttemptedAt: "2026-09-27T12:00:00.000Z",
-          skillSyncAttemptedVersion: "0.9.0",
+          skillSyncAttemptedVersion: "0.10.0",
         },
         null,
         2,
@@ -524,9 +526,9 @@ test("the post-handoff write-back preserves what the handed-off child wrote unde
 
   await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, {
     configDirectory: directory,
-    currentVersion: "0.8.0",
+    currentVersion: "0.9.0",
     environment: {},
-    fetchLatestVersion: async () => "0.9.0",
+    fetchLatestVersion: async () => "0.10.0",
     countReleasesBehind: async () => 2,
     isInteractive: () => true,
     now: () => new Date("2026-09-27T12:00:00.000Z"),
@@ -541,9 +543,9 @@ test("the post-handoff write-back preserves what the handed-off child wrote unde
     await readFile(path.join(directory, "updates.json"), "utf8"),
   ) as Record<string, unknown>;
   expect(state["behindHintAt"]).toBe("2026-09-27T12:00:00.000Z");
-  expect(state["skillSyncVersion"]).toBe("0.9.0");
-  expect(state["skillSyncAttemptedVersion"]).toBe("0.9.0");
-  expect(state["latestVersion"]).toBe("0.9.0");
+  expect(state["skillSyncVersion"]).toBe("0.10.0");
+  expect(state["skillSyncAttemptedVersion"]).toBe("0.10.0");
+  expect(state["latestVersion"]).toBe("0.10.0");
   expect(diagnostics.filter((message) => message.includes("install is"))).toHaveLength(1);
 });
 
@@ -552,13 +554,13 @@ test("a busy update lock skips the post-handoff write-back instead of writing ou
   const diagnostics: string[] = [];
   const runCommand = vi.fn(async (args: string[]) => {
     if (args.at(-1) === "--version") {
-      return { spawned: true, exitCode: 0, stdout: "0.9.0\n", stderr: "" };
+      return { spawned: true, exitCode: 0, stdout: "0.10.0\n", stderr: "" };
     }
     // The handed-off child leaves its own lock behind: the parent's write-back must not race it.
     await writeFile(
       path.join(directory, "updates.json"),
       `${JSON.stringify(
-        { schemaVersion: "maa-evidence-updates/v1", skillSyncVersion: "0.9.0" },
+        { schemaVersion: "maa-evidence-updates/v1", skillSyncVersion: "0.10.0" },
         null,
         2,
       )}\n`,
@@ -571,9 +573,9 @@ test("a busy update lock skips the post-handoff write-back instead of writing ou
 
   await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, {
     configDirectory: directory,
-    currentVersion: "0.8.0",
+    currentVersion: "0.9.0",
     environment: {},
-    fetchLatestVersion: async () => "0.9.0",
+    fetchLatestVersion: async () => "0.10.0",
     countReleasesBehind: async () => 2,
     isInteractive: () => true,
     now: () => new Date(),
@@ -588,7 +590,7 @@ test("a busy update lock skips the post-handoff write-back instead of writing ou
     await readFile(path.join(directory, "updates.json"), "utf8"),
   ) as Record<string, unknown>;
   expect(state["behindHintAt"]).toBeUndefined();
-  expect(state["skillSyncVersion"]).toBe("0.9.0");
+  expect(state["skillSyncVersion"]).toBe("0.10.0");
   expect(diagnostics.join("\n")).toContain("could not be started");
   expect(diagnostics.filter((message) => message.includes("install is"))).toHaveLength(0);
 });
@@ -601,7 +603,7 @@ test("a handoff whose marker names a different version reports it and falls back
     environment: NodeJS.ProcessEnv;
   }) => {
     if (args.at(-1) === "--version") {
-      return { spawned: true, exitCode: 0, stdout: "0.9.0\n", stderr: "" };
+      return { spawned: true, exitCode: 0, stdout: "0.10.0\n", stderr: "" };
     }
     // The command ran, but not the pinned copy - npm resolved the name to some other install that
     // still writes markers. Its marker names what actually executed.
@@ -610,7 +612,7 @@ test("a handoff whose marker names a different version reports it and falls back
       markerPath,
       `${JSON.stringify({
         version: "0.1.0",
-        base: "0.8.0",
+        base: "0.9.0",
         pid: 4242,
         timestamp: "2026-09-27T12:00:00.000Z",
       })}\n`,
@@ -622,9 +624,9 @@ test("a handoff whose marker names a different version reports it and falls back
 
   await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, {
     configDirectory: directory,
-    currentVersion: "0.8.0",
+    currentVersion: "0.9.0",
     environment: {},
-    fetchLatestVersion: async () => "0.9.0",
+    fetchLatestVersion: async () => "0.10.0",
     countReleasesBehind: async () => 1,
     isInteractive: () => true,
     now: () => new Date("2026-09-27T12:00:00.000Z"),
@@ -635,7 +637,7 @@ test("a handoff whose marker names a different version reports it and falls back
 
   // The command's own exit code survives - it did run - and the verification failure lives on
   // stderr with the throttled hint behind it.
-  expect(diagnostics.join("\n")).toContain("the handed-off command ran 0.1.0, not 0.9.0");
+  expect(diagnostics.join("\n")).toContain("the handed-off command ran 0.1.0, not 0.10.0");
   expect(diagnostics.filter((message) => message.includes("install is"))).toHaveLength(1);
   await expect(readFile(markerPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   const state = JSON.parse(
@@ -652,7 +654,7 @@ test("a handoff without a marker is unverifiable and still falls back to the hin
     environment: NodeJS.ProcessEnv;
   }) => {
     if (args.at(-1) === "--version") {
-      return { spawned: true, exitCode: 0, stdout: "0.9.0\n", stderr: "" };
+      return { spawned: true, exitCode: 0, stdout: "0.10.0\n", stderr: "" };
     }
     // A child old enough to predate marker verification writes nothing at all: the shape of a
     // shadowed legacy global executing the handoff silently.
@@ -663,9 +665,9 @@ test("a handoff without a marker is unverifiable and still falls back to the hin
 
   await expect(runWithAutomaticUpdates(["inspect", "materials"], runLocal, {
     configDirectory: directory,
-    currentVersion: "0.8.0",
+    currentVersion: "0.9.0",
     environment: {},
-    fetchLatestVersion: async () => "0.9.0",
+    fetchLatestVersion: async () => "0.10.0",
     countReleasesBehind: async () => 1,
     isInteractive: () => true,
     now: () => new Date("2026-09-27T12:00:00.000Z"),
