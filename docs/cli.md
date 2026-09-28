@@ -160,6 +160,7 @@ maa-evidence view --input inspection.json --format manifest
     "artifacts": 22, "readForRuntimeFacts": 7, "notRead": 15,
     "byKind": { "image": 5, "log": 3, "maa_log": 7, "other": 7 },
     "byStatus": { "selected": 12, "skipped": 10 },
+    "rotationFamilyLabel": "ext",
     "rotations": { "families": 2, "members": 7, "timestampedMembers": 5, "readMembers": 7 },
     "selected": 12, "skipped": 10
   }
@@ -174,6 +175,9 @@ maa-evidence view --input inspection.json --format manifest
 - `byStatus` 保留报告自己的 `selected|available|skipped|unreadable` 词汇**原样**,与上面两项**不合并、
   **不互相改写。两者对不上是**有意义的信号**,不是矛盾——本语料里 `byStatus.selected: 12` 包含 5 张
   被选中的图片(它们不承载运行时事实),所以 `readForRuntimeFacts` 是 7 而不是 12。
+- `rotationFamilyLabel` 是**本次检查**顶层轮转族的标签(被检查目录自身的名字,或单文件检查时该文件
+  所在目录的名字)。检查是唯一知道输入是目录还是文件的一方,所以它把标签记下来,让清单渲染器不必去
+  猜、也不必碰语料。
 - 带 `--from/--to` 时 `readForRuntimeFacts` 随窗口变:全目录 7 → 窗口 `18:38–18:42:20` 为 4
   (`notRead` 15 → 18,`byStatus {selected:6, available:6, skipped:10}`)。
 
