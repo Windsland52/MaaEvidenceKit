@@ -1174,14 +1174,18 @@ test("digests failure images and folds byte-identical screenshots without mergin
 
   // Records and evidence IDs stay separate; only the accounting is folded.
   expect(new Set(failureImages.map((item) => item.id)).size).toBe(2);
-  const digestedArtifacts = result.artifacts.filter((artifact) => artifact.contentDigest !== undefined);
-  expect(digestedArtifacts).toHaveLength(2);
-  expect(new Set(digestedArtifacts.map((artifact) => artifact.contentDigest)).size).toBe(1);
+  const imageArtifacts = result.artifacts.filter((artifact) => artifact.kind === "image");
+  expect(imageArtifacts).toHaveLength(2);
+  expect(imageArtifacts.map((artifact) => artifact.contentDigest)).toEqual([digests[0], digests[0]]);
+  // Every readable artifact is digested, not just the failure-referenced images: whether a record
+  // has a digest must not depend on which adapter asked for it.
+  expect(result.artifacts.every((artifact) => artifact.contentDigest !== undefined)).toBe(true);
 
   expect(result.statistics["byteIdenticalArtifactGroups"]).toBe(1);
   expect(result.statistics["byteIdenticalArtifactRecords"]).toBe(2);
   expect(result.statistics["byteIdenticalArtifactRecordsDeduplicated"]).toBe(1);
-  expect(result.statistics["artifactContentDigests"]).toBe(2);
+  // Four readable artifacts: two identical images, package.json, and the log.
+  expect(result.statistics["artifactContentDigests"]).toBe(4);
   expect(result.warnings).toContainEqual({
     code: "mla_byte_identical_artifacts",
     message: expect.stringContaining("2 artifact records are byte-identical across 1 content digest"),
@@ -1209,7 +1213,11 @@ test("does not treat empty failure images as byte-identical", async () => {
   expect(failureImage).toBeDefined();
   if (failureImage === undefined) throw new Error("expected a failure image record");
   expect((failureImage.data as { contentDigest?: string }).contentDigest).toBeUndefined();
-  expect(result.artifacts.filter((artifact) => artifact.contentDigest !== undefined)).toHaveLength(0);
+  const imageArtifact = result.artifacts.find((artifact) => artifact.kind === "image");
+  expect(imageArtifact?.contentDigest).toBeUndefined();
+  // Absence is named, never left to be read as equality: the reason travels on the record.
+  expect(imageArtifact?.digestStatus).toBe("empty");
+  expect(result.artifacts.filter((artifact) => artifact.contentDigest === undefined)).toHaveLength(1);
   expect(result.statistics["byteIdenticalArtifactGroups"]).toBe(0);
   expect(result.warnings.some((warning) => warning.code === "mla_byte_identical_artifacts")).toBe(false);
 });
