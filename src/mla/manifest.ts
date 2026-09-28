@@ -34,7 +34,7 @@ export async function inspectMlaManifest(
   options: MlaManifestInspectionOptions = {},
 ): Promise<MlaManifestInspectionResult> {
   validateTimeRange(options.timeRange);
-  const { resolvedPath } = await resolveInspectionInput(inputPath);
+  const { resolvedPath, isDirectory } = await resolveInspectionInput(inputPath);
   const discovery = await profileStage("mla.discovery", () => discoverArtifacts(resolvedPath));
   const digestResults = await profileStage("mla.content_digest", () => digestArtifacts(discovery.artifacts));
   const artifacts = applyDigestResults(discovery.artifacts, digestResults);
@@ -76,7 +76,7 @@ export async function inspectMlaManifest(
       artifacts: artifacts.length,
       artifactContentDigests: artifacts.filter((artifact) => artifact.contentDigest !== undefined).length,
     },
-    coverage: coverageAnnotation(artifacts, resolvedPath),
+    coverage: coverageAnnotation(artifacts, resolvedPath, isDirectory),
     details: { extraction: "not-run" },
   };
 }

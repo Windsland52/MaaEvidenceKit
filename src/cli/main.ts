@@ -205,6 +205,8 @@ async function runMlaManifest(
     requirePositional(parsed, 2, "input path"),
     range === undefined ? {} : { timeRange: range },
   );
+  // No familyRoot override: the record already carries the one its coverage was computed with, so
+  // the rendered labels cannot disagree with the stored counts.
   const rendered = profileStageSync("render", () => sdk.renderCoverageManifest(result, {
     format,
     extraction: "not-run",

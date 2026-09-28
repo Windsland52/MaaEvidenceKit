@@ -59,8 +59,8 @@ function isRotationMember(kind: Artifact["kind"], name: string): boolean {
 }
 
 /**
- * Label one rotation family. The family is a directory: the root directory's own family carries
- * the root's basename, deeper families carry their portable relative directory path.
+ * Label one rotation family. The family is a directory: the root directory's own family carries the
+ * root's basename, deeper families carry their portable relative directory path.
  */
 export function rotationFamilyLabel(rootPath: string, relativePath: string): string {
   const directory = path.posix.dirname(relativePath);
@@ -74,7 +74,8 @@ export function rotationFamilyLabel(rootPath: string, relativePath: string): str
 /**
  * Derive rotation membership and name-based time coverage for every artifact of one inspected
  * root. Pure over the artifact records: only relative paths and kinds are read, never file
- * contents or modification times.
+ * contents or modification times. `rootPath` labels the family at the top of the inspection and
+ * must be a directory; callers pass `rotationFamilyRoot(inputPath, isDirectory)`.
  *
  * Members of a family are ordered by their name timestamp and then by path, with undated (active)
  * members after every dated one. `timeCoverage.from` is the previous dated boundary in the family

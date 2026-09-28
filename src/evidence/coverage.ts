@@ -1,4 +1,6 @@
-import { deriveRotationCoverage } from "./rotation.js";
+import path from "node:path";
+
+import { deriveRotationCoverage, rotationFamilyLabel } from "./rotation.js";
 import type { Artifact, CoverageAnnotation } from "./types.js";
 
 const STATUS_ORDER: readonly Artifact["status"][] = ["selected", "available", "skipped", "unreadable"];
@@ -13,9 +15,15 @@ const STATUS_ORDER: readonly Artifact["status"][] = ["selected", "available", "s
  *
  * `rootPath` labels the rotation family that lives in the inspected root itself. It is optional
  * because a caller with only a report in hand has no corpus path; the manifest view re-derives its
- * counts from the same function so the two entry points cannot drift.
+ * counts from the same function so the two entry points cannot drift. `isDirectory` says whether
+ * that root is the inspected directory or an inspected file whose paths are relative to its parent,
+ * which decides whether the label names the root or its enclosing directory.
  */
-export function coverageAnnotation(artifacts: readonly Artifact[], rootPath = ""): CoverageAnnotation {
+export function coverageAnnotation(
+  artifacts: readonly Artifact[],
+  rootPath = "",
+  isDirectory = true,
+): CoverageAnnotation {
   const kinds: Record<string, number> = {};
   const statuses = new Map<Artifact["status"], number>();
   let readForRuntimeFacts = 0;
@@ -45,6 +53,7 @@ export function coverageAnnotation(artifacts: readonly Artifact[], rootPath = ""
     notRead: artifacts.length - readForRuntimeFacts,
     byKind,
     byStatus,
+    rotationFamilyLabel: rotationFamilyLabel(isDirectory ? rootPath : path.dirname(rootPath), ""),
     rotations: {
       families: families.size,
       members: rotations.size,

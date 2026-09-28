@@ -167,6 +167,10 @@ test("view --format manifest renders a saved report after its corpus is deleted"
   // The document root stays the portable "." even when the report names the corpus it came from.
   expect(document.root).toBe(".");
   expect(document.input.path).toBe(root);
+  // Rendering from a report labels the root family exactly as the inspection did: the inspected
+  // directory's own name, not its parent's and not the file's.
+  expect(document.artifacts.find((row) => row.path === "maafw.log")?.rotation)
+    .toEqual({ family: path.basename(root), index: 2 });
   // The renderer never reads the corpus, so the direct call reproduces the command byte for byte.
   expect(before.stdout).toBe(renderCoverageManifest(report, {
     format: "json",

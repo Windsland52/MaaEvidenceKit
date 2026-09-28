@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import {
   ROTATION_BOUNDARY_AMBIGUITY_MS,
   ROTATION_TIME_BASIS,
@@ -172,9 +174,15 @@ function manifestRow(
   };
 }
 
+/**
+ * `rootPath` is the directory the artifact's relative paths were taken against, which is what labels
+ * the rotation family at the top of the inspection: it is the inspected directory, or the inspected
+ * file's parent. It is required rather than derived because a report does not record which of the two
+ * its input was, and the view path may not stat the corpus to find out.
+ */
 export function manifestRows(
   artifacts: readonly Artifact[],
-  rootPath = "",
+  rootPath: string,
 ): ManifestRow[] {
   const coverage = deriveRotationCoverage(artifacts, rootPath);
   return [...artifacts]
@@ -190,7 +198,7 @@ export function manifestRows(
 export function reconcileCoverage(
   artifacts: readonly Artifact[],
   stored: CoverageAnnotation | undefined,
-  rootPath = "",
+  rootPath: string,
 ): CoverageAnnotation {
   const derived = coverageAnnotation(artifacts, rootPath);
   if (stored === undefined) return derived;
@@ -210,8 +218,14 @@ export function reconcileCoverage(
 
 export type ManifestRenderOptions = {
   extraction: ManifestExtraction;
-  /** Rotation family label for members that sit in the inspected root. */
-  rootPath?: string;
+  /**
+   * Overrides the directory that labels the rotation family at the top of the inspection. The default
+   * is the family root the inspection itself recorded in its coverage annotation, so the rendered
+   * labels agree with the stored record without anyone re-deriving them, and without the view path
+   * touching the corpus. Only a report written before that field existed falls back to the input path,
+   * which labels a directory input correctly.
+   */
+  familyRoot?: string;
   /** Overrides the report's own timestamp; used only by tests that compare two renderings. */
   generatedAt?: string;
 };
@@ -228,12 +242,13 @@ export function manifestDocument(
   result: InspectionResult,
   options: ManifestRenderOptions,
 ): ManifestDocument {
-  // The inspected root only ever labels the rotation family that lives in the root directory itself;
-  // it never appears in the document, which keeps two manifests of one corpus comparable byte for
-  // byte no matter which machine produced which.
-  const rootPath = options.rootPath ?? result.input.path;
-  const coverage = reconcileCoverage(result.artifacts, result.coverage, rootPath);
-  const rows = manifestRows(result.artifacts, rootPath);
+  // The inspection recorded which directory its relative paths were taken against, which is the one
+  // fact a manifest renderer cannot infer from a report and must not probe the filesystem for.
+  const familyRoot = options.familyRoot
+    ?? result.coverage?.rotationFamilyLabel
+    ?? path.basename(result.input.path);
+  const coverage = reconcileCoverage(result.artifacts, result.coverage, familyRoot);
+  const rows = manifestRows(result.artifacts, familyRoot);
   let selected = 0;
   let skipped = 0;
   for (const row of rows) {

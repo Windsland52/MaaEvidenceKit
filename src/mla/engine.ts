@@ -2735,7 +2735,7 @@ export async function inspectMla(
     evidence,
     missingEvidence,
     warnings,
-    coverage: coverageAnnotation(artifacts, resolvedPath),
+    coverage: coverageAnnotation(artifacts, resolvedPath, isDirectory),
     statistics: {
       scannedFiles: discovery.scannedFileCount,
       omittedUnsupportedFiles: discovery.omittedOtherFileCount,

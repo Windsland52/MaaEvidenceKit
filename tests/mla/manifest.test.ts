@@ -152,7 +152,11 @@ test("short-circuits after discovery, selecting and loading nothing", async () =
     notRead: result.artifacts.length,
   });
 
-  const document = manifestDocument(result, { extraction: "not-run", generatedAt: GENERATED_AT });
+  const document = manifestDocument(result, {
+    extraction: "not-run",
+    familyRoot: root,
+    generatedAt: GENERATED_AT,
+  });
   expect(document.coverage.selected).toBe(0);
   expect(document.coverage.readForRuntimeFacts).toBe(0);
   expect(document.coverage.skipped).toBe(document.artifacts.filter((row) => row.status === "skipped").length);
@@ -223,14 +227,20 @@ test("reports each rotation as a family member with a monotonic name-derived win
     toKnown: false,
   });
 
-  // The document reports the same membership it prints in the rows.
-  const document = manifestDocument(result, { extraction: "not-run", generatedAt: GENERATED_AT });
+  // The document reports the same membership it prints in the rows, and labels the root family from
+  // the inspected directory rather than from wherever that directory happens to sit.
+  const document = manifestDocument(result, {
+    extraction: "not-run",
+    familyRoot: root,
+    generatedAt: GENERATED_AT,
+  });
   expect(document.coverage.rotations).toEqual({
     families: 2,
     members: 7,
     timestampedMembers: 5,
     readMembers: 0,
   });
+  expect(rowFor(document.artifacts, "maafw.log").rotation).toEqual({ family, index: ROTATIONS.length + 1 });
 });
 
 test("derives time coverage from file names even when modification times disagree", async () => {
@@ -366,6 +376,7 @@ test("keeps a file no adapter supports in the rows with a non-empty reason", asy
 
   const document = manifestDocument(await inspectMlaManifest(root), {
     extraction: "not-run",
+    familyRoot: root,
     generatedAt: GENERATED_AT,
   });
 
@@ -386,14 +397,20 @@ test("renders a saved report after its corpus is gone", async () => {
   const inspection = await inspectMlaManifest(root);
   const reportPath = path.join(store, "report.json");
   await writeFile(reportPath, JSON.stringify(inspection, null, 2), "utf8");
-  const options = { extraction: "reported", generatedAt: inspection.generatedAt } as const;
+  // A report does not record whether its input was a directory, so the caller supplies the family
+  // root; the view path may not stat the corpus, which is gone by the second render below.
+  const options = { extraction: "reported", familyRoot: root, generatedAt: inspection.generatedAt } as const;
   const before = renderCoverageManifest(inspection, options);
 
   await rm(root, { recursive: true, force: true });
   await expect(stat(root)).rejects.toThrow();
 
   const restored = JSON.parse(await readFile(reportPath, "utf8")) as typeof inspection;
-  const after = renderCoverageManifest(restored, { extraction: "reported", generatedAt: restored.generatedAt });
+  const after = renderCoverageManifest(restored, {
+    extraction: "reported",
+    familyRoot: root,
+    generatedAt: restored.generatedAt,
+  });
 
   expect(after).toBe(before);
   expect(JSON.parse(after)).toEqual(JSON.parse(before));

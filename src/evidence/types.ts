@@ -88,6 +88,14 @@ export type CoverageAnnotation = {
   byKind: Record<string, number>;
   byStatus: Record<string, number>;
   rotations: CoverageRotations;
+  /**
+   * The label of the rotation family that sits at the top of the inspection: the name of the directory
+   * the relative paths were taken against, which is the inspected directory itself or an inspected
+   * file's parent. Recorded as a name rather than a path because it is the only thing a consumer needs
+   * to re-derive the same labels from a report, and because an absolute machine path does not belong
+   * in a document whose rows are portable.
+   */
+  rotationFamilyLabel: string;
 };
 
 export type MissingEvidence = {
