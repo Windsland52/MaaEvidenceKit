@@ -24,3 +24,9 @@ export {
   type MlaRecognitionTextCountSummary,
 } from "./engine.js";
 export type { MlaRuntimeInspectionResult } from "./translate.js";
+export {
+  inspectMlaManifest,
+  type MlaManifestDetails,
+  type MlaManifestInspectionOptions,
+  type MlaManifestInspectionResult,
+} from "./manifest.js";

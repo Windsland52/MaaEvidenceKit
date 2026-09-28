@@ -89,6 +89,26 @@ function outputFormat(parsed: ParsedArguments): ViewFormat {
   return value;
 }
 
+/**
+ * The manifest is a separate output family rather than a fourth `ViewFormat`.
+ *
+ * `view()` renders an inspection document; a manifest is a projection of the artifact records, and
+ * the two entry points that offer it (the discovery-state short circuit and a saved report) share
+ * one renderer instead of one `switch` arm. Reading the raw option rather than the resolved format
+ * matters: only an explicit `--format manifest` may take the short circuit, so the TTY-dependent
+ * default can never silently stop extracting evidence.
+ */
+function manifestFormat(parsed: ParsedArguments): "json" | "compact" | undefined {
+  const value = option(parsed, "--format");
+  if (value === undefined) return undefined;
+  if (value === "manifest") return "json";
+  if (value === "manifest-compact") return "compact";
+  if (value !== "json" && value !== "text" && value !== "mermaid") {
+    throw new UsageError("--format must be json, text, mermaid, manifest, or manifest-compact.");
+  }
+  return undefined;
+}
+
 function requestedFields(sdk: Sdk, parsed: ParsedArguments): string[] {
   return options(parsed, "--fields").length === 0 ? [] : sdk.parseFields(options(parsed, "--fields"));
 }
@@ -143,6 +163,8 @@ async function runMla(parsed: ParsedArguments): Promise<InspectionResult> {
   if (requirePositional(parsed, 1, "MLA command") !== "inspect") {
     throw new UsageError("The MLA namespace currently supports only 'inspect'.");
   }
+  const format = manifestFormat(parsed);
+  if (format !== undefined) return runMlaManifest(parsed, format);
   const range = timeRange(parsed);
   const sdk = await loadSdk();
   const result = await sdk.inspectMla(requirePositional(parsed, 2, "input path"), {
@@ -151,6 +173,43 @@ async function runMla(parsed: ParsedArguments): Promise<InspectionResult> {
     includeAllSignals: flag(parsed, "--all-signals"),
   });
   await emitInspection(sdk, result, parsed);
+  return result;
+}
+
+/**
+ * `mla inspect <dir> --format manifest`: inventory and digest the corpus, then stop.
+ *
+ * The point of the short circuit is that coverage is visible before extraction is paid for, so this
+ * path never selects a target, loads a log, or materializes evidence - and says so in the document it
+ * prints (`input.extraction: "not-run"`). Options that only shape extraction are refused rather than
+ * accepted and ignored.
+ */
+async function runMlaManifest(
+  parsed: ParsedArguments,
+  format: "json" | "compact",
+): Promise<InspectionResult> {
+  const extractionOnly = ([
+    ["--summary", "the manifest is already a bounded projection of the artifact list"],
+    ["--all-signals", "a manifest does not extract runtime signals"],
+    ["--keyword", "a manifest selects and loads no log target"],
+  ] as const).filter(([name]) => flag(parsed, name) || options(parsed, name).length > 0);
+  if (extractionOnly.length > 0) {
+    throw new UsageError(
+      `--format manifest short-circuits before extraction, so ${extractionOnly.map(([name]) => name).join(", ")}`
+      + ` would have no effect: ${extractionOnly.map(([, reason]) => reason).join("; ")}.`,
+    );
+  }
+  const sdk = await loadSdk();
+  const range = timeRange(parsed);
+  const result = await sdk.inspectMlaManifest(
+    requirePositional(parsed, 2, "input path"),
+    range === undefined ? {} : { timeRange: range },
+  );
+  const rendered = profileStageSync("render", () => sdk.renderCoverageManifest(result, {
+    format,
+    extraction: "not-run",
+  }));
+  await emit(rendered, option(parsed, "--output"));
   return result;
 }
 
@@ -310,8 +369,27 @@ async function emitRendered(
 async function runView(parsed: ParsedArguments): Promise<void> {
   const result = await readInspection(option(parsed, "--input") ?? "");
   const evidenceId = option(parsed, "--evidence-id");
-  const format = outputFormat(parsed);
   const sdk = await loadSdk();
+  const manifest = manifestFormat(parsed);
+  if (manifest !== undefined) {
+    // The other face of one renderer: a manifest assembled from a saved report. Nothing on this path
+    // resolves, stats, or opens result.input.path, so a report still renders after its corpus was
+    // renamed, moved, or deleted; sha256 comes from the digest the report already carries.
+    if (evidenceId !== undefined) {
+      throw new UsageError("view --format manifest renders every artifact; --evidence-id applies to json and text.");
+    }
+    if (option(parsed, "--max-lines") !== undefined || option(parsed, "--max-characters") !== undefined) {
+      throw new UsageError("view --format manifest is never truncated; a manifest over budget is a bug, not a reason to hide rows.");
+    }
+    const rendered = profileStageSync("render", () => sdk.renderCoverageManifest(result, {
+      format: manifest,
+      extraction: "reported",
+      generatedAt: result.generatedAt,
+    }));
+    await emit(rendered, option(parsed, "--output"));
+    return;
+  }
+  const format = outputFormat(parsed);
   // Validated up front: a budget asked for with a format that cannot honor it must fail even when
   // the rendering path would never read it.
   const budget = viewTextBudget(sdk, parsed, format);

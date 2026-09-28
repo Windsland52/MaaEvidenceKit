@@ -1,4 +1,4 @@
-import { access, stat } from "node:fs/promises";
+import { access } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -16,13 +16,12 @@ import { buildNodeExecutionTimeline } from "@windsland52/maa-log-tools/node-exec
 import {
   EVIDENCE_SCHEMA_VERSION,
   EvidenceLedger,
-  UsageError,
   artifactId,
+  coverageAnnotation,
   findByteIdenticalArtifacts,
   findCrossArtifactDuplicateObservations,
+  validateTimeRange,
   type CrossArtifactDuplicateObservationGroup,
-  isMissingPathError,
-  parseTimestamp,
   portablePath,
   type Artifact,
   type Evidence,
@@ -33,8 +32,13 @@ import {
   type TimeRange,
 } from "../evidence/index.js";
 import { profileStage, profileStageSync } from "../profiling.js";
-import { contentDigest } from "./content-digest.js";
-import { MAX_DIRECTORY_ENTRIES, discoverArtifacts, measureDirectoryEntries } from "./discovery.js";
+import { applyDigestResults, digestArtifacts } from "./content-digest.js";
+import {
+  MAX_DIRECTORY_ENTRIES,
+  discoverArtifacts,
+  measureDirectoryEntries,
+  resolveInspectionInput,
+} from "./discovery.js";
 import type { OmittedUnsupportedFile } from "./discovery.js";
 import {
   extractPipelineOverrides,
@@ -467,18 +471,6 @@ export type MlaInspectionDetails = {
 
 export type MlaInspectionResult = InspectionResult<MlaInspectionDetails> & { kind: "mla" };
 
-function validateTimeRange(range: TimeRange | undefined): void {
-  if (range?.from !== undefined) parseTimestamp(range.from, "timeRange.from");
-  if (range?.to !== undefined) parseTimestamp(range.to, "timeRange.to");
-  if (
-    range?.from !== undefined
-    && range.to !== undefined
-    && Date.parse(range.from) > Date.parse(range.to)
-  ) {
-    throw new Error("timeRange.from must not be later than timeRange.to.");
-  }
-}
-
 function focusFromOptions(options: MlaInspectOptions): LogBundleFocus | undefined {
   const focus: LogBundleFocus = {};
   if (options.keywords !== undefined && options.keywords.length > 0) {
@@ -576,34 +568,6 @@ function imageArtifactForReference(
     const absolute = normalizeCandidate(item.path);
     return relative === candidate || absolute === candidate || candidate.endsWith(`/${relative}`);
   });
-}
-
-/**
- * Digest the image artifacts that failures actually reference.
- *
- * Scope is deliberately narrow: only failure-referenced images are read, because those are the
- * records consumers group by captured screen, and hashing every image in a large archive to answer
- * a question nobody asked would make inspection cost scale with the artifact tree instead of with
- * the failures. Empty and unreadable files stay without a digest rather than being reported as
- * equal - an empty fixture file is not evidence that two screens matched.
- */
-async function digestReferencedImages(
-  artifacts: readonly Artifact[],
-  references: readonly string[],
-): Promise<Map<string, string>> {
-  const targets = new Map<string, string>();
-  for (const reference of references) {
-    const artifact = imageArtifactForReference(artifacts, reference);
-    if (artifact === undefined) continue;
-    targets.set(pathKey(artifact.path), artifact.path);
-  }
-  const digests = new Map<string, string>();
-  const entries = [...targets.entries()].sort(([left], [right]) => left.localeCompare(right));
-  for (const [key, file] of entries) {
-    const result = await contentDigest(file);
-    if (result.ok) digests.set(key, result.digest);
-  }
-  return digests;
 }
 
 function evidenceSource(
@@ -2474,22 +2438,12 @@ export async function inspectMla(
   options: MlaInspectOptions = {},
 ): Promise<MlaInspectionResult> {
   validateTimeRange(options.timeRange);
-  const resolvedPath = path.resolve(inputPath);
-  let metadata;
-  try {
-    metadata = await stat(resolvedPath);
-  } catch (error: unknown) {
-    if (isMissingPathError(error)) throw new UsageError(`Input path not found: ${resolvedPath}`);
-    throw error;
-  }
-  if (!metadata.isDirectory() && resolvedPath.toLowerCase().endsWith(".zip")) {
-    throw new UsageError("Archive extraction belongs to the calling harness; pass the extracted directory.");
-  }
+  const { resolvedPath, isDirectory } = await resolveInspectionInput(inputPath);
   const discovery = await profileStage("mla.discovery", () => discoverArtifacts(resolvedPath));
   const focus = focusFromOptions(options);
   const targets = await profileStage("mla.target_selection", () => selectMlaTargets(
     resolvedPath,
-    metadata.isDirectory(),
+    isDirectory,
     discovery.artifacts,
     focus !== undefined,
   ));
@@ -2534,16 +2488,13 @@ export async function inspectMla(
       });
     }
   }
-  const digestByPath = await profileStage("mla.content_digest", () => digestReferencedImages(
-    discovery.artifacts,
-    loadedTargets.flatMap((loaded) =>
-      loaded.runtime.failures.flatMap((failure) => [...failure.error_images, ...failure.vision_images])
-    ),
-  ));
-  const digestedArtifacts = discovery.artifacts.map((artifact) => {
-    const digest = digestByPath.get(pathKey(artifact.path));
-    return digest === undefined ? artifact : { ...artifact, contentDigest: digest };
-  });
+  const digestResults = await profileStage("mla.content_digest", () => digestArtifacts(discovery.artifacts));
+  const digestedArtifacts = applyDigestResults(discovery.artifacts, digestResults);
+  const digestByPath = new Map<string, string>();
+  for (const artifact of digestedArtifacts) {
+    if (artifact.contentDigest === undefined) continue;
+    digestByPath.set(pathKey(artifact.path), artifact.contentDigest);
+  }
   const targetFailureReport = reportMlaTargetFailures(targetFailures, targets);
   return profileStageSync("mla.evidence_materialization", () => {
   const completeRuntime = loadedTargets.length === 0
@@ -2784,6 +2735,7 @@ export async function inspectMla(
     evidence,
     missingEvidence,
     warnings,
+    coverage: coverageAnnotation(artifacts, resolvedPath),
     statistics: {
       scannedFiles: discovery.scannedFileCount,
       omittedUnsupportedFiles: discovery.omittedOtherFileCount,

@@ -26,12 +26,14 @@ export const TOP_LEVEL_HELP = `MaaEvidenceKit — deterministic MaaFramework evi
 
 Usage:
   maa-evidence mla inspect <path> [--from ISO] [--to ISO] [--keyword TEXT] [--all-signals] [--summary] [--format json|text|mermaid]
+  maa-evidence mla inspect <path> --format manifest|manifest-compact
   maa-evidence mse inspect <path> [--task NAME] [--depth N] [--controller NAME] [--resource NAME] [--no-referencers] [--syntax-mode maafw|maa] [--git-ref REF] [--summary] [--format json|text|mermaid]
   maa-evidence mse resolve <path> --task NAME [--depth N] [--controller NAME] [--resource NAME] [--no-referencers] [--syntax-mode maafw|maa] [--summary] [--format json|text|mermaid]
   maa-evidence repo-docs <checkout> [--summary] [--format json|text]
   maa-evidence inspect <path> [--from ISO] [--to ISO] [--task NAME] [--controller NAME] [--resource NAME] [--referencers|--no-referencers] [--no-mla] [--no-mse] [--summary]
   maa-evidence window --input result.json (--evidence-id ID | --artifact-id ID) [--line N] [--before N] [--after N] [--max-lines N] [--max-characters N]
   maa-evidence view --input result.json [--evidence-id ID] [--fields PATH,...] --format json|text|mermaid
+  maa-evidence view --input result.json --format manifest|manifest-compact
   maa-evidence search --input result.json [--artifact-id ID] [--kind KIND] [--node NODE] [--task TASK] [--text TEXT] [--from ISO] [--to ISO] [--limit N] [--format json|text]
   maa-evidence batch --input result.json --requests queries.json
   maa-evidence timeline --input result.json [--task NAME] [--format json|text]
@@ -62,6 +64,8 @@ const COMMANDS: Record<string, CommandHelp> = {
     usage: [
       "maa-evidence mla inspect <path> [--from ISO] [--to ISO] [--keyword TEXT] [--all-signals]",
       "                           [--summary] [--format json|text|mermaid] [--output FILE]",
+      "maa-evidence mla inspect <path> --format manifest|manifest-compact [--from ISO] [--to ISO]",
+      "                           [--output FILE]",
     ],
     options: [
       ["--from, --to", "Narrow the evidence set to a time window. MLA first narrows which log files load, then MEK filters facts; a matched file may still be read in full, and that limit is reported."],
@@ -72,6 +76,9 @@ const COMMANDS: Record<string, CommandHelp> = {
     notes: [
       "Use this when MaaFramework logs are the material. Use `inspect` only when the same run must be correlated with project source; `inspect` also runs MSE, so it is slower and reports a different evidence set.",
       "A report written with --output stays consumable by window, view, search, batch, and timeline even when --summary bounded stdout.",
+      "--format manifest is a discovery-state short circuit: walk, classify, and stream a sha256 for every artifact, then stop before target selection and loading. The document says extraction: \"not-run\" and carries no evidence or statistics, so use it to see coverage before deciding whether to pay for parsing. --format manifest-compact prints the same document on one line.",
+      "--format manifest refuses --summary, --all-signals, and --keyword rather than accepting them and doing nothing: they shape extraction, and the manifest stops before extraction.",
+      "Manifest rows carry rotation and filename-derived timeCoverage for MaaFramework logs. Those boundaries come from the file name (about +/-25 ms) and never from a modification time.",
     ],
   },
   mla: {
@@ -193,6 +200,7 @@ const COMMANDS: Record<string, CommandHelp> = {
     usage: [
       "maa-evidence view --input result.json [--evidence-id ID] [--fields PATH,...] [--format json|text|mermaid]",
       "                         [--output FILE]",
+      "maa-evidence view --input result.json --format manifest|manifest-compact [--output FILE]",
     ],
     options: [
       ["--evidence-id ID", "Render only this record. Without it the whole saved document is rendered, which is usually dominated by the ledger and details."],
@@ -202,6 +210,8 @@ const COMMANDS: Record<string, CommandHelp> = {
     notes: [
       "JSON output is never truncated, so a projection with --fields is the way to bound it; --fields applies to --format json only.",
       "Whole-document text output is for reading, not for piping into another tool.",
+      "--format manifest renders the coverage manifest for this saved report through the same renderer mla inspect --format manifest uses. This path touches no corpus file: digests come from the report, so it still answers after the material was renamed or deleted. It is never truncated, and --evidence-id, --max-lines, and --max-characters are refused rather than ignored.",
+      "That manifest's input.extraction is \"reported\" rather than \"not-run\": the extraction happened in whichever process wrote this report. Its generatedAt is the report's own, so the manifest for one report is byte-for-byte stable.",
     ],
   },
   search: {

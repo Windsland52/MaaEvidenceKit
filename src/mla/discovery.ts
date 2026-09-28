@@ -1,7 +1,7 @@
 import { open, opendir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
-import { artifactId, relativePortablePath } from "../evidence/index.js";
+import { UsageError, artifactId, isMissingPathError, relativePortablePath } from "../evidence/index.js";
 import type { Artifact, InspectionWarning, MissingEvidence } from "../evidence/index.js";
 
 const SAMPLE_BYTES = 64 * 1024;
@@ -40,6 +40,31 @@ export type DirectoryEntryBudget = {
   countedFiles: number;
   exceeded: boolean;
 };
+
+export type ResolvedInspectionInput = {
+  resolvedPath: string;
+  isDirectory: boolean;
+};
+
+/**
+ * Resolve and guard an MLA input path. Shared by the full inspection and the discovery-state
+ * manifest so both entry points refuse the same inputs with the same words: a missing path, and an
+ * archive that the calling harness was supposed to extract.
+ */
+export async function resolveInspectionInput(inputPath: string): Promise<ResolvedInspectionInput> {
+  const resolvedPath = path.resolve(inputPath);
+  let metadata;
+  try {
+    metadata = await stat(resolvedPath);
+  } catch (error: unknown) {
+    if (isMissingPathError(error)) throw new UsageError(`Input path not found: ${resolvedPath}`);
+    throw error;
+  }
+  if (!metadata.isDirectory() && resolvedPath.toLowerCase().endsWith(".zip")) {
+    throw new UsageError("Archive extraction belongs to the calling harness; pass the extracted directory.");
+  }
+  return { resolvedPath, isDirectory: metadata.isDirectory() };
+}
 
 /**
  * A file that discovery saw but did not classify or parse. MEK states what it omitted so a harness

@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
 import { open } from "node:fs/promises";
+import path from "node:path";
+
+import type { Artifact } from "../evidence/index.js";
 
 /** Hash chunk size. Bounded so a large image never has to be buffered whole. */
 const DIGEST_CHUNK_BYTES = 1024 * 1024;
@@ -55,4 +58,50 @@ export async function contentDigest(file: string): Promise<ContentDigestResult> 
   } finally {
     await handle.close().catch(() => undefined);
   }
+}
+
+/**
+ * Identity key for correlating a digest result with the artifact record it came from. Windows paths
+ * are case-insensitive, so the key normalizes them the same way the artifact id does.
+ */
+export function contentDigestKey(target: string): string {
+  const resolved = path.resolve(target);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+/**
+ * Digest every artifact once, streaming.
+ *
+ * Coverage is deliberately total: a manifest or a report that carries some digests and not others
+ * makes "does this record have a digest?" depend on window and adapter decisions instead of on the
+ * content, which is a non-deterministic contract. Files that cannot be digested stay in the result
+ * with their failure reason rather than being silently treated as absent or distinct.
+ */
+export async function digestArtifacts(
+  artifacts: readonly Artifact[],
+): Promise<Map<string, ContentDigestResult>> {
+  const digests = new Map<string, ContentDigestResult>();
+  const entries = [...artifacts]
+    .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+  for (const artifact of entries) {
+    digests.set(contentDigestKey(artifact.path), await contentDigest(artifact.path));
+  }
+  return digests;
+}
+
+/**
+ * Attach digest results back onto artifact records: a successful digest becomes `contentDigest`, a
+ * failed one becomes an explicit `digestStatus`. Nothing is invented for a file that could not be
+ * read — the absence stays named, never treated as equality or existence.
+ */
+export function applyDigestResults(
+  artifacts: readonly Artifact[],
+  digestResults: ReadonlyMap<string, ContentDigestResult>,
+): Artifact[] {
+  return artifacts.map((artifact) => {
+    const result = digestResults.get(contentDigestKey(artifact.path));
+    if (result === undefined) return artifact;
+    if (result.ok) return { ...artifact, contentDigest: result.digest };
+    return { ...artifact, digestStatus: result.reason };
+  });
 }
