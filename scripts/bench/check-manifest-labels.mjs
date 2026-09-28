@@ -1,0 +1,18 @@
+import { execFileSync } from "node:child_process";
+const env = { ...process.env, MAA_EVIDENCE_TELEMETRY: "0" };
+const cli = "dist/cli/main.js";
+const root = process.argv[2];
+const raw = (args) => execFileSync(process.execPath, [cli, ...args], { encoding: "utf8", env, maxBuffer: 1 << 30 });
+const run = (args) => JSON.parse(raw(args));
+const dir = run(["mla", "inspect", root, "--format", "manifest"]);
+console.log("dir  maafw.log family :", JSON.stringify(dir.artifacts.find((r) => r.path === "maafw.log").rotation));
+console.log("dir  nested family    :", JSON.stringify(dir.artifacts.find((r) => r.path === "cpp-algo/debug/maafw.log").rotation));
+console.log("coverage label        :", JSON.stringify(dir.coverage.rotationFamilyLabel));
+const file = run(["mla", "inspect", root + "/maafw.log", "--format", "manifest"]);
+console.log("file family           :", JSON.stringify(file.artifacts[0].rotation));
+console.log("file coverage label   :", JSON.stringify(file.coverage.rotationFamilyLabel));
+const p = raw(["mla", "inspect", root, "--format", "manifest"]);
+const c = raw(["mla", "inspect", root, "--format", "manifest-compact"]);
+console.log("pretty bytes          :", Buffer.byteLength(p.trim()), "/ 8192");
+console.log("compact bytes         :", Buffer.byteLength(c.trim()), "/ 7168");
+console.log("machine path present  :", /[A-Za-z]:\\\\|[\\/]Users[\\/]/.test(p));

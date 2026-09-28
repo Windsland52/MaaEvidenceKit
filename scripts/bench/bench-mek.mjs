@@ -289,6 +289,7 @@ async function measureItem(spec) {
     const run = await runOnce(spec.binary, ["--version"], { env, cwd: spec.workdir });
     baseline.push(run.wallMs);
   }
+  const startedAt = new Date().toISOString();
   const invoke = () => runOnce(spec.binary, args, { env, cwd: spec.workdir, outputFile: resolvedOutput });
   const cold = await invoke();
   const warm = [];
@@ -300,6 +301,11 @@ async function measureItem(spec) {
     title: spec.title,
     command: ["node", path.basename(spec.binary), ...args].join(" "),
     telemetry: spec.telemetry,
+    startedAt,
+    finishedAt: new Date().toISOString(),
+    // Set by the caller, which re-hashes dist after every item: whether the build under measurement
+    // was still the run's starting build when this item finished.
+    buildStableAfterItem: null,
     startupBaselineMs: { samples: baseline.map(ms), min: ms(Math.min(...baseline)) },
     cold: Object.assign(summarize(cold), { stdoutSha256: cold.stdoutSha256, reportSha256: cold.reportSha256 }),
     warm: { samples: warm.map(summarize), median: medianOf(warm) },
@@ -1082,6 +1088,7 @@ async function main() {
   const versionRun = await runOnce(binary, ["--version"], { env: environment, cwd: workdir });
   const telemetryRun = await runOnce(binary, ["telemetry", "status"], { env: environment, cwd: workdir });
   const distRoot = path.resolve(root, "dist");
+  const distAtStart = distDigests(distRoot, root);
   const packageVersion = JSON.parse(readFileSync(path.resolve(root, "package.json"), "utf8")).version;
   const gitStatus = git(root, ["status", "--porcelain"]);
 
@@ -1115,7 +1122,7 @@ async function main() {
       path: binary.replace(/\\/gu, "/"),
       version: versionRun.stdoutText.trim(),
       packageVersion,
-      distSha256: distDigests(distRoot, root),
+      distSha256: distAtStart,
     },
     git: {
       commit: git(root, ["rev-parse", "HEAD"]),
@@ -1154,8 +1161,12 @@ async function main() {
       + "B report=" + steady.reportBytes + "B baseline=" + measured.startupBaselineMs.min + "ms\n",
     );
   };
+  // The measured binary is the checkout's build, and another process can rebuild it at any moment.
+  // Re-hashing dist after every item turns "the build moved during the run" into a per-item fact, so
+  // a run with a moving checkout still says which measurements are attributable to which build.
   const measure = async (spec) => {
     const measured = await measureItem(Object.assign({}, spec, { binary, workdir, environment }));
+    measured.buildStableAfterItem = JSON.stringify(distDigests(distRoot, root)) === JSON.stringify(distAtStart);
     logItem(measured);
     return measured;
   };
@@ -1338,12 +1349,18 @@ async function main() {
   for (const window of report.windows) window.questions.push(manifestAsked);
 
   const distAfter = distDigests(distRoot, root);
+  const allItems = [...report.items, ...report.windows.flatMap((window) => [...window.items, ...window.followUps])];
   report.binary.distSha256After = distAfter;
-  report.binary.changedDuringRun = JSON.stringify(distAfter) !== JSON.stringify(report.binary.distSha256);
+  report.binary.changedDuringRun = JSON.stringify(distAfter) !== JSON.stringify(distAtStart);
+  report.binary.firstItemAfterBuildChange = (allItems.find((item) => item.buildStableAfterItem === false) === undefined
+    ? null
+    : allItems.find((item) => item.buildStableAfterItem === false).id);
   report.summary = buildSummary(report.windows, "inspect-window-summary-teloff");
   report.summary.binaryChangedDuringRun = report.binary.changedDuringRun;
+  report.summary.itemsBeforeBuildChange = allItems.filter((item) => item.buildStableAfterItem !== false).map((item) => item.id);
   if (report.binary.changedDuringRun) {
-    process.stderr.write("bench-mek: WARNING the build under measurement changed during the run; the numbers above mix two builds.\n");
+    process.stderr.write("bench-mek: WARNING the build under measurement changed while the run was in progress;"
+      + " items measured before \"" + String(report.binary.firstItemAfterBuildChange) + "\" are attributable to the starting build.\n");
   }
   const resultsPath = path.join(workdir, "results", options.label + ".json");
   report.resultsPath = resultsPath.replace(/\\/gu, "/");
