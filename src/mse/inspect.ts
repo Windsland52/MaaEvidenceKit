@@ -4,6 +4,7 @@ import {
   EVIDENCE_SCHEMA_VERSION,
   EvidenceLedger,
   artifactId,
+  coverageAnnotation,
   relativePortablePath,
   type Artifact,
   type InspectionResult,
@@ -230,6 +231,7 @@ export async function inspectMse(
     input: { path: resolvedPath },
     artifacts: finalArtifacts,
     evidence,
+    coverage: coverageAnnotation(finalArtifacts, resolvedPath),
     missingEvidence,
     warnings,
     statistics: {

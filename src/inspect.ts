@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   EVIDENCE_SCHEMA_VERSION,
   EvidenceLedger,
+  coverageAnnotation,
   relativePortablePath,
   type Artifact,
   type Evidence,
@@ -831,6 +832,7 @@ export async function inspect(
       ...(mla?.input.timeRange === undefined ? {} : { timeRange: mla.input.timeRange }),
     },
     artifacts,
+    coverage: coverageAnnotation(artifacts, resolvedPath),
     evidence,
     missingEvidence,
     warnings: mergeWarnings([

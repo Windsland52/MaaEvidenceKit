@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   EVIDENCE_SCHEMA_VERSION,
   EvidenceLedger,
+  coverageAnnotation,
   type Artifact,
   type InspectionResult,
   type InspectionWarning,
@@ -111,6 +112,7 @@ export async function resolveMse(
     generatedAt: new Date().toISOString(),
     input: { path: resolvedPath },
     artifacts,
+    coverage: coverageAnnotation(artifacts, resolvedPath),
     evidence,
     missingEvidence,
     warnings,
