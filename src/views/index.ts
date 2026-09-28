@@ -34,6 +34,27 @@ export {
   type TextBudget,
 } from "./bounds.js";
 export { renderJson } from "./json.js";
+export {
+  MANIFEST_ENVELOPE_KEYS,
+  MANIFEST_ROTATION_BASIS,
+  MANIFEST_ROOT,
+  MANIFEST_ROW_KEYS,
+  MANIFEST_SCHEMA_VERSION,
+  manifestDocument,
+  manifestRows,
+  reconcileCoverage,
+  renderCoverageManifest,
+  type ManifestCoverageBlock,
+  type ManifestDocument,
+  type ManifestExtraction,
+  type ManifestFormat,
+  type ManifestRenderOptions,
+  type ManifestRotation,
+  type ManifestRotationBasis,
+  type ManifestRow,
+  type ManifestTimeCoverage,
+  type ManifestViewOptions,
+} from "./manifest.js";
 export { parseFields, selectFields } from "./select.js";
 export { renderMermaid } from "./mermaid.js";
 export { renderEvidenceSearch, type EvidenceSearchFormat } from "./search.js";
