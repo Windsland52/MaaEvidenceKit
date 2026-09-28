@@ -311,7 +311,7 @@ maa-evidence mla inspect C:\path\to\materials `
   --format json
 ```
 
-MLA 1.3.1 selects matching files and MEK filters facts afterward. Treat the
+MLA selects matching files and MEK filters facts afterward. Treat the
 `mla_time_window_file_granularity` warning as a real resource limitation.
 If `mla_directory_fallback_used` is present, MEK could not load a log directory as one combined
 target and attempted its discovered MaaFramework logs individually. Read any separate

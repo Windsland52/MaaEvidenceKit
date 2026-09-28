@@ -18,8 +18,8 @@ importers:
         specifier: 10.75.3
         version: 10.75.3(@opentelemetry/core@2.11.0(@opentelemetry/api@1.9.1))
       '@windsland52/maa-log-tools':
-        specifier: 2.0.0
-        version: 2.0.0
+        specifier: 2.1.1
+        version: 2.1.1
       cross-spawn:
         specifier: 7.0.6
         version: 7.0.6
@@ -28,8 +28,8 @@ importers:
         version: 7.8.5
     devDependencies:
       '@maaxyz/maa-node':
-        specifier: 5.14.0
-        version: 5.14.0
+        specifier: 5.14.1
+        version: 5.14.1
       '@types/cross-spawn':
         specifier: 6.0.6
         version: 6.0.6
@@ -61,38 +61,38 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@maaxyz/maa-node-darwin-arm64@5.14.0':
-    resolution: {integrity: sha512-lZkvMFOIUpLid6pyiQoUitddGZNE5SsdElplc+NCpG9+3R67VEc3N61v38Unp3FWSFFz77CJoabPIIA2jxOFdg==}
+  '@maaxyz/maa-node-darwin-arm64@5.14.1':
+    resolution: {integrity: sha512-11it0NzSceBriJmujrxEmDiERpjr5lTYRn2FmkHdfAb+dvrVQVhQfhIyzeoWciCzVfjssl5aIgjJ+4AnR4+MKQ==}
     cpu: [arm64]
     os: [darwin]
 
-  '@maaxyz/maa-node-darwin-x64@5.14.0':
-    resolution: {integrity: sha512-PwjGR/mR4VHfAA8QrwOBmFPqpQvlTL7JJFNPpHMOZbkr4T0bZ1TdtMwt61/ngmsXiEuAPCuIQBdKULuj76DCcg==}
+  '@maaxyz/maa-node-darwin-x64@5.14.1':
+    resolution: {integrity: sha512-Hx2ahsshBNZl/4rzRMjgBXDvXl9ZyYqf9nTna4oEVPg6DcqbASJNTOyq2jy7qCccDbfZQWY/p1doxSBXxvoZDg==}
     cpu: [x64]
     os: [darwin]
 
-  '@maaxyz/maa-node-linux-arm64@5.14.0':
-    resolution: {integrity: sha512-WYQDISoAn3qChiZEW4aQ45JbsrnfRNRpPRnDGpE3hvBPm8ibTheKc/JvqmO90tNFfs8aLwncSOrOQQRT+IDJGg==}
+  '@maaxyz/maa-node-linux-arm64@5.14.1':
+    resolution: {integrity: sha512-N5BmoIGCDadN8Gh56xiVLKYcXsSib+m9QVFl83BEiuC3nKH+2p3p1RMiTbj3khXcC3mmtE/cMcMM4EfjA72k2Q==}
     cpu: [arm64]
     os: [linux]
 
-  '@maaxyz/maa-node-linux-x64@5.14.0':
-    resolution: {integrity: sha512-6v3UVkC8PgCg8pDuENWizT/EBxI5QroUJBNiMgLrB9i7F8AqLMXiVZSQo7H8z5qoi+FfK5sWSeDoJR0XOq2amw==}
+  '@maaxyz/maa-node-linux-x64@5.14.1':
+    resolution: {integrity: sha512-crkGj5S1dhjjyQUCGBMwliMNh83MNlXmy47iVXewfbeaSKv9SIMrN+4VfYR5RhSEnmd0iZS2UJTHJw/gfs+UPg==}
     cpu: [x64]
     os: [linux]
 
-  '@maaxyz/maa-node-win32-arm64@5.14.0':
-    resolution: {integrity: sha512-qMsG66hsa1YJz2gHZUpHICguMM2TUk0NjQDzMmE8IMGvI6t+pIZcbNtByu0D5Z8r1IWRina1S0eHIug/acjRCw==}
+  '@maaxyz/maa-node-win32-arm64@5.14.1':
+    resolution: {integrity: sha512-kMFVQh1o60jF7tPiiqHt1xSkc+4j30whQiGH+LHoQ+akS1bIHsZ4329/lLp5xqVEgD1+3Dn/AzWgWXKti95oxQ==}
     cpu: [arm64]
     os: [win32]
 
-  '@maaxyz/maa-node-win32-x64@5.14.0':
-    resolution: {integrity: sha512-QWR+zSqPqx0yWnK9d6qoGJalk3ga44QZbScyWtAILfrpTQSeVt3NlR+Z0U8/KgABYb1eZ2hwUyUKKDP2lFOyCw==}
+  '@maaxyz/maa-node-win32-x64@5.14.1':
+    resolution: {integrity: sha512-vg4Dhv9Ko5DCXvsXF2zta8SX18eSMkNcRRYpPe14Qs5sw3ZbgolxjjXK/ax9Zj/lBQM7mg3pze+pmU3A9wazgg==}
     cpu: [x64]
     os: [win32]
 
-  '@maaxyz/maa-node@5.14.0':
-    resolution: {integrity: sha512-ahtd0DmI/Fitrp64ilk1M8kIR6HcH5TcRqNHG9T56vNPpmL1pIXdiSpDXmZPXkapKIZEBVSSI1gz8ZaeNE2DYg==}
+  '@maaxyz/maa-node@5.14.1':
+    resolution: {integrity: sha512-njjnlkh3L1PgOEWNUAR+TmblrdhJBc4ph8avZR14LVqOz1pmg8Rkw52aJCNoaGl2Rd4Od2Vi63jeTcqeEnxbUA==}
     engines: {node: '>= 20.0.0'}
 
   '@nekosu/maa-locale@1.2.0':
@@ -570,28 +570,24 @@ packages:
   '@vitest/spy@5.0.2':
     resolution: {integrity: sha512-Ijc7T1nT9efNb5LxvjaBrEqw3f/QwUv5EE0nKqZxgqsaV/FxAAZ8baGylA8X/Z2oS4Lp+K74Jr6dTJsDKxJDeg==}
 
-  '@windsland52/maa-log-adapter@1.1.0':
-    resolution: {integrity: sha512-1s+1AUqRZYkO3H6e81coJOW6hP1hfSzZwWugYmfcxBvsTlkV28xa8ERNhlY2L6iqVWocMQrDj+0tBVJiUECUtg==}
+  '@windsland52/maa-log-adapter@1.1.1':
+    resolution: {integrity: sha512-C3W5pAp239WsWyjdcl6URDQtuXjg5PsxBDQuHntKT2UsdJxLsPVblA2Kd+BJI/GVefCQ2ya96Co5GjbYVqwAjQ==}
     engines: {node: '>=20.18.0'}
 
   '@windsland52/maa-log-kernel@1.0.2':
     resolution: {integrity: sha512-5HZN+YfI389AZltTmScelhTPG8PX9iEkFFBlnxHhdY8roHusaC/h4Gxqz0hVRckfKcdiKOWwiH7je2CDEJKbmA==}
     engines: {node: '>=20.18.0'}
 
-  '@windsland52/maa-log-parser@1.1.0':
-    resolution: {integrity: sha512-LRbRTJ3yYXu5zWULA1GkQFN8fZu4eGcdmzzr2/XlTnM2Hg2Tmo+BTVHacROcCMiJqz77tRBLcLrEXnm7jCdu9A==}
-    engines: {node: '>=20.18.0'}
-
-  '@windsland52/maa-log-parser@1.2.0':
-    resolution: {integrity: sha512-c+zC5PG/+tTjmSGGSk3UR8FMeG9SSkWsuCbD8/5dVyOLOjAJ7M8lnS1NpTEsP4YVSf8tngJC0WZ9J248OSxU7g==}
+  '@windsland52/maa-log-parser@2.0.0':
+    resolution: {integrity: sha512-NIy92ui7zqz0DkYDhebVEY58TLcsKGC9yGV0rMdZHL6y/550wBF0DIDivbEfMg9tgvmXOmFPovhood5BG6AtEg==}
     engines: {node: '>=20.18.0'}
 
   '@windsland52/maa-log-runtime@1.1.0':
     resolution: {integrity: sha512-33QSpc093kqGZR3yUzA+vz5QdeWednKeweqApJ6fvT2oWX71TEGWX2CHLUoyPlqqy6sMHA6zbHGHmyujAFROww==}
     engines: {node: '>=20.18.0'}
 
-  '@windsland52/maa-log-tools@2.0.0':
-    resolution: {integrity: sha512-S/5xU7FZqANyZIeVx3czDgFQTraPD6k+xQVrTR20smgDxMhDsam7jnp2tsQNvlE2aHk3zpQIR4WKLFxk4eoZzg==}
+  '@windsland52/maa-log-tools@2.1.1':
+    resolution: {integrity: sha512-8erD0/v54AKILOcYj2/ssXfRTnek3U0iA0L72Xlg/5+phn3tceKTSzq/mXZUbB6D9/BONqvaMlLIEd9vpSC8yg==}
     engines: {node: '>=20.18.0'}
     hasBin: true
 
@@ -945,32 +941,32 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@maaxyz/maa-node-darwin-arm64@5.14.0':
+  '@maaxyz/maa-node-darwin-arm64@5.14.1':
     optional: true
 
-  '@maaxyz/maa-node-darwin-x64@5.14.0':
+  '@maaxyz/maa-node-darwin-x64@5.14.1':
     optional: true
 
-  '@maaxyz/maa-node-linux-arm64@5.14.0':
+  '@maaxyz/maa-node-linux-arm64@5.14.1':
     optional: true
 
-  '@maaxyz/maa-node-linux-x64@5.14.0':
+  '@maaxyz/maa-node-linux-x64@5.14.1':
     optional: true
 
-  '@maaxyz/maa-node-win32-arm64@5.14.0':
+  '@maaxyz/maa-node-win32-arm64@5.14.1':
     optional: true
 
-  '@maaxyz/maa-node-win32-x64@5.14.0':
+  '@maaxyz/maa-node-win32-x64@5.14.1':
     optional: true
 
-  '@maaxyz/maa-node@5.14.0':
+  '@maaxyz/maa-node@5.14.1':
     optionalDependencies:
-      '@maaxyz/maa-node-darwin-arm64': 5.14.0
-      '@maaxyz/maa-node-darwin-x64': 5.14.0
-      '@maaxyz/maa-node-linux-arm64': 5.14.0
-      '@maaxyz/maa-node-linux-x64': 5.14.0
-      '@maaxyz/maa-node-win32-arm64': 5.14.0
-      '@maaxyz/maa-node-win32-x64': 5.14.0
+      '@maaxyz/maa-node-darwin-arm64': 5.14.1
+      '@maaxyz/maa-node-darwin-x64': 5.14.1
+      '@maaxyz/maa-node-linux-arm64': 5.14.1
+      '@maaxyz/maa-node-linux-x64': 5.14.1
+      '@maaxyz/maa-node-win32-arm64': 5.14.1
+      '@maaxyz/maa-node-win32-x64': 5.14.1
 
   '@nekosu/maa-locale@1.2.0': {}
 
@@ -1273,27 +1269,25 @@ snapshots:
 
   '@vitest/spy@5.0.2': {}
 
-  '@windsland52/maa-log-adapter@1.1.0':
+  '@windsland52/maa-log-adapter@1.1.1':
     dependencies:
       '@windsland52/maa-log-kernel': 1.0.2
-      '@windsland52/maa-log-parser': 1.1.0
+      '@windsland52/maa-log-parser': 2.0.0
       '@windsland52/maa-log-runtime': 1.1.0
 
   '@windsland52/maa-log-kernel@1.0.2': {}
 
-  '@windsland52/maa-log-parser@1.1.0': {}
-
-  '@windsland52/maa-log-parser@1.2.0': {}
+  '@windsland52/maa-log-parser@2.0.0': {}
 
   '@windsland52/maa-log-runtime@1.1.0':
     dependencies:
       '@windsland52/maa-log-kernel': 1.0.2
 
-  '@windsland52/maa-log-tools@2.0.0':
+  '@windsland52/maa-log-tools@2.1.1':
     dependencies:
-      '@windsland52/maa-log-adapter': 1.1.0
+      '@windsland52/maa-log-adapter': 1.1.1
       '@windsland52/maa-log-kernel': 1.0.2
-      '@windsland52/maa-log-parser': 1.2.0
+      '@windsland52/maa-log-parser': 2.0.0
       '@windsland52/maa-log-runtime': 1.1.0
       fflate: 0.8.3
 

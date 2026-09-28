@@ -64,6 +64,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and drifts between npm releases, so the version turns a one-off probe-failure report into a
   reproducible one. Version number only, stderr only, never telemetry.
 
+### Changed
+
+- Update `@windsland52/maa-log-tools` to 2.1.1 and `@maaxyz/maa-node` to 5.14.1. The MLA release
+  recognises a `*.bak.<timestamp>.log` rotation fragment as a member of its directory, so a debug
+  directory now loads its rotated facts as one bundle instead of leaving the fragment to be parsed
+  again as a target of its own: a directory holding `maafw.log` plus a rotated fragment reports two
+  selection targets where it used to report three. Nothing is dropped - the fragment stays `selected`
+  with its digest, its own evidence still cites it as its artifact, and `coverage.readForRuntimeFacts`
+  still counts it. `@nekosu/maa-pipeline-manager` 1.1.0 and `@nekosu/maa-tasker` 1.0.0 were already
+  the newest releases. `@maaxyz/maa-node` and its platform binaries are now trusted by name in
+  `minimumReleaseAgeExclude`, which replaces the per-version entries the cooldown asked for on every
+  bump.
+
 ### Fixed
 
 - The update state written back after a failed handoff no longer clobbers what the handed-off child

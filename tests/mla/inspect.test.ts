@@ -1047,15 +1047,26 @@ test("selects and merges independent log bundles from a project directory", asyn
   const artifactIds = new Set(result.artifacts.map((artifact) => artifact.id));
 
   expect(result.details.selection.loadingGranularity).toBe("multiple_bundles");
-  expect(result.details.selection.targets).toEqual([
-    "maafw.log",
-    "debug",
-    "debug/maafw.bak.2026.07.19-09.00.00.000.log",
-  ]);
+  // `@windsland52/maa-log-tools` 2.1.1 recognises `*.bak.<timestamp>.log` as a rotation fragment of
+  // its directory, so the debug bundle already carries the rotated facts. Re-adding the fragment as
+  // its own target would parse the same file twice, and the evidence below proves it stays read.
+  expect(result.details.selection.targets).toEqual(["maafw.log", "debug"]);
   expect(tasks).toEqual(expect.arrayContaining(["RootTask", "RotatedTask", "DebugTask"]));
   expect(new Set(sessionIds).size).toBe(sessionIds.length);
   expect(result.evidence.every((item) => artifactIds.has(item.source.artifactId))).toBe(true);
   expect(result.artifacts.filter((artifact) => artifact.status === "selected")).toHaveLength(3);
+  // The rotated fragment is covered by the debug directory target instead of becoming a target of
+  // its own; it must still be the artifact its own facts are attributed to, and it must still be
+  // reported as read for runtime facts.
+  const rotatedFragment = result.artifacts.find(
+    (artifact) => artifact.relativePath === "debug/maafw.bak.2026.07.19-09.00.00.000.log",
+  );
+  const rotatedEvidence = result.evidence.filter((item) => item.source.artifactId === rotatedFragment?.id);
+  expect(rotatedFragment?.kind).toBe("maa_log");
+  expect(rotatedFragment?.status).toBe("selected");
+  expect(rotatedFragment?.contentDigest).toBeDefined();
+  expect(rotatedEvidence.some((item) => item.kind === "mla.task")).toBe(true);
+  expect(result.coverage?.readForRuntimeFacts).toBe(3);
   expect(focused.details.selection.targets).toEqual(["debug"]);
   expect(focused.details.runtime.sessions.flatMap((session) => session.tasks.map((task) => task.name)))
     .toEqual(["DebugTask"]);

@@ -4,6 +4,7 @@ allowBuilds:
   esbuild: true
 
 minimumReleaseAgeExclude:
+  - "@maaxyz/maa-node*"
   - "@nekosu/maa-locale"
   - "@nekosu/maa-pipeline-manager"
   - "@nekosu/maa-tasker"

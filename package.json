@@ -60,12 +60,12 @@
     "@nekosu/maa-pipeline-manager": "1.1.0",
     "@nekosu/maa-tasker": "1.0.0",
     "@sentry/node": "10.75.3",
-    "@windsland52/maa-log-tools": "2.0.0",
+    "@windsland52/maa-log-tools": "2.1.1",
     "cross-spawn": "7.0.6",
     "semver": "7.8.5"
   },
   "devDependencies": {
-    "@maaxyz/maa-node": "5.14.0",
+    "@maaxyz/maa-node": "5.14.1",
     "@types/cross-spawn": "6.0.6",
     "@types/node": "22.20.4",
     "@types/semver": "7.8.0",
