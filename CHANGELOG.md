@@ -7,6 +7,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-01
+
+### Changed
+
+- **The packaged Skill's update guidance now opts its own callers in: prefix commands with
+  `MAA_EVIDENCE_AUTO_UPDATE=1` instead of `0`.** The CLI default is unchanged - a non-interactive
+  caller still never pays for update work - but a skill-driven session now checks npm too (at most
+  once per 24 hours per user) and runs each command on the newest release through the update
+  handoff while the global install is behind, paying the preparation probe plus the handed-off
+  `npm exec` for exactly as long as it stays behind. The text also states the fallback exactly: a
+  failed preparation retries at most once per 24 hours and prints one diagnostic line plus one
+  upgrade hint, and `skill`, `feedback`, `telemetry`, and `--help` never pay update work.
+  Documentation only - no runtime behavior changed, and installed Skills receive the new text
+  through the once-per-version Skill sync that ships with this release.
+
 ## [0.9.0] - 2026-09-29
 
 ### Added
@@ -570,7 +585,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Whitelist-only operational telemetry, disabled default PII, and mandatory preview/confirmation for
   feedback attachments.
 
-[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.6.0...v0.7.0
