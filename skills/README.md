@@ -36,7 +36,9 @@ asks the skills CLI to update the managed global installation. Both operations r
 interactive terminal: an agent or a piped command never pays for them. Set
 `MAA_EVIDENCE_AUTO_UPDATE=0` to disable them everywhere, or `MAA_EVIDENCE_AUTO_UPDATE=1` to force
 them on outside a terminal. Network or updater failures fall back to the installed runtime and
-Skill.
+Skill. The packaged Skill instructs its own callers to prefix commands with
+`MAA_EVIDENCE_AUTO_UPDATE=1`, so a skill-driven session checks and hands off even
+without a terminal.
 
 ## Skill and CLI versions
 

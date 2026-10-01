@@ -17,10 +17,12 @@ harness explicitly supplies a local development build.
 
 Treat published MEK's updater as the version owner. It checks npm at most once every 24 hours,
 hands the command to a newer stable runtime, and delegates managed Skill updates to the `skills`
-CLI. It does none of that for a non-interactive caller, so an agent or a piped command never pays for
-a probe it did not ask for; prefixing a command with `MAA_EVIDENCE_AUTO_UPDATE=0` (PowerShell:
-`$env:MAA_EVIDENCE_AUTO_UPDATE = "0"`) makes that explicit, and `MAA_EVIDENCE_AUTO_UPDATE=1` forces
-the check back on. Never guess or write Codex, Claude Code, Cursor, Pi, or other agent Skill paths.
+CLI. The default gate keeps that work out of non-interactive callers, so this Skill asks its
+callers for the opposite: prefix commands with `MAA_EVIDENCE_AUTO_UPDATE=1` (PowerShell:
+`$env:MAA_EVIDENCE_AUTO_UPDATE = "1"`) so an agent or a piped command checks and hands off too,
+paying `npm exec` seconds per command only while the install is behind. `MAA_EVIDENCE_AUTO_UPDATE=0`
+opts one call out; `skill`, `feedback`, `telemetry`, and `--help` are always exempt. Never guess or
+write Codex, Claude Code, Cursor, Pi, or other agent Skill paths.
 If the user is migrating from `0.1.x` or installed this Skill from a local path, tell them to
 reinstall it once from `https://github.com/Windsland52/MaaEvidenceKit` with
 `--skill maa-evidence --global`; this gives the installer a remote source and lets it preserve the
