@@ -56,7 +56,11 @@ in local release notes. Do not commit user material or absolute local paths.
    `Publish npm package` workflow publishes that exact tag automatically: `pack` checks the tag
    against `package.json`, runs the release checks on Node 22, and uploads the release tarball;
    `publish` publishes that tarball unchanged on Node 24 (trusted publishing needs npm >= 11.5.1)
-   and skips a version that is already on npm, so a rerun is safe.
+   and skips a version that is already on npm, so a rerun is safe. After publishing, the `release`
+   job creates the GitHub Release named after the tag with the version's own `CHANGELOG.md` section
+   as the notes, extracted by `scripts/release-notes.mjs` from the tagged tree (it fails on a
+   missing or empty section rather than publishing empty notes) and skips a tag whose release
+   already exists, so a rerun is safe there too.
 3. Install the published version in a clean directory and verify SDK import and `maa-evidence
    --version` once more.
 4. For the first updater-enabled release, publish migration notes requiring `0.1.x` users to

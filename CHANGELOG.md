@@ -7,6 +7,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **A GitHub Release for every published version.** Pushing the `v<version>` tag now also makes the
+  publish workflow create the GitHub Release named after the tag, with that version's own
+  `CHANGELOG.md` section as the notes. The section is extracted by the new
+  `scripts/release-notes.mjs` (`node scripts/release-notes.mjs <version> [changelog]`), which reads
+  from the tagged tree, refuses a missing or empty section instead of publishing empty notes, and
+  stays usable for local backfills of versions released before this job existed. Release creation
+  runs only after the npm publish job succeeds and skips a tag whose release already exists, so a
+  rerun is safe. Process only - no runtime behavior changed.
+
 ## [0.9.1] - 2026-10-01
 
 ### Changed

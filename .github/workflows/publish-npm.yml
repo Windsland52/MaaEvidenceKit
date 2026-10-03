@@ -166,3 +166,34 @@ jobs:
           # Provenance is kept explicit: it is generated from the same OIDC identity, and losing it
           # silently would be a supply-chain regression.
           npm publish "${tarball}" --access public --provenance
+
+  release:
+    needs: [pack, publish]
+    if: github.repository == 'Windsland52/MaaEvidenceKit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The release notes are the tagged tree's own CHANGELOG.md section for the tagged version, so
+      # both the changelog and the extractor are read from the tag rather than from a branch head.
+      - name: Create GitHub release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} already exists; skipping creation."
+            exit 0
+          fi
+          notes="${RUNNER_TEMP}/release-notes.md"
+          node scripts/release-notes.mjs "${GITHUB_REF_NAME#v}" > "${notes}"
+          # The tag already exists (pushing it triggered this workflow), so --verify-tag makes gh
+          # fail instead of silently creating the release on the checked-out commit.
+          gh release create "${GITHUB_REF_NAME}" --verify-tag \
+            --title "${GITHUB_REF_NAME}" --notes-file "${notes}"
