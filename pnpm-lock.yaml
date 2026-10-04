@@ -28,8 +28,8 @@ importers:
         version: 7.8.5
     devDependencies:
       '@maaxyz/maa-node':
-        specifier: 5.14.1
-        version: 5.14.1
+        specifier: 5.14.2
+        version: 5.14.2
       '@types/cross-spawn':
         specifier: 6.0.6
         version: 6.0.6
@@ -61,38 +61,38 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@maaxyz/maa-node-darwin-arm64@5.14.1':
-    resolution: {integrity: sha512-11it0NzSceBriJmujrxEmDiERpjr5lTYRn2FmkHdfAb+dvrVQVhQfhIyzeoWciCzVfjssl5aIgjJ+4AnR4+MKQ==}
+  '@maaxyz/maa-node-darwin-arm64@5.14.2':
+    resolution: {integrity: sha512-6qsnn1YWiGaz8OP1ABgUgQzbObxTDWvD1hud904QiX9uXL1YqdytmY36RHDZ2wbEQ+wNNDCaOpvHBfHzP28+WA==}
     cpu: [arm64]
     os: [darwin]
 
-  '@maaxyz/maa-node-darwin-x64@5.14.1':
-    resolution: {integrity: sha512-Hx2ahsshBNZl/4rzRMjgBXDvXl9ZyYqf9nTna4oEVPg6DcqbASJNTOyq2jy7qCccDbfZQWY/p1doxSBXxvoZDg==}
+  '@maaxyz/maa-node-darwin-x64@5.14.2':
+    resolution: {integrity: sha512-g7wEqJY5mRTlkfHRvVxjLBetNv8rnb6j3bG4cn/DxvUmYrR47Tm8i0YtX99BLwsMTQw/Nd40Y8EivTS5UHm+bA==}
     cpu: [x64]
     os: [darwin]
 
-  '@maaxyz/maa-node-linux-arm64@5.14.1':
-    resolution: {integrity: sha512-N5BmoIGCDadN8Gh56xiVLKYcXsSib+m9QVFl83BEiuC3nKH+2p3p1RMiTbj3khXcC3mmtE/cMcMM4EfjA72k2Q==}
+  '@maaxyz/maa-node-linux-arm64@5.14.2':
+    resolution: {integrity: sha512-MzwNpKDYQ0tSTsuHvJYFAaJEIJOD/lSz+Z2dx2HQPzhiylrwkDjlCRreYrkjo/7caO2/yZBkPWuTL2vhd+7t5g==}
     cpu: [arm64]
     os: [linux]
 
-  '@maaxyz/maa-node-linux-x64@5.14.1':
-    resolution: {integrity: sha512-crkGj5S1dhjjyQUCGBMwliMNh83MNlXmy47iVXewfbeaSKv9SIMrN+4VfYR5RhSEnmd0iZS2UJTHJw/gfs+UPg==}
+  '@maaxyz/maa-node-linux-x64@5.14.2':
+    resolution: {integrity: sha512-L+4qXMmsRmkA+8qDlpq7KUssjjNdpKoiHEJk1gl31ls4CkaVRlOqDv//Or20EYPgwZsQW4/Cf9M9RRZbQZOUHg==}
     cpu: [x64]
     os: [linux]
 
-  '@maaxyz/maa-node-win32-arm64@5.14.1':
-    resolution: {integrity: sha512-kMFVQh1o60jF7tPiiqHt1xSkc+4j30whQiGH+LHoQ+akS1bIHsZ4329/lLp5xqVEgD1+3Dn/AzWgWXKti95oxQ==}
+  '@maaxyz/maa-node-win32-arm64@5.14.2':
+    resolution: {integrity: sha512-lud0N4dccvAduBWWpYgw33VC6nthcmAPLyxtyJFP6N5lsM1Dzj1el58Ph53SQpZoCTBYzZgzjhoHG1ViH6PK3g==}
     cpu: [arm64]
     os: [win32]
 
-  '@maaxyz/maa-node-win32-x64@5.14.1':
-    resolution: {integrity: sha512-vg4Dhv9Ko5DCXvsXF2zta8SX18eSMkNcRRYpPe14Qs5sw3ZbgolxjjXK/ax9Zj/lBQM7mg3pze+pmU3A9wazgg==}
+  '@maaxyz/maa-node-win32-x64@5.14.2':
+    resolution: {integrity: sha512-j/rMRj8ZvS32W4fsijQiPTIym83sCKa+hrXt7Tp97LA9ENJfGx8h8bTSt7Ma3LOnJifPm4/FshcbaKe+Gl6ayw==}
     cpu: [x64]
     os: [win32]
 
-  '@maaxyz/maa-node@5.14.1':
-    resolution: {integrity: sha512-njjnlkh3L1PgOEWNUAR+TmblrdhJBc4ph8avZR14LVqOz1pmg8Rkw52aJCNoaGl2Rd4Od2Vi63jeTcqeEnxbUA==}
+  '@maaxyz/maa-node@5.14.2':
+    resolution: {integrity: sha512-KYSXFYvOYi7bQrZnBgKYGunq8LewTJbGmL/GVdS1mw5H8VNnzFFB41c9I3PXGEAhG9ZkLVDjxmF94aickT1TWA==}
     engines: {node: '>= 20.0.0'}
 
   '@nekosu/maa-locale@1.2.0':
@@ -941,32 +941,32 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@maaxyz/maa-node-darwin-arm64@5.14.1':
+  '@maaxyz/maa-node-darwin-arm64@5.14.2':
     optional: true
 
-  '@maaxyz/maa-node-darwin-x64@5.14.1':
+  '@maaxyz/maa-node-darwin-x64@5.14.2':
     optional: true
 
-  '@maaxyz/maa-node-linux-arm64@5.14.1':
+  '@maaxyz/maa-node-linux-arm64@5.14.2':
     optional: true
 
-  '@maaxyz/maa-node-linux-x64@5.14.1':
+  '@maaxyz/maa-node-linux-x64@5.14.2':
     optional: true
 
-  '@maaxyz/maa-node-win32-arm64@5.14.1':
+  '@maaxyz/maa-node-win32-arm64@5.14.2':
     optional: true
 
-  '@maaxyz/maa-node-win32-x64@5.14.1':
+  '@maaxyz/maa-node-win32-x64@5.14.2':
     optional: true
 
-  '@maaxyz/maa-node@5.14.1':
+  '@maaxyz/maa-node@5.14.2':
     optionalDependencies:
-      '@maaxyz/maa-node-darwin-arm64': 5.14.1
-      '@maaxyz/maa-node-darwin-x64': 5.14.1
-      '@maaxyz/maa-node-linux-arm64': 5.14.1
-      '@maaxyz/maa-node-linux-x64': 5.14.1
-      '@maaxyz/maa-node-win32-arm64': 5.14.1
-      '@maaxyz/maa-node-win32-x64': 5.14.1
+      '@maaxyz/maa-node-darwin-arm64': 5.14.2
+      '@maaxyz/maa-node-darwin-x64': 5.14.2
+      '@maaxyz/maa-node-linux-arm64': 5.14.2
+      '@maaxyz/maa-node-linux-x64': 5.14.2
+      '@maaxyz/maa-node-win32-arm64': 5.14.2
+      '@maaxyz/maa-node-win32-x64': 5.14.2
 
   '@nekosu/maa-locale@1.2.0': {}
 
