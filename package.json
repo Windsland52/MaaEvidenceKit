@@ -67,7 +67,7 @@
   "devDependencies": {
     "@maaxyz/maa-node": "5.14.1",
     "@types/cross-spawn": "6.0.6",
-    "@types/node": "22.20.4",
+    "@types/node": "22.20.5",
     "@types/semver": "7.8.0",
     "oxlint": "1.85.0",
     "typescript": "7.0.2",
