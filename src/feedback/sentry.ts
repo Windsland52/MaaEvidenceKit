@@ -110,9 +110,22 @@ async function initializeSentry(): Promise<SentryModule> {
     environment: "production",
     release: `maa-evidence-kit@${MAA_EVIDENCE_VERSION}`,
     sendClientReports: false,
-    sendDefaultPii: false,
+    // Sentry v11 collects every category below by default; an all-off block replaces the removed
+    // `sendDefaultPii: false` and must stay equally restrictive.
+    dataCollection: {
+      userInfo: false,
+      cookies: false,
+      httpHeaders: false,
+      httpBodies: [],
+      urlQueryParams: false,
+      graphQL: { document: false, variables: false },
+      genAI: { inputs: false, outputs: false },
+      databaseQueryData: false,
+      queues: false,
+      stackFrameVariables: false,
+      frameContextLines: 0,
+    },
     serverName: "maa-evidence-cli",
-    skipOpenTelemetrySetup: true,
     tracesSampleRate: 0,
     beforeSend(event) {
       const installationId = event.message === "maa-evidence.command"
