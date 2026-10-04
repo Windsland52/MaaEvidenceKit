@@ -88,7 +88,21 @@ test("operational telemetry uses a bounded flush budget", async () => {
   expect(sentry.init).toHaveBeenCalledWith(expect.objectContaining({
     environment: "production",
     release: "maa-evidence-kit@0.9.1",
-    skipOpenTelemetrySetup: true,
+    sendClientReports: false,
+    tracesSampleRate: 0,
+    dataCollection: {
+      userInfo: false,
+      cookies: false,
+      httpHeaders: false,
+      httpBodies: [],
+      urlQueryParams: false,
+      graphQL: { document: false, variables: false },
+      genAI: { inputs: false, outputs: false },
+      databaseQueryData: false,
+      queues: false,
+      stackFrameVariables: false,
+      frameContextLines: 0,
+    },
   }));
 
   const beforeSend = sentry.init.mock.calls.at(-1)?.[0]?.beforeSend as

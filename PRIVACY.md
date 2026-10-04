@@ -81,7 +81,8 @@ When enabled, an operational event may contain only:
 Operational telemetry does not intentionally contain command arguments, file paths, environment
 variables, usernames, hardware identifiers, logs, source code, screenshots, exception messages,
 or stack traces.
-The Sentry SDK is configured with `sendDefaultPii: false` and a client-side event allowlist.
+The Sentry SDK is configured with an all-off `dataCollection` block — Sentry v11's replacement for
+the removed `sendDefaultPii: false` option — and a client-side event allowlist.
 Delivery is best-effort: a CLI command gives its operational event a 200ms flush budget, and a
 delivery timeout does not change the command's result. Feedback submissions use a separate, longer
 confirmation flow.
