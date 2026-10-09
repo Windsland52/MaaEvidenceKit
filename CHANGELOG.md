@@ -27,6 +27,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   "outside the window". The step now narrows only once the question is scoped to one moment, and
   inspects once unnarrowed while the decisive moment is still unknown. Guidance only - no CLI
   behavior changed.
+- `@sentry/node` moves to 11.4.0. v11 removes `sendDefaultPii`, which carried `false` here, in favor
+  of a `dataCollection` option whose defaults collect user info, cookies, request and response
+  headers and bodies, URL query parameters, GraphQL documents and variables, generative-AI inputs
+  and outputs, database query data, queue arguments, and stack-frame variables and source context
+  lines; every one of those categories is now switched off explicitly, and the block is typed as the
+  full upstream option so a category added there fails `pnpm typecheck` instead of quietly
+  collecting. The option that used to skip OpenTelemetry setup is gone and needs no replacement:
+  v11's `enableOpenTelemetrySetup` already defaults to off. No exported fact and no collected field
+  changes - `beforeSend` still reduces an event to the same allowlisted tags and extras.
 
 ## [0.9.1] - 2026-10-01
 

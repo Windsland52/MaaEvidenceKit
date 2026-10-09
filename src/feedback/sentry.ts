@@ -3,6 +3,13 @@ import { MAA_EVIDENCE_VERSION } from "../version.js";
 import { getOrCreateInstallationId } from "./installation.js";
 
 type SentryModule = typeof import("@sentry/node");
+type SentryInitOptions = NonNullable<Parameters<SentryModule["init"]>[0]>;
+
+/**
+ * The v11 `dataCollection` option with every category required, so a category added upstream - whose
+ * default is to collect - fails the typecheck instead of silently widening what the client sends.
+ */
+type DataCollectionBlock = Required<NonNullable<SentryInitOptions["dataCollection"]>>;
 
 let sentryModule: Promise<SentryModule> | undefined;
 
@@ -104,27 +111,28 @@ async function initializeSentry(): Promise<SentryModule> {
   // configured exactly once even when two senders run in the same process.
   if (initialized) return sentry;
   initialized = true;
+  // Sentry v11 collects every category below by default; an all-off block replaces the removed
+  // `sendDefaultPii: false` and must stay equally restrictive.
+  const dataCollection: DataCollectionBlock = {
+    userInfo: false,
+    cookies: false,
+    httpHeaders: false,
+    httpBodies: [],
+    urlQueryParams: false,
+    graphQL: { document: false, variables: false },
+    genAI: { inputs: false, outputs: false },
+    databaseQueryData: false,
+    queues: false,
+    stackFrameVariables: false,
+    frameContextLines: 0,
+  };
   sentry.init({
     dsn: process.env["MAA_EVIDENCE_SENTRY_DSN"] ?? DEFAULT_SENTRY_DSN,
     defaultIntegrations: false,
     environment: "production",
     release: `maa-evidence-kit@${MAA_EVIDENCE_VERSION}`,
     sendClientReports: false,
-    // Sentry v11 collects every category below by default; an all-off block replaces the removed
-    // `sendDefaultPii: false` and must stay equally restrictive.
-    dataCollection: {
-      userInfo: false,
-      cookies: false,
-      httpHeaders: false,
-      httpBodies: [],
-      urlQueryParams: false,
-      graphQL: { document: false, variables: false },
-      genAI: { inputs: false, outputs: false },
-      databaseQueryData: false,
-      queues: false,
-      stackFrameVariables: false,
-      frameContextLines: 0,
-    },
+    dataCollection,
     serverName: "maa-evidence-cli",
     tracesSampleRate: 0,
     beforeSend(event) {

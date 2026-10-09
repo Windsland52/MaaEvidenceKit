@@ -89,7 +89,8 @@ Put new implementation into the narrowest existing domain. Do not introduce `uti
 - Operational telemetry is whitelist-only. Never add paths, arguments, environment variables,
   usernames, logs, source, screenshots, or exception messages.
 - Original-material feedback requires a preview and explicit confirmation for every submission.
-- Do not weaken `beforeSend`, `sendDefaultPii: false`, attachment limits, or consent tests.
+- Do not weaken `beforeSend`, the all-off `dataCollection` block that replaced v11's removed
+  `sendDefaultPii: false`, attachment limits, or consent tests.
 - Keep `PRIVACY.md` synchronized with collected fields and retention behavior.
 
 ## TypeScript Conventions
