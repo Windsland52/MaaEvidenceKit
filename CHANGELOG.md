@@ -46,6 +46,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `corepack enable`, whose copy in early Node 22 patches cannot verify the registry signing key and
   aborts before resolving a dependency.
 
+### Fixed
+
+- **A readable corpus is no longer reported as unreadable when only the handle-based stat reports a
+  device number.** Windows leaves `dev` at 0 on path-based stats under Node 22.12-22.16 and
+  24.0-24.1, and the guards that detect a file replaced mid-read compared that 0 against the volume
+  serial of the open handle. Repository-document discovery rejected every `AGENTS.md` as changed
+  during the read and returned no documents, an evidence window refused an inventoried skill file,
+  and MLA reported the log files as unreadable, so those Node versions extracted nothing at all from
+  a readable corpus. A device of 0 is now read as "not reported": the inode still has to match, and
+  both devices are compared whenever both report one. The pinned `@windsland52/maa-log-tools` moves
+  to 2.1.2, which carries the same rule for the reader MLA loads log files through.
+
 ## [0.9.1] - 2026-10-01
 
 ### Changed

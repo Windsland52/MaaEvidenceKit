@@ -14,6 +14,7 @@ import {
   type InspectionResult,
   type InspectionWarning,
 } from "../evidence/index.js";
+import { sameFileIdentity } from "../evidence/file-identity.js";
 
 export const REPO_DOCS_KIND = "repo_docs" as const;
 
@@ -275,7 +276,7 @@ async function readAgentsDocument(
   try {
     handle = await open(target, "r");
     const opened = await handle.stat();
-    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
+    if (!opened.isFile() || !sameFileIdentity(opened, before)) {
       return { ok: false, reason: "repo_docs_file_changed_during_read" };
     }
     const requestedBytes = Math.min(opened.size, REPO_DOCS_LIMITS.maxAgentsDocumentBytes);
@@ -290,10 +291,8 @@ async function readAgentsDocument(
     const afterPath = await validatePath(rootReal, target, "file");
     if (
       !afterPath.ok
-      || afterHandle.dev !== before.dev
-      || afterHandle.ino !== before.ino
-      || afterPath.dev !== before.dev
-      || afterPath.ino !== before.ino
+      || !sameFileIdentity(afterHandle, before)
+      || !sameFileIdentity(afterPath, before)
       || afterHandle.size !== opened.size
       || afterHandle.mtimeMs !== opened.mtimeMs
     ) {

@@ -18,8 +18,8 @@ importers:
         specifier: 11.4.0
         version: 11.4.0
       '@windsland52/maa-log-tools':
-        specifier: 2.1.1
-        version: 2.1.1
+        specifier: 2.1.2
+        version: 2.1.2
       cross-spawn:
         specifier: 7.0.6
         version: 7.0.6
@@ -666,8 +666,8 @@ packages:
     resolution: {integrity: sha512-33QSpc093kqGZR3yUzA+vz5QdeWednKeweqApJ6fvT2oWX71TEGWX2CHLUoyPlqqy6sMHA6zbHGHmyujAFROww==}
     engines: {node: '>=20.18.0'}
 
-  '@windsland52/maa-log-tools@2.1.1':
-    resolution: {integrity: sha512-8erD0/v54AKILOcYj2/ssXfRTnek3U0iA0L72Xlg/5+phn3tceKTSzq/mXZUbB6D9/BONqvaMlLIEd9vpSC8yg==}
+  '@windsland52/maa-log-tools@2.1.2':
+    resolution: {integrity: sha512-VNbfWFXb4DRcaFLxjJ3iPGCgKfCnASE4Do61b+07g8Y8UvmGJeIfCwFW0JOKzVGMQu7PKbJm2wMigW//W7WTYA==}
     engines: {node: '>=20.18.0'}
     hasBin: true
 
@@ -1399,7 +1399,7 @@ snapshots:
     dependencies:
       '@windsland52/maa-log-kernel': 1.0.2
 
-  '@windsland52/maa-log-tools@2.1.1':
+  '@windsland52/maa-log-tools@2.1.2':
     dependencies:
       '@windsland52/maa-log-adapter': 1.1.1
       '@windsland52/maa-log-kernel': 1.0.2

@@ -3,6 +3,7 @@ import { lstat, open, realpath, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline";
 
+import { sameFileIdentity } from "./file-identity.js";
 import type { InspectionResult } from "./types.js";
 import { UsageError } from "./usage-error.js";
 
@@ -70,8 +71,7 @@ async function authorizeRepositoryDocsArtifact(
 }
 
 function sameIdentity(left: AuthorizedFileIdentity, right: AuthorizedFileIdentity): boolean {
-  return left.dev === right.dev
-    && left.ino === right.ino
+  return sameFileIdentity(left, right)
     && left.size === right.size
     && left.mtimeMs === right.mtimeMs;
 }
