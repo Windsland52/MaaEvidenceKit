@@ -44,7 +44,7 @@ test("prints a stable CLI version without running inspection or telemetry", asyn
   await expect(main(["--version"])).resolves.toBe(0);
   // Deliberately a literal rather than MAA_EVIDENCE_VERSION: this is the assertion that fails when a
   // release bumps package.json without bumping src/version.ts.
-  expect(output).toBe("0.9.1\n");
+  expect(output).toBe("0.10.0\n");
 });
 
 test("rejects mistyped options instead of silently treating them as positional arguments", async () => {
