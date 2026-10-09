@@ -18,6 +18,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   runs only after the npm publish job succeeds and skips a tag whose release already exists, so a
   rerun is safe. Process only - no runtime behavior changed.
 
+### Changed
+
+- **The packaged Skill no longer tells a harness to window its first inspection down to the moment the
+  report names.** A `--from`/`--to` window filters rather than ranks, so evidence outside it is absent
+  instead of deprioritized: a bundle that also holds a second incident at another time loses it
+  outright once a window is applied, and the harness cannot tell "no second incident" apart from
+  "outside the window". The step now narrows only once the question is scoped to one moment, and
+  inspects once unnarrowed while the decisive moment is still unknown. Guidance only - no CLI
+  behavior changed.
+
 ## [0.9.1] - 2026-10-01
 
 ### Changed

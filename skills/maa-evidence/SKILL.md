@@ -69,12 +69,13 @@ Do not run MSE, Sentry, exhaustive signals, or source research merely because th
 3. Use the current writable analysis directory and relative paths. Do not probe Windows, Git Bash,
    `/tmp`, and alternate path spellings repeatedly. Batch independent inventory/search commands in
    one tool call.
-4. Start MLA as soon as the complete supported log directory is ready. When the report names a time,
-   a run, or a timestamped archive, pass `--from`/`--to` for that window first: a narrowed inspection
-   is a fraction of the full document and keeps the decisive records. Run one inspection with
+4. Start MLA as soon as the complete supported log directory is ready. Narrow with `--from`/`--to` only
+   once the question is scoped to one moment: a window filters rather than ranks, so evidence outside
+   it is absent, not deprioritized, and a bundle may hold a second incident the report never names.
+   When you cannot yet say which moment matters, inspect once unnarrowed. Run one inspection with
    `--summary --output REPORT`: the full report lands in REPORT for later `search`/`view`/`window`,
-   while stdout shows the bounded summary. In parallel, search relevant
-   generic logs and inspect only failure-related screenshots.
+   while stdout shows the bounded summary. In parallel, search relevant generic logs and inspect only
+   failure-related screenshots.
 5. Read each `mla.failure_context` before interpreting a failure. Follow only the decisive evidence
    IDs with `search`, `view`, `window`, or one `batch`; do not repeatedly reload the same inspection.
 6. Acquire static source only when a remaining question needs a task definition, configured value,
