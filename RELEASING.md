@@ -1,6 +1,6 @@
 # Releasing MaaEvidenceKit
 
-Releases are prepared from a clean release branch with Node.js 22.12+ and the pinned pnpm version
+Releases are prepared from a clean release branch with Node.js 22.17+ and the pinned pnpm version
 from `package.json`. Real issue logs, extracted archives, local inspections, profiles, and source
 clones must remain outside Git.
 

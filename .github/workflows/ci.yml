@@ -16,25 +16,36 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 22.12.0 is the oldest supported version: running it here is what stops a Node
-        # 22-incompatible API from reaching a user's install, and it is the oldest patch that
-        # `@sentry/node` 11 accepts within Node 22. 24 keeps coverage on the current major.
-        node: ["22.12.0", "24"]
+        # 22.17.0 is the oldest supported version: it is the oldest patch that satisfies the pinned
+        # pnpm (22.13 or newer), `@sentry/node` 11 (22.12 or newer within Node 22), and a Windows
+        # libuv change that left `dev` unset on path-based stats through 22.16, which makes every
+        # file-identity guard reject the file it just opened. Running it here is what stops a
+        # Node-incompatible API from reaching a user's install. 24 keeps coverage on the current
+        # major.
+        node: ["22.17.0", "24"]
 
     name: Node.js ${{ matrix.node }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The pinned pnpm comes from its own action rather than from `corepack enable`: the corepack
+      # bundled with early Node 22 patches cannot verify the signing key the registry metadata now
+      # carries, so it aborts before resolving a single dependency.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          version: 11.5.0
+          run_install: false
+
       - name: Set up Node.js ${{ matrix.node }}
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
+          cache: pnpm
 
       - name: Install locked dependencies
-        run: |
-          corepack enable
-          pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Run release checks
         run: pnpm release:check

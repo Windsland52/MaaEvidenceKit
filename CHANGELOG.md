@@ -36,11 +36,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   collecting. The option that used to skip OpenTelemetry setup is gone and needs no replacement:
   v11's `enableOpenTelemetrySetup` already defaults to off. No exported fact and no collected field
   changes - `beforeSend` still reduces an event to the same allowlisted tags and extras.
-- **The declared Node floor moves from 22 to 22.12.0.** `@sentry/node` 11 excludes Node 22.0-22.11
-  in its own engine range, so `engines.node: ">=22"` admitted versions where the telemetry client is
-  outside its supported range. `package.json`, `README.md`, `RELEASING.md`, and `AGENTS.md` now state
-  22.12.0, and CI runs the suite on that exact version rather than the newest 22.x, which is what had
-  hidden the gap.
+- **The declared Node floor moves from 22 to 22.17.0.** Three separate constraints now set it:
+  `@sentry/node` 11 excludes Node 22.0-22.11 through its own engine range, the pinned pnpm needs
+  22.13 or newer, and Windows leaves `dev` unset on path-based stats through 22.16, which makes the
+  file-identity guard that MLA and repository-document discovery rely on reject every file it opens
+  and report the corpus as unreadable. `package.json`, `README.md`, `RELEASING.md`, and `AGENTS.md`
+  now state 22.17.0, and CI runs the suite on that exact version rather than the newest 22.x, which
+  is what had hidden the gap. CI also installs the pinned pnpm through its own action instead of
+  `corepack enable`, whose copy in early Node 22 patches cannot verify the registry signing key and
+  aborts before resolving a dependency.
 
 ## [0.9.1] - 2026-10-01
 
