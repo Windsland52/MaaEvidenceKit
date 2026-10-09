@@ -50,7 +50,7 @@
     "build:portable": "pnpm clean && npx --yes -p typescript@5.9.3 tsc -p tsconfig.build.json"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12.0"
   },
   "packageManager": "pnpm@11.5.0",
   "publishConfig": {

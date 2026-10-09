@@ -16,9 +16,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 22 is the oldest supported major: running it here is what stops a Node 22-incompatible
-        # API from reaching a user's install. 24 keeps coverage on the current major.
-        node: ["22", "24"]
+        # 22.12.0 is the oldest supported version: running it here is what stops a Node
+        # 22-incompatible API from reaching a user's install, and it is the oldest patch that
+        # `@sentry/node` 11 accepts within Node 22. 24 keeps coverage on the current major.
+        node: ["22.12.0", "24"]
 
     name: Node.js ${{ matrix.node }}
     steps:

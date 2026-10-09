@@ -36,6 +36,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   collecting. The option that used to skip OpenTelemetry setup is gone and needs no replacement:
   v11's `enableOpenTelemetrySetup` already defaults to off. No exported fact and no collected field
   changes - `beforeSend` still reduces an event to the same allowlisted tags and extras.
+- **The declared Node floor moves from 22 to 22.12.0.** `@sentry/node` 11 excludes Node 22.0-22.11
+  in its own engine range, so `engines.node: ">=22"` admitted versions where the telemetry client is
+  outside its supported range. `package.json`, `README.md`, `RELEASING.md`, and `AGENTS.md` now state
+  22.12.0, and CI runs the suite on that exact version rather than the newest 22.x, which is what had
+  hidden the gap.
 
 ## [0.9.1] - 2026-10-01
 
