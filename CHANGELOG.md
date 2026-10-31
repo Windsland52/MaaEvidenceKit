@@ -74,8 +74,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `src/skills/index.ts` judges the caller-named directory as the installed copy when its basename is
   the Skill name and it holds `SKILL.md` at its root, and otherwise keeps `<dir>/<skill name>/`, so
   both forms reach one verdict and `--install` refreshes in place. `installedDirectory` and the
-  printed `Installed:` line report the path actually judged. Exit code stays 0 for drift, the symlink
-  policy is unchanged, and the payload still states no version of its own.
+  printed `Installed:` line report the path actually judged. The basename comparison follows the
+  filesystem, so on Windows `MAA-EVIDENCE` names the same copy while POSIX keeps the two apart. Exit
+  code stays 0 for drift, the symlink policy is unchanged (a linked target is compared through the
+  link, while `--install` refuses to write through it and exits 1, which the Skill and CLI docs now
+  state), and the payload still states no version of its own.
 
 ## [0.10.0] - 2026-10-10
 

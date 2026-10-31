@@ -34,7 +34,9 @@ numbers: `maa-evidence skill --check <dir>` reports each installed file as `same
 `missing` against the payload this CLI ships, and `maa-evidence skill --print --format json` gives the
 running package version plus per-file `sha256`. `--check` and `--install` both accept either form of
 `<dir>`: the skills root that holds the Skill directory, or the installed copy itself, judged and
-refreshed in place rather than gaining a nested copy. Refresh a copy you manage with
+refreshed in place rather than gaining a nested copy. A target that is a symbolic link is compared
+through the link, but `--install` refuses to write through one and exits nonzero; the `skills` CLI
+that created the link owns that form. Refresh a copy you manage with
 `maa-evidence skill --install <dir>`, which writes the package's own payload without network access.
 Do not silently work around a mismatch: a Skill from another release can describe flags and fields
 that changed. Note that a copy rewritten by another tool (line endings, for example) compares as

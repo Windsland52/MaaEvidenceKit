@@ -497,6 +497,23 @@ test("skill --check and --install accept the installed copy's own directory", as
   expect((JSON.parse(repaired.output) as { match: boolean }).match).toBe(true);
 });
 
+test("matches the installed copy's name case-insensitively only where the filesystem does", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-cli-skill-case-"));
+  temporaryRoots.push(root);
+  await captureStdout(() => main(["skill", "--install", root]));
+
+  const varied = path.join(root, "MAA-EVIDENCE");
+  const { output } = await captureStdout(() => main(["skill", "--check", varied]));
+  const comparison = JSON.parse(output) as { installed: boolean; installedDirectory: string };
+
+  // Windows resolves both spellings to one directory; POSIX keeps them apart.
+  const collapsesCase = process.platform === "win32";
+  expect(comparison.installed).toBe(collapsesCase);
+  expect(comparison.installedDirectory).toBe(
+    collapsesCase ? varied : path.join(varied, "maa-evidence"),
+  );
+});
+
 test("skill --check reports an absent install for a path that is neither form", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-cli-skill-absent-"));
   temporaryRoots.push(root);

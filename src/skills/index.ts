@@ -177,13 +177,21 @@ export async function readPackagedSkillFile(skill: PackagedSkill, relativePath: 
  * the payload's own `SKILL.md` tells a reader to check). A directory is the installed copy when its
  * basename is the Skill name and it holds the entry file at its root; anything else is read as a
  * root, so a directory named `maa-evidence` without `SKILL.md` still resolves to its child and
- * reports as not installed rather than comparing the wrong level against the payload. `stat` follows
- * links on purpose, because the `skills` CLI installs an agent target as a link to one canonical
- * copy; refusing to write through a link stays in `installPackagedSkill`, where writing happens.
+ * reports as not installed rather than comparing the wrong level against the payload. The basename
+ * comparison follows the filesystem: Windows names are case-insensitive, so `MAA-EVIDENCE` there is
+ * the same installed copy, while POSIX keeps the two apart. `stat` follows links on purpose, because
+ * the `skills` CLI installs an agent target as a link to one canonical copy; refusing to write
+ * through a link stays in `installPackagedSkill`, where writing happens.
  */
+function sameSkillDirectoryName(actual: string, expected: string): boolean {
+  return process.platform === "win32"
+    ? actual.toLowerCase() === expected.toLowerCase()
+    : actual === expected;
+}
+
 async function resolveInstalledDirectory(skill: PackagedSkill, directory: string): Promise<string> {
   const named = path.resolve(directory);
-  if (path.basename(named) === skill.name) {
+  if (sameSkillDirectoryName(path.basename(named), skill.name)) {
     const entry = await stat(path.join(named, skill.entry)).catch(() => undefined);
     if (entry?.isFile() === true) return directory;
   }

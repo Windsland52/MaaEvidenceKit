@@ -64,6 +64,7 @@ CLI 自带的那份(`same`/`different`/`missing`),用 `maa-evidence skill --prin
 包版本与逐文件 sha256,用 `maa-evidence skill --install <dir>` 从包内离线写入一份字节精确的副本。
 `<skill-dir>` 两种写法等价:skills 根目录(如 `~/.agents/skills`),或已安装的那份 Skill 目录本身
 (如 `~/.agents/skills/maa-evidence`);后者按副本本身判定,`--install` 就地刷新而不是再套一层。
+副本本身是符号链接时 `--check` 跟随链接判定,`--install` 会拒绝写入并退出 1——那种形态由 `skills` CLI 更新。
 受管安装仍由 `skills` CLI 维护。
 
 开发本仓库时使用本地构建:

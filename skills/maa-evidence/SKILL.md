@@ -10,6 +10,8 @@ Skill and its CLI are installed separately and can drift. Before trusting this c
 the CLI you run: `maa-evidence skill --check <this-skill-directory>` reports each file as `same`,
 `different`, or `missing` against the packaged copy. That argument is either this directory or the
 skills root that holds it; both judge the same installed copy and print its path as `Installed:`.
+`--check` follows a symbolic link, but `--install` refuses to write through one, so a linked target
+stays with the `skills` CLI that created it.
 `maa-evidence skill --print` prints the packaged copy (`--format json` adds the running package
 version and per-file digests).
 

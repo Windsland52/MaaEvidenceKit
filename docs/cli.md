@@ -339,6 +339,8 @@ maa-evidence skill --install ~/.agents/skills/maa-evidence
 或者那份已安装副本本身——后者的 basename 为 `maa-evidence` 且根部直接有 `SKILL.md` 时按副本本身判定,
 `--install` 就地刷新而不是再套一层 `maa-evidence/maa-evidence/`;输出里的 `Installed:` 与
 `installedDirectory` 始终是实际判定的那条路径,`directory` 保留调用方传入的原样。
+副本本身是符号链接时,`--check` 跟随链接给出逐文件结论,但 `--install` 会拒绝写入并以退出码 1
+报错——那种形态由 `skills` CLI 负责更新。
 被别的工具重写过的副本(例如行尾不同)会报 `different`;某次发版没动过的文件仍是 `same`,
 即使包版本已经前进——因此发版本身不需要改 Skill 任何一行。
 
