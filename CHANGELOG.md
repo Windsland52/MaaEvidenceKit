@@ -71,6 +71,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `truncated: false`, which is exactly the shape `window --help` promises never to report and which a
   reader can mistake for "this region is empty". The query now fails with the artifact's real line
   count.
+- **A `--task`-scoped combined inspection marks nodes outside the resolved graph as `incomplete`,
+  not `not_found`.** `--task` narrows the MSE graph to the named tasks, so a runtime node that the
+  narrowed range never resolved was still reported `not_found` with empty `incompleteReasons`, and a
+  harness could read that as "this node does not exist" even when it does. Those relations now carry
+  `mse_task_scope_narrowed` in `incompleteReasons` and raise the corresponding
+  `combined.*_reference_incomplete` warning instead.
 - **`skill --check` and `skill --install` now accept the installed Skill directory itself.** The
   packaged `SKILL.md` tells a reader to run `maa-evidence skill --check <this-skill-directory>`, but
   the command appended the Skill name unconditionally, so that exact form looked for

@@ -173,6 +173,7 @@ const COMMANDS: Record<string, CommandHelp> = {
       "This is the slowest command. `inspect` and `mla inspect` are not interchangeable: `inspect` also runs the MSE preflight and reports combined.* correlation evidence, while `mla inspect` reports only runtime facts.",
       "Run it only when both halves are already present in the material root and the question genuinely needs both.",
       "Without --task, runtime node names (at most 128, failures first) become the MSE task list at depth 0 without referencers. --task keeps those names and uses MSE's ordinary defaults unless --depth / --referencers / --no-referencers override them. Combined.* correlation still considers up to 128 unique runtime nodes even when --task is set.",
+      "Because --task narrows the resolved static graph, a node outside that list reports staticResolutionStatus `incomplete` with `mse_task_scope_narrowed`, never `not_found`: absence from a range that was never resolved is not evidence of absence.",
     ],
   },
   window: {

@@ -280,6 +280,28 @@ test("combined inspection reports runtime failure nodes missing from the MSE pip
   expect(result.warnings.some((item) => item.message.includes("Ghost"))).toBe(true);
 });
 
+test("combined inspection marks a task-scoped miss as incomplete instead of not found", async () => {
+  const root = await createCombinedFixture();
+  await writeFile(path.join(root, "maafw.log"), failingNodeLog("Ghost").join("\n"), "utf8");
+
+  const result = await inspect(root, { mse: { tasks: ["Start"] } });
+  const refs = result.evidence.filter((item) => item.kind === "combined.pipeline_reference");
+  const data = refs[0]?.data as {
+    node?: string;
+    pipelineFound?: boolean;
+    staticResolutionStatus?: string;
+    incompleteReasons?: string[];
+  } | undefined;
+
+  // `--task` resolved only `Start`, so `Ghost` was never in the searched range: absence there is
+  // not evidence of absence, and the record must not claim `not_found`.
+  expect(data?.node).toBe("Ghost");
+  expect(data?.pipelineFound).toBe(false);
+  expect(data?.staticResolutionStatus).toBe("incomplete");
+  expect(data?.incompleteReasons).toContain("mse_task_scope_narrowed");
+  expect(result.warnings.some((item) => item.code === "combined.pipeline_reference_incomplete")).toBe(true);
+});
+
 test("CLI writes JSON inspection and can query a cited source window", async () => {
   const root = await createCombinedFixture();
   const configDirectory = path.join(root, "config");

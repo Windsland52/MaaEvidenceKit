@@ -769,7 +769,13 @@ export async function inspect(
   }
   if (mla !== null && mse !== null) {
     const selectedRuntimeNodes = new Set(runtimeNodeSelection.tasks);
-    const staticIncompleteReasons = mseStaticResolutionIncompleteReasons(mse);
+    // A caller-named `mse.tasks` (CLI `--task`) narrows the resolved graph, so a node outside that
+    // list is absent from a range that was never claimed to be complete. Reporting `not_found` there
+    // would assert the node does not exist; `incomplete` keeps the honest "could not confirm" claim.
+    const staticIncompleteReasons = [
+      ...mseStaticResolutionIncompleteReasons(mse),
+      ...(hasCallerTasks ? ["mse_task_scope_narrowed"] : []),
+    ].sort();
     const { failureIssues, recognitionIssues } = profileStageSync("combined.correlation", () => ({
       failureIssues: addPipelineReferences(
         combinedLedger,

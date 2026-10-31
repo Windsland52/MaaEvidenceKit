@@ -307,8 +307,9 @@ Combined relation 故意不生成一个新的“最终 effectiveConfig”：MSE 
 不是最终运行时配置；若日志存在 override,仍需读取对应 `mla.pipeline_override` 并保留无法确定
 识别事件 task scope 的限制。
 两类 combined relation 都通过 `staticResolutionStatus` 区分 `found`、`found_partial`、
-`not_found` 和 `incomplete`,并在 `incompleteReasons` 中列出配置组合截断、项目发现截断或
-definition evidence 链接缺失。只有完整静态范围内确认缺失才使用 `not_found`;不完整范围
+`not_found` 和 `incomplete`,并在 `incompleteReasons` 中列出配置组合截断、项目发现截断、
+调用方 `--task` 收窄了静态范围(`mse_task_scope_narrowed`)或 definition evidence 链接缺失。
+只有完整静态范围内确认缺失才使用 `not_found`;不完整范围
 使用独立的 `combined.*_reference_incomplete` warning,不能据此断言节点不存在。
 自动运行时到 MSE 的**关联**最多选择 128 个不同节点:failure 节点优先,其余按失败识别次数、
 总识别次数和节点名稳定排序。该上限在调用方传入 `--task` 时仍然生效。达到上限时会输出
