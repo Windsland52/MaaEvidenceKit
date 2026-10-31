@@ -70,6 +70,19 @@ describe("per-command option validation", () => {
       "--input": "result.json",
     }))).not.toThrow();
 
+    expect(() => rejectUnknownOptions(parsed(["search"], {
+      "--input": "result.json",
+      "--kind": "mla.task",
+      "--kinds": "mla.failure",
+    }))).not.toThrow();
+
+    expect(() => rejectUnknownOptions(parsed(["timeline"], {
+      "--input": "result.json",
+      "--max-characters": "40000",
+      "--max-lines": "400",
+      "--task": "Combat",
+    }))).not.toThrow();
+
     expect(() => rejectUnknownOptions(parsed(["feedback"], {
       "--category": "bug",
       "--message": "text",

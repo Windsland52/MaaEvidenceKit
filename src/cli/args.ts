@@ -21,6 +21,7 @@ const VALUE_OPTIONS = new Set([
   "--install",
   "--keyword",
   "--kind",
+  "--kinds",
   "--line",
   "--limit",
   "--max-characters",

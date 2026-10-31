@@ -7,6 +7,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`search --kinds` is an alias of `--kind`.** Host agents regularly type the plural; the command
+  used to reject it with a "Did you mean --kind?" hint that still cost a round trip. Values from
+  both flags are merged, de-duplicated the same way as repeated `--kind`.
+- **`timeline` applies the same text stdout budget as `view`.** Default (and maximum) is 400 lines /
+  40000 characters; `--output FILE` still receives the complete rendering, and `--format json` with
+  `--max-lines`/`--max-characters` is refused rather than silently ignored.
+
 ### Changed
 
 - **`mla.recognition_detail` now groups by `node + algorithm + status + task`.** The task slot is
@@ -34,6 +43,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and no line-local entry. Records that newly gain a name change IDs.
   `taskAssociation` is unchanged: it still records whether a `task_id` was observed, not whether
   the interval named it.
+- **A full JSON inspection that lands on stdout above the text-view character budget writes one
+  stderr line** naming the size and pointing at `--summary --output FILE` or `--fields`. `--output`,
+  `--summary`, `--fields`, and non-JSON formats stay quiet. Small fixtures are under the budget.
 ## [0.10.0] - 2026-10-10
 
 ### Added

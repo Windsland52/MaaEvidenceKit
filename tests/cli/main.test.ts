@@ -261,6 +261,114 @@ test("renders a task timeline from a saved inspection report", async () => {
   expect(output).not.toContain("Task Collect");
 });
 
+test("search accepts --kinds as an alias of --kind", async () => {
+  const root = await mlaFixture();
+  const reportPath = path.join(root, "report.json");
+  let output = "";
+  vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+    output += String(chunk);
+    return true;
+  });
+
+  expect(await main(["mla", "inspect", root, "--output", reportPath])).toBe(0);
+  output = "";
+  expect(await main(["search", "--input", reportPath, "--kinds", "mla.task"])).toBe(0);
+  const parsed = JSON.parse(output) as { query: { kinds: string[] } };
+  expect(parsed.query.kinds).toEqual(["mla.task"]);
+});
+
+test("timeline bounds text stdout and refuses a text budget with JSON", async () => {
+  const root = await mlaFixture();
+  const reportPath = path.join(root, "report.json");
+  let output = "";
+  let errorOutput = "";
+  vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+    output += String(chunk);
+    return true;
+  });
+  vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    errorOutput += String(chunk);
+    return true;
+  });
+
+  expect(await main(["mla", "inspect", root, "--output", reportPath])).toBe(0);
+  await expect(main(["timeline", "--input", reportPath, "--format", "json", "--max-lines", "1"]))
+    .resolves.toBe(1);
+  expect(errorOutput).toContain("--max-lines/--max-characters bound the text rendering");
+
+  output = "";
+  expect(await main(["timeline", "--input", reportPath, "--format", "text", "--max-lines", "1"])).toBe(0);
+  expect(output).toContain("truncated");
+});
+
+test("warns on stderr when a full JSON inspection exceeds the text-view character budget", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-cli-json-budget-"));
+  temporaryRoots.push(root);
+  const event = (timestamp: string, message: string, details: Record<string, unknown>): string =>
+    `[${timestamp}][INF][Px1][Tx2][test] !!!OnEventNotify!!! [handle=1] [msg=${message}] [details=${JSON.stringify(details)}]`;
+  const records = Array.from({ length: 40 }, (_, index) => {
+    const id = index + 1;
+    const name = `Node${String(index).padStart(3, "0")}`;
+    const stamp = `2026-07-19 10:${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}`;
+    return [
+      event(`${stamp}.000`, "Tasker.Task.Starting", {
+        task_id: id, entry: name, hash: `h${id}`, uuid: `u${id}`,
+      }),
+      event(`${stamp}.100`, "Node.Recognition.Succeeded", {
+        name,
+        task_id: id,
+        reco_details: {
+          algorithm: "OCR",
+          name,
+          reco_id: id * 10,
+          detail: {
+            all: [{ box: [0, 0, 10, 10], score: 0.9, text: name }],
+            filtered: [{ box: [0, 0, 10, 10], score: 0.9, text: name }],
+            best: { box: [0, 0, 10, 10], score: 0.9, text: name },
+          },
+        },
+      }),
+      event(`${stamp}.200`, "Tasker.Task.Succeeded", {
+        task_id: id, entry: name, hash: `h${id}`, uuid: `u${id}`,
+      }),
+    ].join("\n");
+  });
+  await writeFile(
+    path.join(root, "maafw.log"),
+    [
+      "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+      "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+      ...records,
+    ].join("\n"),
+    "utf8",
+  );
+
+  let output = "";
+  let errorOutput = "";
+  vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+    output += String(chunk);
+    return true;
+  });
+  vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    errorOutput += String(chunk);
+    return true;
+  });
+
+  expect(await main(["mla", "inspect", root, "--format", "json"])).toBe(0);
+  expect(output.length).toBeGreaterThan(40_000);
+  expect(errorOutput).toMatch(/JSON inspection is \d+ characters on stdout and is never truncated/u);
+  expect(errorOutput).toContain("Prefer --summary with --output FILE");
+
+  errorOutput = "";
+  const reportPath = path.join(root, "report.json");
+  expect(await main(["mla", "inspect", root, "--format", "json", "--output", reportPath])).toBe(0);
+  expect(errorOutput).not.toContain("JSON inspection is");
+
+  errorOutput = "";
+  expect(await main(["mla", "inspect", root, "--summary", "--format", "json"])).toBe(0);
+  expect(errorOutput).not.toContain("JSON inspection is");
+});
+
 async function captureStdout(run: () => Promise<number>): Promise<{ code: number; output: string }> {
   let output = "";
   vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {

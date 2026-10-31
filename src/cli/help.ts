@@ -34,9 +34,9 @@ Usage:
   maa-evidence window --input result.json (--evidence-id ID | --artifact-id ID) [--line N] [--before N] [--after N] [--max-lines N] [--max-characters N]
   maa-evidence view --input result.json [--evidence-id ID] [--fields PATH,...] --format json|text|mermaid
   maa-evidence view --input result.json --format manifest|manifest-compact
-  maa-evidence search --input result.json [--artifact-id ID] [--kind KIND] [--node NODE] [--task TASK] [--text TEXT] [--from ISO] [--to ISO] [--limit N] [--format json|text]
+  maa-evidence search --input result.json [--artifact-id ID] [--kind|--kinds KIND] [--node NODE] [--task TASK] [--text TEXT] [--from ISO] [--to ISO] [--limit N] [--format json|text]
   maa-evidence batch --input result.json --requests queries.json
-  maa-evidence timeline --input result.json [--task NAME] [--format json|text]
+  maa-evidence timeline --input result.json [--task NAME] [--format json|text] [--max-lines N] [--max-characters N]
   maa-evidence skill --print [--file NAME] [--format json|text]
   maa-evidence skill --install <agent-skill-dir>
   maa-evidence skill --check <agent-skill-dir>
@@ -217,11 +217,11 @@ const COMMANDS: Record<string, CommandHelp> = {
   search: {
     summary: "Find evidence IDs in a saved inspection without re-parsing the original material.",
     usage: [
-      "maa-evidence search --input result.json [--artifact-id ID] [--kind KIND] [--node NODE] [--task TASK]",
+      "maa-evidence search --input result.json [--artifact-id ID] [--kind|--kinds KIND] [--node NODE] [--task TASK]",
       "                      [--text TEXT] [--from ISO] [--to ISO] [--limit N] [--fields PATH,...]",
     ],
     options: [
-      ["--kind KIND", "Exact evidence kind. Repeatable; any listed value matches."],
+      ["--kind, --kinds KIND", "Exact evidence kind. Repeatable; any listed value matches. --kinds is an alias of --kind."],
       ["--node NODE", "Exact node name, including recognition descendants and overridden nodes. nodeMatches reports which relation matched."],
       ["--task TASK", "Exact source task name. Repeatable."],
       ["--artifact-id ID", "Restrict to one artifact. Required before counting an event when mirrored logs are present."],
@@ -251,13 +251,15 @@ const COMMANDS: Record<string, CommandHelp> = {
   timeline: {
     summary: "Print each task's compressed \"time event node\" rows from a saved inspection.",
     usage: [
-      "maa-evidence timeline --input result.json [--task NAME] [--format json|text] [--output FILE]",
+      "maa-evidence timeline --input result.json [--task NAME] [--format json|text] [--max-lines N] [--max-characters N] [--output FILE]",
     ],
     options: [
       ["--task NAME", "Only this task. Repeatable."],
+      ["--max-lines N, --max-characters N", "Bound the text rendering: 400 lines and 40000 characters by default, which are also the maxima. JSON is never truncated, so bound that with --fields; --output FILE receives the complete rendering."],
     ],
     notes: [
       "JSON output exposes the same rows as ts/event/node, with event distinguishing success, failed, running, recognition timeout, and action failure.",
+      "Text stdout uses the same 400-line / 40000-character budget as view; JSON is never truncated, so --max-lines/--max-characters with --format json are refused. --output FILE still receives the complete rendering.",
     ],
   },
   telemetry: {

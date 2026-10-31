@@ -495,6 +495,7 @@ maa-evidence search --input inspection.json `
 maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format json
 maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format text
 maa-evidence timeline --input inspection.json --task TaskName --format text
+# text stdout is bounded to 400 lines / 40000 characters; --output FILE is complete, JSON is not truncated
 ```
 
 Read the smallest projection that answers the question instead of piping a whole document through a

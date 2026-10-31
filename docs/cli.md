@@ -400,7 +400,9 @@ MSE 未提供 `--task` 时只执行 Interface、资源组合和静态诊断预�
 ## 先看摘要,再取证据
 
 完整 inspection 的体积由 evidence 账本和 `details` 主导,直接打到 stdout 往往会被上游按尾部
-截断,反而丢掉 `artifacts` / `warnings` / `statistics` 这些必看字段。
+截断,反而丢掉 `artifacts` / `warnings` / `statistics` 这些必看字段。当 JSON inspection 打到
+stdout 且超过 text 视图的字符预算时,stderr 会写一行体积提示并指向 `--summary --output FILE`
+或 `--fields`;`--output`、`--summary`、`--fields` 和非 JSON 格式不提示。
 
 ```powershell
 # 只输出 artifacts、missingEvidence、warnings、statistics 和各 evidence kind 的数量
@@ -434,17 +436,21 @@ maa-evidence mla inspect C:\path\to\materials --format json --output inspection.
 两条(或多条)路径、两边的元素数与所在位置:按下标合并会把值贴到别的元素上,只保留一边又会静默少给字段;确实需要两者时分两次投影。
 它只作用于 JSON:`--format text|mermaid` 下会报错,而不会被静默忽略。
 
-文本输出用预算而不是投影来收敛:`window` 与 `view` 默认 **400 行 / 40000 字符**(也是上限),
+文本输出用预算而不是投影来收敛:`window`、`view` 与 `timeline` 默认 **400 行 / 40000 字符**(也是上限),
 可用 `--max-lines`、`--max-characters` 调整,触顶时在输出里附上明确的截断标记
-(`window` 的 `truncated: true`、`view` 的 `… truncated: N of M lines ...`)。JSON 输出**永不截断**,
+(`window` 的 `truncated: true`、`view` / `timeline` 的 `… truncated: N of M lines ...`)。JSON 输出**永不截断**,
 所以给 JSON 传这两个选项会直接报错并指向 `--fields`;`--output FILE` 始终收到完整渲染,不受 stdout
 预算影响。
 `window` 的行数与字符预算同时受上界约束;当 `--max-characters` 连第一条候选行都放不下时,窗口返回
 该行按预算截断后的前缀并标记 `truncated: true`,因此有内容的窗口不会退化成 `startLine` 大于
 `endLine` 的空范围。
 
-`search` 只读取已有 inspection JSON,不重新解析原日志。`--kind`、`--node`、`--task`
+`search` 只读取已有 inspection JSON,不重新解析原日志。`--kind` / `--kinds`(二者等价)、`--node`、`--task`
 和 `--artifact-id` 执行区分大小写的精确匹配;可重复传入同一选项表示任一值均可。
+`mla.recognition_detail` 与 `mla.pipeline_override` 在观察到 `Tasker.Task.Starting` 的内核任务
+区间能唯一归属时带 `source.task`,因此 `--task` 可以按任务同时过滤识别记录和覆盖记录;隐式补建
+任务、或零个或多个区间命中时该字段为空,`--task` 不会命中它们。覆盖行自身写下的入口名
+(`post_task [entry=...]`)优先于区间补名。
 `--node` 除顶层 source node 外,也精确匹配 `mla.recognition_detail` 中已保留的
 `childRecognition` / `descendantRecognition` 节点,以及 `mla.pipeline_override` 覆盖到的
 `nodeNames`;结果的 `nodeMatches` 会以 `source` / `recognition_child` /

@@ -156,6 +156,12 @@ async function emitInspection(sdk: Sdk, result: InspectionResult, parsed: Parsed
   }
   if (await emitSelection(sdk, result, parsed, format)) return;
   const rendered = profileStageSync("render", () => sdk.view(result, { format }));
+  if (output === undefined && format === "json" && rendered.length > sdk.VIEW_DEFAULT_MAX_CHARACTERS) {
+    process.stderr.write(
+      `JSON inspection is ${rendered.length} characters on stdout and is never truncated. `
+      + "Prefer --summary with --output FILE, or --fields, before piping this into a model context.\n",
+    );
+  }
   await emit(rendered, output);
 }
 
@@ -324,7 +330,7 @@ async function runWindow(parsed: ParsedArguments): Promise<void> {
 }
 
 /**
- * Budgets for the text rendering of `view`.
+ * Budgets for the text rendering of `view` and `timeline`.
  *
  * JSON is never truncated, so a text budget asked for with `--format json` is refused rather than
  * ignored: silently dropping either one is exactly how a caller ends up trusting a partial document.
@@ -414,7 +420,7 @@ async function runSearch(parsed: ParsedArguments): Promise<void> {
   const sdk = await loadSdk();
   const search = profileStageSync("evidence.search", () => sdk.searchEvidence(result, {
     artifactIds: options(parsed, "--artifact-id"),
-    kinds: options(parsed, "--kind"),
+    kinds: [...options(parsed, "--kind"), ...options(parsed, "--kinds")],
     nodes: options(parsed, "--node"),
     tasks: options(parsed, "--task"),
     text: options(parsed, "--text"),
@@ -434,13 +440,14 @@ async function runTimeline(parsed: ParsedArguments): Promise<void> {
   if (format !== "json" && format !== "text") {
     throw new UsageError("timeline --format must be json or text.");
   }
-  const tasks = options(parsed, "--task");
   const sdk = await loadSdk();
+  const budget = viewTextBudget(sdk, parsed, format);
+  const tasks = options(parsed, "--task");
   if (await emitSelection(sdk, sdk.taskTimeline(result, { tasks }), parsed, format)) return;
   const rendered = profileStageSync("render", () => sdk.renderTaskTimeline(result, format, {
     tasks,
   }));
-  await emit(rendered, option(parsed, "--output"));
+  await emitRendered(sdk, rendered, parsed, format, budget);
 }
 
 async function runBatch(parsed: ParsedArguments): Promise<void> {
