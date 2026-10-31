@@ -17,6 +17,7 @@ export default defineConfig({
     // 5 s budget makes those tests fail on a loaded machine while the suite runs in parallel. The
     // budget is a hang detector, not a performance assertion.
     testTimeout: 30_000,
-    poolOptions: { threads: { maxThreads: workers, minThreads: 1 } },
+    maxWorkers: workers,
+    minWorkers: 1,
   },
 });
