@@ -185,7 +185,7 @@ const COMMANDS: Record<string, CommandHelp> = {
     options: [
       ["--evidence-id ID", "Center the window on this record's source line. Unknown IDs are an error, never an empty window."],
       ["--artifact-id ID", "Read the artifact without an evidence record. Required when --evidence-id is absent."],
-      ["--line N", "Explicit center line instead of the record's line."],
+      ["--line N", "Explicit center line instead of the record's line. A line past the artifact's end is an error naming its length, never an empty window."],
       ["--before N", "Lines before the center. Default 20, maximum 200."],
       ["--after N", "Lines after the center. Default 20, maximum 200."],
       ["--max-lines N", "Line budget for the window. Default 400, maximum 400."],

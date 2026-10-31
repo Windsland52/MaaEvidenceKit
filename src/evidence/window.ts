@@ -162,6 +162,14 @@ export async function queryEvidenceWindow(
     }
   }
   if (endLine < requestedEnd && currentLine > endLine) truncated = true;
+  if (output.length === 0) {
+    // The focus line is past the artifact's end: there is no line to render, and returning
+    // `requestedStart` with `endLine === requestedStart - 1` would be the inverted empty range
+    // this function promises never to report. Say where the file ends instead.
+    throw new Error(
+      `Evidence window line ${focusLine} is past the end of ${artifact.relativePath} (${currentLine} lines).`,
+    );
+  }
   return {
     schemaVersion: EVIDENCE_WINDOW_SCHEMA_VERSION,
     artifactId: artifact.id,

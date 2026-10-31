@@ -66,6 +66,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A `window` focus line past the artifact's end is an error, not an inverted empty range.** A
+  `--line` beyond the last line used to return `startLine` one past `endLine` with empty text and
+  `truncated: false`, which is exactly the shape `window --help` promises never to report and which a
+  reader can mistake for "this region is empty". The query now fails with the artifact's real line
+  count.
 - **`skill --check` and `skill --install` now accept the installed Skill directory itself.** The
   packaged `SKILL.md` tells a reader to run `maa-evidence skill --check <this-skill-directory>`, but
   the command appended the Skill name unconditionally, so that exact form looked for

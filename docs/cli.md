@@ -279,6 +279,9 @@ resolve、不 stat、不打开 `input.path`,摘要直接取报告内的 `content
 # 读取某条证据附近的原始行
 maa-evidence window --input inspection.json --evidence-id evidence-abc123
 
+# 窗口落在文件末尾之外时报错并给出该文件的行数,不会返回倒序空区间
+maa-evidence window --input inspection.json --artifact-id artifact-abc123 --line 999999
+
 # 查看某条证据的完整结构化数据
 maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format json
 maa-evidence view --input inspection.json --evidence-id evidence-abc123 --format text

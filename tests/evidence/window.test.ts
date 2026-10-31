@@ -147,20 +147,17 @@ describe("evidence window character bounds", () => {
     expect(window.truncated).toBe(true);
   });
 
-  test("keeps the empty window when no line exists at or after requestedStart", async () => {
+  test("rejects a focus line past the artifact's end instead of returning an empty window", async () => {
     const inspection = await inspectionFor(["one", "two", "three"]);
 
-    const window = await queryEvidenceWindow(inspection, {
+    // Returning `startLine: 98` with `endLine: 97` and empty text is the inverted empty range the
+    // window contract rules out; a caller cannot tell it apart from an actually empty region.
+    await expect(queryEvidenceWindow(inspection, {
       artifactId: artifactId("maafw.log"),
       line: 99,
       before: 1,
       after: 1,
-    });
-
-    expect(window.startLine).toBe(98);
-    expect(window.endLine).toBe(97);
-    expect(window.text).toBe("");
-    expect(window.truncated).toBe(false);
+    })).rejects.toThrow(/past the end of maafw\.log \(3 lines\)/u);
   });
 
   test("stays inside every small character budget without inventing content", async () => {
