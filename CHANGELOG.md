@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-01
+
 ### Added
 
 - **`search --kinds` is an alias of `--kind`.** Host agents regularly type the plural; the command
@@ -722,7 +724,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Whitelist-only operational telemetry, disabled default PII, and mandatory preview/confirmation for
   feedback attachments.
 
-[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.8.0...v0.9.0
