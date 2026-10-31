@@ -8,8 +8,10 @@ description: Extract and correlate traceable MaaFramework evidence with MaaEvide
 This Skill ships inside the `maa-evidence-kit` package and states no version of its own, because the
 Skill and its CLI are installed separately and can drift. Before trusting this copy, compare it with
 the CLI you run: `maa-evidence skill --check <this-skill-directory>` reports each file as `same`,
-`different`, or `missing` against the packaged copy, and `maa-evidence skill --print` prints that
-copy (`--format json` adds the running package version and per-file digests).
+`different`, or `missing` against the packaged copy. That argument is either this directory or the
+skills root that holds it; both judge the same installed copy and print its path as `Installed:`.
+`maa-evidence skill --print` prints the packaged copy (`--format json` adds the running package
+version and per-file digests).
 
 MaaEvidenceKit (MEK) is a deterministic evidence CLI/SDK. The host agent understands issue text,
 generic GUI/service/custom logs, images, source semantics, and Sentry. MEK does not form diagnostic
@@ -18,17 +20,21 @@ conclusions and does not query application Sentry.
 ## Start small
 
 Before the first MEK command, run `maa-evidence --version`. Use the installed CLI rather than a
-checkout's `dist` files. Keep version freshness explicit instead of environmental: prefix commands
-with `MAA_EVIDENCE_AUTO_UPDATE=1` (PowerShell: `$env:MAA_EVIDENCE_AUTO_UPDATE = "1"` before the
-call) so an agent or a piped command also runs the updater, which checks npm at most once per 24
-hours per user and, when the global install is behind, hands the command to the newest release;
-that child prints one stderr line naming the version that actually ran and the one it was handed
-off from, so read that line as the authoritative feature level. While the install is behind, each
-command pays a preparation probe plus the handed-off `npm exec`, seconds each; a failed preparation
-retries at most once per 24 hours and falls back to the installed version with one diagnostic line
-and one upgrade hint on stderr. `MAA_EVIDENCE_AUTO_UPDATE=0` opts a single call out, and `skill`,
-`feedback`, `telemetry`, and `--help` never pay update work. Keep `MAA_EVIDENCE_TELEMETRY=0` plus
-any existing telemetry opt-out the same way.
+checkout's `dist` files. The updater checks npm at most once per 24 hours per user and, when the
+global install is behind, hands the command to the newest release; that child prints one stderr
+line naming the version that actually ran and the one it was handed off from, so read that line as
+the authoritative feature level. Non-interactive callers do not run the updater unless
+`MAA_EVIDENCE_AUTO_UPDATE=1` is set. Do not prefix that on every command when the host already
+installed the CLI it wants (a CI job that `npm i -g maa-evidence-kit@latest`, or
+`MAA_EVIDENCE_AUTO_UPDATE=0` in the job environment): prefixing `=1` undoes the pin and pays
+`npm exec` seconds per call. Prefix `MAA_EVIDENCE_AUTO_UPDATE=1` (PowerShell:
+`$env:MAA_EVIDENCE_AUTO_UPDATE = "1"` before the call) only on an unpinned global install that
+needs the handoff. While the install is behind, each handed-off command pays a preparation probe
+plus `npm exec`, seconds each; a failed preparation retries at most once per 24 hours and falls
+back to the installed version with one diagnostic line and one upgrade hint on stderr.
+`MAA_EVIDENCE_AUTO_UPDATE=0` opts a single call out, and `skill`, `feedback`, `telemetry`, and
+`--help` never pay update work. Keep `MAA_EVIDENCE_TELEMETRY=0` plus any existing telemetry
+opt-out the same way.
 
 Choose the smallest operation that answers the question:
 

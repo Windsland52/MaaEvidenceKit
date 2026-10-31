@@ -62,6 +62,8 @@ Skill 与 CLI 分开分发,可能版本不一致。Skill 正文**不写版本号
 仓库安装的副本仍是错的):用 `maa-evidence skill --check <skill-dir>` 逐文件比对已安装副本与当前
 CLI 自带的那份(`same`/`different`/`missing`),用 `maa-evidence skill --print --format json` 取
 包版本与逐文件 sha256,用 `maa-evidence skill --install <dir>` 从包内离线写入一份字节精确的副本。
+`<skill-dir>` 两种写法等价:skills 根目录(如 `~/.agents/skills`),或已安装的那份 Skill 目录本身
+(如 `~/.agents/skills/maa-evidence`);后者按副本本身判定,`--install` 就地刷新而不是再套一层。
 受管安装仍由 `skills` CLI 维护。
 
 开发本仓库时使用本地构建:

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -67,6 +67,24 @@ test("installing writes the exact packaged bytes under the named directory", asy
     const installed = await readFile(path.join(result.installedDirectory, ...file.path.split("/")));
     expect(createHash("sha256").update(installed).digest("hex")).toBe(file.sha256);
   }
+});
+
+test("installing by the installed copy's own directory refreshes it in place without nesting", async () => {
+  const root = await temporaryRoot();
+  const skill = await loadPackagedSkill();
+  await installPackagedSkill(skill, root);
+  const installed = path.join(root, "maa-evidence");
+  await writeFile(path.join(installed, PACKAGED_SKILL_ENTRY), "older text\n", "utf8");
+
+  const result = await installPackagedSkill(skill, installed);
+
+  expect(result.installedDirectory).toBe(installed);
+  // The instance the caller named is the one rewritten: no nested maa-evidence/maa-evidence/.
+  expect(await readdir(installed)).not.toContain(skill.name);
+  const nested = await stat(path.join(installed, "maa-evidence")).catch(() => undefined);
+  expect(nested).toBeUndefined();
+  const check = await checkPackagedSkill(skill, installed);
+  expect(check.match).toBe(true);
 });
 
 test("installing refuses to write through a symbolic link", async (context) => {
@@ -145,6 +163,62 @@ test("checking an absent install says so instead of throwing", async () => {
   const root = await temporaryRoot();
   const check = await checkPackagedSkill(await loadPackagedSkill(), root);
 
+  expect(check.installed).toBe(false);
+  expect(check.match).toBe(false);
+  expect(check.files.every((file) => file.status === "missing")).toBe(true);
+});
+
+test("checking the installed copy by its own directory reports the verdict of its root", async () => {
+  const root = await temporaryRoot();
+  const skill = await loadPackagedSkill();
+  await installPackagedSkill(skill, root);
+  const installed = path.join(root, "maa-evidence");
+
+  const byRoot = await checkPackagedSkill(skill, root);
+  const byCopy = await checkPackagedSkill(skill, installed);
+
+  expect(byRoot.match).toBe(true);
+  // The payload's own SKILL.md tells a reader to check this directory, so both forms agree.
+  expect(byCopy.installed).toBe(true);
+  expect(byCopy.match).toBe(byRoot.match);
+  expect(byCopy.files).toEqual(byRoot.files);
+  expect(byCopy.extraFiles).toEqual(byRoot.extraFiles);
+  // The reported path is the path actually judged, in both forms.
+  expect(byRoot.installedDirectory).toBe(installed);
+  expect(byCopy.installedDirectory).toBe(installed);
+});
+
+test("checking reports drift the same way whichever form names the copy", async () => {
+  const root = await temporaryRoot();
+  const skill = await loadPackagedSkill();
+  await installPackagedSkill(skill, root);
+  const installed = path.join(root, "maa-evidence");
+  await writeFile(path.join(installed, PACKAGED_SKILL_ENTRY), "older text\n", "utf8");
+
+  const byCopy = await checkPackagedSkill(skill, installed);
+  expect(byCopy.match).toBe(false);
+  expect(byCopy.files.find((file) => file.path === PACKAGED_SKILL_ENTRY))
+    .toMatchObject({ status: "different" });
+});
+
+test("a directory named like the Skill but missing its entry is read as a root", async () => {
+  const root = await temporaryRoot();
+  const lookalike = path.join(root, "maa-evidence");
+  await mkdir(lookalike, { recursive: true });
+
+  const check = await checkPackagedSkill(await loadPackagedSkill(), lookalike);
+  // Resolution is by content, not by name: without SKILL.md this is a root, so its child is judged.
+  expect(check.installed).toBe(false);
+  expect(check.match).toBe(false);
+  expect(check.installedDirectory).toBe(path.join(lookalike, "maa-evidence"));
+});
+
+test("checking a path that is neither a root nor an installed copy reports it as absent", async () => {
+  const root = await temporaryRoot();
+  const named = path.join(root, "somewhere-else");
+  await mkdir(named, { recursive: true });
+
+  const check = await checkPackagedSkill(await loadPackagedSkill(), named);
   expect(check.installed).toBe(false);
   expect(check.match).toBe(false);
   expect(check.files.every((file) => file.status === "missing")).toBe(true);

@@ -170,17 +170,41 @@ export async function readPackagedSkillFile(skill: PackagedSkill, relativePath: 
 }
 
 /**
- * Write the packaged payload to `<directory>/<skill name>/`.
+ * Resolve the installed copy that a caller-named directory refers to.
  *
- * The caller names the destination, so MEK never guesses an agent's Skill directory. Targets are
- * checked with `lstat` first: following a symbolic link here would write outside the chosen
- * directory, which is the one thing an explicit install must not do.
+ * Two forms name that copy and both are accepted: the root that holds Skill directories
+ * (`~/.agents/skills`) and the installed copy itself (`~/.agents/skills/maa-evidence`, which is what
+ * the payload's own `SKILL.md` tells a reader to check). A directory is the installed copy when its
+ * basename is the Skill name and it holds the entry file at its root; anything else is read as a
+ * root, so a directory named `maa-evidence` without `SKILL.md` still resolves to its child and
+ * reports as not installed rather than comparing the wrong level against the payload. `stat` follows
+ * links on purpose, because the `skills` CLI installs an agent target as a link to one canonical
+ * copy; refusing to write through a link stays in `installPackagedSkill`, where writing happens.
+ */
+async function resolveInstalledDirectory(skill: PackagedSkill, directory: string): Promise<string> {
+  const named = path.resolve(directory);
+  if (path.basename(named) === skill.name) {
+    const entry = await stat(path.join(named, skill.entry)).catch(() => undefined);
+    if (entry?.isFile() === true) return directory;
+  }
+  return path.join(directory, skill.name);
+}
+
+/**
+ * Write the packaged payload to the installed copy named by `directory`.
+ *
+ * The caller names the destination, so MEK never guesses an agent's Skill directory, and either form
+ * is accepted: the skills root, where the payload lands in `<directory>/<skill name>/`, or the
+ * installed copy itself, which is refreshed in place instead of gaining a nested copy. Both resolve
+ * through `resolveInstalledDirectory`, so the path that is written is the same path `--check` judges.
+ * Targets are checked with `lstat` first: following a symbolic link here would write outside the
+ * chosen directory, which is the one thing an explicit install must not do.
  */
 export async function installPackagedSkill(
   skill: PackagedSkill,
   directory: string,
 ): Promise<PackagedSkillInstall> {
-  const installedDirectory = path.join(directory, skill.name);
+  const installedDirectory = await resolveInstalledDirectory(skill, directory);
   const installedMetadata = await lstat(installedDirectory).catch(() => undefined);
   if (installedMetadata?.isSymbolicLink() === true) {
     throw new UsageError(`Refusing to install into a symbolic link: ${installedDirectory}`);
@@ -215,16 +239,20 @@ export async function installPackagedSkill(
 /**
  * Compare an installed copy against the packaged payload.
  *
- * The caller names the directory, so MEK never guesses an agent's Skill path, and the comparison is
- * a byte comparison rather than a version claim: a copy that a release did not touch stays `same`
- * even though the package version moved on. Directory symlinks are followed, because the `skills`
- * CLI installs agent directories as links to one canonical copy; only writing refuses links.
+ * The caller names the directory, so MEK never guesses an agent's Skill path, and either form is
+ * accepted: the skills root, where the copy is read from `<directory>/<skill name>/`, or the
+ * installed copy itself, which is judged directly, so checking the directory the payload's own
+ * `SKILL.md` names reports the same verdict as checking the root that holds it. `installedDirectory`
+ * is the path actually judged. The comparison is a byte comparison rather than a version claim: a
+ * copy that a release did not touch stays `same` even though the package version moved on. Directory
+ * symlinks are followed, because the `skills` CLI installs agent directories as links to one
+ * canonical copy; only writing refuses links.
  */
 export async function checkPackagedSkill(
   skill: PackagedSkill,
   directory: string,
 ): Promise<PackagedSkillCheck> {
-  const installedDirectory = path.join(directory, skill.name);
+  const installedDirectory = await resolveInstalledDirectory(skill, directory);
   // `stat` follows links on purpose: the skills CLI installs an agent target as a link to one
   // canonical copy. A link to a file, a broken link, or a plain file reports as "not installed"
   // rather than surfacing a raw filesystem error for a path the caller merely named.

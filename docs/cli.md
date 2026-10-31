@@ -319,12 +319,20 @@ maa-evidence skill --install <agent-skill-dir>
 
 # 比对 <dir>/maa-evidence/ 与当前 CLI 自带的那份:逐文件 same / different / missing
 maa-evidence skill --check <agent-skill-dir>
+
+# <dir> 也可以直接是已安装的那份 Skill 目录:两种写法判定同一份副本
+maa-evidence skill --check ~/.agents/skills/maa-evidence
+maa-evidence skill --install ~/.agents/skills/maa-evidence
 ```
 
 该命令永远读**当前包自带**的副本。Skill 正文**不写版本号**:写死的版本号每发一次版都要改,
 而且对"从仓库而不是从 npm 包安装的副本"仍然是错的;所以判定方式是比较字节而不是比较数字。
 `--check` 给出逐文件结论(另附 payload 未包含的文件,如 agent 自己的元数据,不计为漂移),
 并跟随 `skills` CLI 为 agent 目标创建的目录符号链接;命令退出码始终为 0,结论读 `match`。
+`--check` 与 `--install` 的 `<dir>` 有两种写法:`<dir>/maa-evidence/` 所依据的 skills 根目录,
+或者那份已安装副本本身——后者的 basename 为 `maa-evidence` 且根部直接有 `SKILL.md` 时按副本本身判定,
+`--install` 就地刷新而不是再套一层 `maa-evidence/maa-evidence/`;输出里的 `Installed:` 与
+`installedDirectory` 始终是实际判定的那条路径,`directory` 保留调用方传入的原样。
 被别的工具重写过的副本(例如行尾不同)会报 `different`;某次发版没动过的文件仍是 `same`,
 即使包版本已经前进——因此发版本身不需要改 Skill 任何一行。
 

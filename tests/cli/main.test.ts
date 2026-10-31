@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -458,6 +458,56 @@ test("skill --check reports a drifted copy without failing the command", async (
   expect(comparison.files.find((file) => file.path === "references/full-guide.md")?.status).toBe("same");
   // Agent metadata the payload does not ship is reported, not treated as drift.
   expect(comparison.extraFiles).toEqual(["PROVENANCE.md"]);
+});
+
+test("skill --check and --install accept the installed copy's own directory", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-cli-skill-self-"));
+  temporaryRoots.push(root);
+  await captureStdout(() => main(["skill", "--install", root]));
+  const installed = path.join(root, "maa-evidence");
+  await writeFile(path.join(installed, "SKILL.md"), "older text\n", "utf8");
+
+  // The payload's own SKILL.md names this directory, so it must reach the same verdict as the root.
+  const byCopy = await captureStdout(() => main(["skill", "--check", installed]));
+  const comparison = JSON.parse(byCopy.output) as {
+    installedDirectory: string;
+    installed: boolean;
+    match: boolean;
+    files: { path: string; status: string }[];
+  };
+  expect(byCopy.code).toBe(0);
+  expect(comparison.installed).toBe(true);
+  expect(comparison.installedDirectory).toBe(installed);
+  expect(comparison.match).toBe(false);
+  expect(comparison.files.find((file) => file.path === "SKILL.md")?.status).toBe("different");
+
+  const byRoot = await captureStdout(() => main(["skill", "--check", root]));
+  const rootComparison = JSON.parse(byRoot.output) as { files: { path: string; status: string }[] };
+  expect(rootComparison.files).toEqual(comparison.files);
+
+  // Refreshing by that same path repairs in place instead of creating a nested copy.
+  const refresh = await captureStdout(() => main(["skill", "--install", installed]));
+  const result = JSON.parse(refresh.output) as { installedDirectory: string };
+  expect(refresh.code).toBe(0);
+  expect(result.installedDirectory).toBe(installed);
+  const nested = await stat(path.join(installed, "maa-evidence")).catch(() => undefined);
+  expect(nested).toBeUndefined();
+
+  const repaired = await captureStdout(() => main(["skill", "--check", installed]));
+  expect((JSON.parse(repaired.output) as { match: boolean }).match).toBe(true);
+});
+
+test("skill --check reports an absent install for a path that is neither form", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-cli-skill-absent-"));
+  temporaryRoots.push(root);
+
+  const { code, output } = await captureStdout(() => main(["skill", "--check", root]));
+  const comparison = JSON.parse(output) as { installed: boolean; match: boolean; installedDirectory: string };
+
+  expect(code).toBe(0);
+  expect(comparison.installed).toBe(false);
+  expect(comparison.match).toBe(false);
+  expect(comparison.installedDirectory).toBe(path.join(root, "maa-evidence"));
 });
 
 test("skill requires exactly one of --print, --install, or --check", async () => {

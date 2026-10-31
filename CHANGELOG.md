@@ -43,9 +43,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and no line-local entry. Records that newly gain a name change IDs.
   `taskAssociation` is unchanged: it still records whether a `task_id` was observed, not whether
   the interval named it.
+- **The packaged Skill no longer tells every caller to prefix `MAA_EVIDENCE_AUTO_UPDATE=1`.** The
+  CLI default is unchanged: a non-interactive caller still never pays for update work unless that
+  variable is `1`. Hosts that already installed the CLI they want (CI `npm i -g`, or job env `=0`)
+  must not undo the pin on every command; prefix `=1` only on an unpinned global install that
+  needs the handoff. Documentation only - no updater behavior changed.
 - **A full JSON inspection that lands on stdout above the text-view character budget writes one
   stderr line** naming the size and pointing at `--summary --output FILE` or `--fields`. `--output`,
   `--summary`, `--fields`, and non-JSON formats stay quiet. Small fixtures are under the budget.
+
+### Fixed
+
+- **`skill --check` and `skill --install` now accept the installed Skill directory itself.** The
+  packaged `SKILL.md` tells a reader to run `maa-evidence skill --check <this-skill-directory>`, but
+  the command appended the Skill name unconditionally, so that exact form looked for
+  `maa-evidence/maa-evidence/` and always answered `installed: false` with every file `missing`,
+  while `--install` by the same path created the nested copy it was looking for. A new resolver in
+  `src/skills/index.ts` judges the caller-named directory as the installed copy when its basename is
+  the Skill name and it holds `SKILL.md` at its root, and otherwise keeps `<dir>/<skill name>/`, so
+  both forms reach one verdict and `--install` refreshes in place. `installedDirectory` and the
+  printed `Installed:` line report the path actually judged. Exit code stays 0 for drift, the symlink
+  policy is unchanged, and the payload still states no version of its own.
 ## [0.10.0] - 2026-10-10
 
 ### Added

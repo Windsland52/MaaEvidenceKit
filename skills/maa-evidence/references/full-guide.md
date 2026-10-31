@@ -17,12 +17,13 @@ harness explicitly supplies a local development build.
 
 Treat published MEK's updater as the version owner. It checks npm at most once every 24 hours,
 hands the command to a newer stable runtime, and delegates managed Skill updates to the `skills`
-CLI. The default gate keeps that work out of non-interactive callers, so this Skill asks its
-callers for the opposite: prefix commands with `MAA_EVIDENCE_AUTO_UPDATE=1` (PowerShell:
-`$env:MAA_EVIDENCE_AUTO_UPDATE = "1"`) so an agent or a piped command checks and hands off too,
-paying `npm exec` seconds per command only while the install is behind. `MAA_EVIDENCE_AUTO_UPDATE=0`
-opts one call out; `skill`, `feedback`, `telemetry`, and `--help` are always exempt. Never guess or
-write Codex, Claude Code, Cursor, Pi, or other agent Skill paths.
+CLI. The default gate keeps that work out of non-interactive callers. Do not prefix
+`MAA_EVIDENCE_AUTO_UPDATE=1` when the host already installed the CLI it wants (CI that
+`npm i -g maa-evidence-kit@latest`, or job env `MAA_EVIDENCE_AUTO_UPDATE=0`): that undoes the pin
+and pays `npm exec` per command. Prefix `MAA_EVIDENCE_AUTO_UPDATE=1` (PowerShell:
+`$env:MAA_EVIDENCE_AUTO_UPDATE = "1"`) only on an unpinned global install that needs the handoff.
+`MAA_EVIDENCE_AUTO_UPDATE=0` opts one call out; `skill`, `feedback`, `telemetry`, and `--help` are
+always exempt. Never guess or write Codex, Claude Code, Cursor, Pi, or other agent Skill paths.
 If the user is migrating from `0.1.x` or installed this Skill from a local path, tell them to
 reinstall it once from `https://github.com/Windsland52/MaaEvidenceKit` with
 `--skill maa-evidence --global`; this gives the installer a remote source and lets it preserve the
@@ -31,7 +32,9 @@ selected agent targets.
 This Skill ships inside the npm package and states no version of its own, so compare bytes instead of
 numbers: `maa-evidence skill --check <dir>` reports each installed file as `same`, `different`, or
 `missing` against the payload this CLI ships, and `maa-evidence skill --print --format json` gives the
-running package version plus per-file `sha256`. Refresh a copy you manage with
+running package version plus per-file `sha256`. `--check` and `--install` both accept either form of
+`<dir>`: the skills root that holds the Skill directory, or the installed copy itself, judged and
+refreshed in place rather than gaining a nested copy. Refresh a copy you manage with
 `maa-evidence skill --install <dir>`, which writes the package's own payload without network access.
 Do not silently work around a mismatch: a Skill from another release can describe flags and fields
 that changed. Note that a copy rewritten by another tool (line endings, for example) compares as
