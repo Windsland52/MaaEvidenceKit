@@ -43,6 +43,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and no line-local entry. Records that newly gain a name change IDs.
   `taskAssociation` is unchanged: it still records whether a `task_id` was observed, not whether
   the interval named it.
+- **`--summary` `notableEvidence` now includes `mla.failure_context` and `mla.failure`.** Those are
+  the records the packaged Skill tells a harness to read first, but the bounded identity list used
+  to skip them, so a summary-only first read still needed a discovery `search` before `view`.
+  Failure context remains first in the kind order; outcome records still put failed status first.
+- **Combined `inspect` keeps caller MSE tasks.** When `InspectOptions.mse.tasks` (CLI `--task`) is
+  non-empty, those names are the MSE selection and MSE's ordinary defaults apply (depth two,
+  referencers on) unless the caller also set `depth` / `includeReferencers`. Automatic runtime-node
+  **task selection** (filling the MSE task list from at most 128 runtime node names, depth 0, no
+  referencers) still runs only when the caller did not name tasks. Combined.* correlation still
+  considers up to 128 unique runtime nodes even when `--task` is set, and
+  `combined.runtime_node_resolution_truncated` still reports that correlation bound.
+  `inspect --help` states both defaults.
 - **The packaged Skill no longer tells every caller to prefix `MAA_EVIDENCE_AUTO_UPDATE=1`.** The
   CLI default is unchanged: a non-interactive caller still never pays for update work unless that
   variable is `1`. Hosts that already installed the CLI they want (CI `npm i -g`, or job env `=0`)
@@ -64,6 +76,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   both forms reach one verdict and `--install` refreshes in place. `installedDirectory` and the
   printed `Installed:` line report the path actually judged. Exit code stays 0 for drift, the symlink
   policy is unchanged, and the payload still states no version of its own.
+
 ## [0.10.0] - 2026-10-10
 
 ### Added

@@ -159,11 +159,11 @@ const COMMANDS: Record<string, CommandHelp> = {
     ],
     options: [
       ["--from, --to", "Time window applied to the MLA half of the inspection."],
-      ["--task NAME", "Task selection for the MSE half. Repeatable."],
-      ["--depth N", "MSE task expansion depth. Defaults to two layers."],
+      ["--task NAME", "MSE task names to expand. Repeatable. When omitted and runtime logs are present, combined inspect auto-selects up to 128 runtime node names instead of leaving MSE on preflight-only."],
+      ["--depth N", "MSE task expansion depth. Defaults to two layers when --task is set; automatic runtime-node selection defaults to 0."],
       ["--controller NAME", "Restrict the MSE half to one controller."],
       ["--resource NAME", "Restrict the MSE half to one resource pack."],
-      ["--referencers, --no-referencers", "Keep or skip MSE reverse reference scanning. Correlation needs referencers; a node-definition question does not."],
+      ["--referencers, --no-referencers", "Keep or skip MSE reverse reference scanning. Automatic runtime-node selection defaults to off; --task follows MSE's default (on) unless this flag is set."],
       ["--no-mla", "Skip the runtime half and run MSE only."],
       ["--no-mse", "Skip the static half and run MLA only."],
       ["--syntax-mode maafw|maa", "Select the pipeline syntax dialect for the MSE half. Defaults to maafw."],
@@ -172,6 +172,7 @@ const COMMANDS: Record<string, CommandHelp> = {
     notes: [
       "This is the slowest command. `inspect` and `mla inspect` are not interchangeable: `inspect` also runs the MSE preflight and reports combined.* correlation evidence, while `mla inspect` reports only runtime facts.",
       "Run it only when both halves are already present in the material root and the question genuinely needs both.",
+      "Without --task, runtime node names (at most 128, failures first) become the MSE task list at depth 0 without referencers. --task keeps those names and uses MSE's ordinary defaults unless --depth / --referencers / --no-referencers override them. Combined.* correlation still considers up to 128 unique runtime nodes even when --task is set.",
     ],
   },
   window: {

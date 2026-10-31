@@ -52,9 +52,15 @@ test("command help states the defaults that decide cost and bounds", () => {
   expect(renderCommandHelp("window")).toContain("Default 400");
   expect(renderCommandHelp("window")).toContain("Default 20");
   expect(renderCommandHelp("search")).toContain("Default 50, maximum 500");
+  expect(renderCommandHelp("search")).toContain("--kinds");
   expect(renderCommandHelp("view")).toContain("--fields");
+  expect(renderCommandHelp("timeline")).toContain("400-line / 40000-character");
+  expect(renderCommandHelp("timeline")).toContain("Bound the text rendering");
   expect(renderCommandHelp("mla inspect")).toContain("Loading focus, not an evidence filter");
   expect(renderCommandHelp("mse resolve")).toContain("Required");
+  expect(renderCommandHelp("inspect")).toContain("automatic runtime-node selection defaults to 0");
+  expect(renderCommandHelp("inspect")).toContain("--task keeps those names");
+  expect(renderCommandHelp("inspect")).toContain("correlation still considers");
 });
 
 test("commandKey stays the single source of the command identity", () => {

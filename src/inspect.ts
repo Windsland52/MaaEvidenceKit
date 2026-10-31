@@ -730,8 +730,18 @@ export async function inspect(
   const mla = shouldInspectMla ? await inspectMla(resolvedPath, options.mla || {}) : null;
   const runtimeNodeSelection = shouldInspectMse ? selectRuntimeNodesForMse(mla) : selectRuntimeNodesForMse(null);
   const mseOption = options.mse === false ? undefined : options.mse;
-  const mseTasks = runtimeNodeSelection.selected > 0 ? runtimeNodeSelection.tasks : mseOption?.tasks;
-  const automaticRuntimeCorrelation = runtimeNodeSelection.selected > 0;
+  const callerTasks = mseOption?.tasks;
+  const hasCallerTasks = callerTasks !== undefined && callerTasks.length > 0;
+  // Automatic runtime-node *task selection* fills the MSE task list only when the caller did not
+  // name tasks. Combined.* correlation still considers up to 128 runtime node names even when
+  // `--task` is set. A non-empty `mse.tasks` (CLI `--task`) is the Interface/entry selection;
+  // replacing it with runtime node names dropped that selection and forced depth 0 / no
+  // referencers, which made `inspect --help`'s "defaults to two layers" untrue whenever logs
+  // were present.
+  const mseTasks = hasCallerTasks
+    ? callerTasks
+    : (runtimeNodeSelection.selected > 0 ? runtimeNodeSelection.tasks : callerTasks);
+  const automaticRuntimeCorrelation = !hasCallerTasks && runtimeNodeSelection.selected > 0;
   const mse = shouldInspectMse ? await inspectMse(resolvedPath, {
     ...(mseOption),
     ...(mseTasks === undefined ? {} : { tasks: mseTasks }),

@@ -88,6 +88,12 @@ CLI 与 Skill 的一致性比对与离线安装见下文 [`skill`](#skill读取�
 maa-evidence inspect C:\path\to\materials --format json --output inspection.json
 ```
 
+未传 `--task` 且存在运行时日志时,组合检查会把最多 128 个运行时节点名当作 MSE **任务列表**,并以
+`depth: 0`、不查找 referencer 展开。传入 `--task` 时保留调用方名单,MSE 半边使用普通默认
+(展开两层、查找 referencer),除非再传 `--depth` / `--referencers` / `--no-referencers`。
+无论是否传 `--task`,combined.* **关联**仍最多考虑 128 个运行时节点,达到上限时仍输出
+`combined.runtime_node_resolution_truncated`。`--help` 与该行为一致。
+
 ### `mla inspect`:只检查 MaaFramework 日志
 
 ```powershell
@@ -421,7 +427,9 @@ maa-evidence mla inspect C:\path\to\materials --format json --output inspection.
 ```
 
 `--summary` 输出独立的 `maa-evidence-summary/v1` 文档(不含 `evidence` 与 `details`),
-其中 `evidenceKinds` 直接给出可用的 `--kind` 取值及数量,便于规划后续 `search`。
+其中 `evidenceKinds` 直接给出可用的 `--kind` 取值及数量,便于规划后续 `search`;
+`notableEvidence` 为 `mla.failure_context`、`mla.failure`、`mla.task_anomaly`、`mla.outcome`
+等可操作 kind 嵌入最多十条 identity,便于直接 `view --evidence-id`。
 该文档不是 inspection 结果,不能作为 `--input` 回传。
 
 已知事发时间时先用 `--from` / `--to` 收窄窗口:实测一份 16 MB 的产物在收窄到十分钟窗口后

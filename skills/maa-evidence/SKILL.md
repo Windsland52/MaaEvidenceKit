@@ -158,16 +158,17 @@ Focused output omits ordinary signals by design; use `statistics.*Total` for com
 and their counts) without the evidence ledger or `details`. It affects only stdout: with
 `--output`, the file always receives the full report, so one `--summary --output REPORT` run both
 bounds the first read and keeps REPORT consumable by `search`, `view`, and `window`. The
-`notableEvidence` block embeds up to ten identities per actionable kind (`mla.task_anomaly`,
-`mla.outcome` with failures first, `mla.cycle_exit_blocker`, `mla.possible_mirrored_task_group`,
-and repeated `mla.signal` node segments) with `total`/`omitted`, so follow-ups can go straight to
-`view --evidence-id` instead of a discovery search round trip.
+`notableEvidence` block embeds up to ten identities per actionable kind (`mla.failure_context`,
+`mla.failure`, `mla.task_anomaly`, `mla.outcome` with failures first, `mla.cycle_exit_blocker`,
+`mla.possible_mirrored_task_group`, and repeated `mla.signal` node segments) with `total`/`omitted`,
+so follow-ups can go straight to `view --evidence-id` instead of a discovery search round trip.
 
 To reconstruct how one task unfolded, use the compressed task timeline instead of rebuilding the
 node event sequence by hand: `maa-evidence timeline --input REPORT --task TaskName --format text`
-prints each task's "time event node" rows straight from the inspection. JSON output exposes the
-same rows (`ts`/`event`/`node`, with `event` distinguishing success, failed, running, recognition
-timeout, and action-failed).
+prints each task's "time event node" rows straight from the inspection. Text stdout is bounded to
+400 lines / 40000 characters (same as `view`); `--output FILE` receives the complete rendering, and
+`--format json` is never truncated. JSON output exposes the same rows (`ts`/`event`/`node`, with
+`event` distinguishing success, failed, running, recognition timeout, and action-failed).
 
 For common follow-ups, prefer a single batch:
 

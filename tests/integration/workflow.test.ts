@@ -194,6 +194,26 @@ test("combined inspection links runtime failures to MSE pipeline nodes", async (
   expect(dataWithTasks?.pipelineFound).toBe(true);
 });
 
+test("combined inspection keeps caller MSE tasks instead of replacing them with runtime node names", async () => {
+  const root = await createCombinedFixture();
+  await writeFile(path.join(root, "maafw.log"), failingNodeLog("Start").join("\n"), "utf8");
+
+  const automatic = await inspect(root);
+  const withEntry = await inspect(root, { mse: { tasks: ["Combat"] } });
+
+  expect(automatic.details.mse?.details.selection).toMatchObject({
+    requestedTasks: expect.arrayContaining(["Start"]),
+    depth: 0,
+    includeReferencers: false,
+  });
+  expect(withEntry.details.mse?.details.selection).toMatchObject({
+    requestedTasks: ["Combat"],
+    includeReferencers: true,
+  });
+  expect(withEntry.details.mse?.details.selection.depth).toBeUndefined();
+  expect(withEntry.evidence.some((item) => item.kind === "combined.pipeline_reference")).toBe(true);
+});
+
 test("combined failure references link MSE base definitions to task-scoped runtime overrides", async () => {
   const root = await createCombinedFixture();
   const failureLog = failingNodeLog("Start");

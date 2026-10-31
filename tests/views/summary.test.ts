@@ -87,6 +87,20 @@ function result(): InspectionResult {
         source: { artifactId: "artifact-1", path: "maafw.log", line: 80 },
         data: { kind: "recognition_activity" },
       },
+      {
+        id: "evidence-9",
+        kind: "mla.failure",
+        summary: "Node Eat failed.",
+        source: { artifactId: "artifact-1", path: "maafw.log", line: 90 },
+        data: {},
+      },
+      {
+        id: "evidence-10",
+        kind: "mla.failure_context",
+        summary: "Failure context for node Eat.",
+        source: { artifactId: "artifact-1", path: "maafw.log", line: 91 },
+        data: {},
+      },
     ],
     missingEvidence: [],
     warnings: [{ code: "mla_signals_focused", message: "Selected 403 of 935 runtime signals." }],
@@ -99,9 +113,11 @@ test("reduces an inspection to bounded summary blocks with the available evidenc
   const summary = summarizeInspection(result());
 
   expect(summary.schemaVersion).toBe(INSPECTION_SUMMARY_SCHEMA_VERSION);
-  expect(summary.evidenceCount).toBe(8);
+  expect(summary.evidenceCount).toBe(10);
   expect(summary.evidenceKinds).toEqual([
     { kind: "mla.action_detail", count: 2 },
+    { kind: "mla.failure", count: 1 },
+    { kind: "mla.failure_context", count: 1 },
     { kind: "mla.outcome", count: 2 },
     { kind: "mla.pipeline_override", count: 1 },
     { kind: "mla.signal", count: 2 },
@@ -119,7 +135,7 @@ test("keeps the rendered summary far smaller than the full inspection document",
 
   expect(summary.length).toBeLessThan(JSON.stringify(inspection).length);
   expect(summary).not.toContain("enormous");
-  expect(JSON.parse(summary)).toMatchObject({ evidenceCount: 8 });
+  expect(JSON.parse(summary)).toMatchObject({ evidenceCount: 10 });
 });
 
 test("renders a text summary that names artifacts, evidence kinds, and warnings", () => {
@@ -130,6 +146,10 @@ test("renders a text summary that names artifacts, evidence kinds, and warnings"
   expect(text).toContain("artifact-2 [log/available] custom/2026-09-01.log");
   expect(text).toContain("- mla.pipeline_override: 1");
   expect(text).toContain("Notable evidence:");
+  expect(text).toContain("- mla.failure_context: 1");
+  expect(text).toContain("  - evidence-10: Failure context for node Eat.");
+  expect(text).toContain("- mla.failure: 1");
+  expect(text).toContain("  - evidence-9: Node Eat failed.");
   expect(text).toContain("- mla.outcome: 2");
   expect(text).toContain("  - evidence-5: Task Combat was failed.");
   expect(text).toContain("- mla.signal: 1");
@@ -138,6 +158,25 @@ test("renders a text summary that names artifacts, evidence kinds, and warnings"
 
 test("embeds identities for notable evidence with failures first and a bounded list", () => {
   const summary = summarizeInspection(result());
+  expect(summary.notableEvidence.map((entry) => entry.kind)).toEqual([
+    "mla.failure_context",
+    "mla.failure",
+    "mla.task_anomaly",
+    "mla.outcome",
+    "mla.signal",
+  ]);
+  expect(summary.notableEvidence.find((entry) => entry.kind === "mla.failure_context")).toEqual({
+    kind: "mla.failure_context",
+    total: 1,
+    omitted: 0,
+    identities: [{ id: "evidence-10", summary: "Failure context for node Eat." }],
+  });
+  expect(summary.notableEvidence.find((entry) => entry.kind === "mla.failure")).toEqual({
+    kind: "mla.failure",
+    total: 1,
+    omitted: 0,
+    identities: [{ id: "evidence-9", summary: "Node Eat failed." }],
+  });
   const outcome = summary.notableEvidence.find((entry) => entry.kind === "mla.outcome");
   expect(outcome).toEqual({
     kind: "mla.outcome",

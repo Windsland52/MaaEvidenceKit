@@ -310,13 +310,16 @@ Combined relation 故意不生成一个新的“最终 effectiveConfig”：MSE 
 `not_found` 和 `incomplete`,并在 `incompleteReasons` 中列出配置组合截断、项目发现截断或
 definition evidence 链接缺失。只有完整静态范围内确认缺失才使用 `not_found`;不完整范围
 使用独立的 `combined.*_reference_incomplete` warning,不能据此断言节点不存在。
-自动运行时到 MSE 的关联最多选择 128 个不同节点:failure 节点优先,其余按失败识别次数、
-总识别次数和节点名稳定排序。达到上限时会输出 `combined.runtime_node_resolution_truncated`,
-完整规模及选中/省略数量保存在 `statistics.mseRuntimeNodes*` 和
-`details.correlation.runtimeNodes`;未选择的节点不会被误报为 `pipelineFound: false`。
-自动关联只解析选中节点的直接定义(`depth: 0` 且不查找 referencer),避免静态图展开主导
-组合检查耗时。传入 `InspectOptions.mse.depth` / `includeReferencers` 可覆盖 SDK 默认;CLI 需要
-展开反向引用时使用 `inspect --referencers --depth N`。
+自动运行时到 MSE 的**关联**最多选择 128 个不同节点:failure 节点优先,其余按失败识别次数、
+总识别次数和节点名稳定排序。该上限在调用方传入 `--task` 时仍然生效。达到上限时会输出
+`combined.runtime_node_resolution_truncated`,完整规模及选中/省略数量保存在
+`statistics.mseRuntimeNodes*` 和 `details.correlation.runtimeNodes`;未选择的节点不会被误报为
+`pipelineFound: false`。
+自动**任务选择**只在调用方没有传入非空 `InspectOptions.mse.tasks` 时用那些运行时节点名填充
+MSE 任务列表,并只解析选中节点的直接定义(`depth: 0` 且不查找 referencer),避免静态图展开主导
+组合检查耗时。传入非空 `tasks` 时保留该名单,MSE 使用自身默认展开(两层、查找 referencer)。
+`InspectOptions.mse.depth` / `includeReferencers` 可覆盖上述默认;CLI 需要展开反向引用时使用
+`inspect --referencers --depth N`。
 
 ## 批量查询输出:`maa-evidence-batch/v1`
 

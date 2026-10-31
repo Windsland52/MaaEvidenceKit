@@ -68,11 +68,13 @@ that changed. Note that a copy rewritten by another tool (line endings, for exam
   truncation or missing definition links prevent an exhaustive claim. Corresponding
   `combined.*_reference_incomplete` warnings must not be treated as proof of absence.
   Automatic runtime-node correlation selects at most 128 unique names, prioritizing failure nodes,
-  then failed and frequent recognition observations. Check
+  then failed and frequent recognition observations, even when `--task` is set. Check
   `combined.runtime_node_resolution_truncated`, `statistics.mseRuntimeNodes*`, and
   `details.correlation.runtimeNodes` before assuming every runtime node was statically resolved.
-  Automatic correlation resolves direct task definitions only (`depth: 0`, no referencers) to keep
-  combined inspection bounded. Pass explicit MSE `depth` / `includeReferencers` options, or use
+  Automatic task selection fills the MSE task list from those runtime names only when the caller did
+  not pass `--task` / `mse.tasks`, and then resolves direct definitions only (`depth: 0`, no
+  referencers) to keep combined inspection bounded. A non-empty `--task` keeps those names and uses
+  MSE's ordinary defaults. Pass explicit MSE `depth` / `includeReferencers` options, or use
   `maa-evidence inspect --referencers --depth N`, only when execution-path context is needed.
   Matches carry `pipelineControllers`, `pipelineResources`, and `pipelineDefinitions`
   source locations. Failure references also carry `pipelineDefinitionEvidenceIds` for the MSE

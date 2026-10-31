@@ -45,6 +45,8 @@ export type InspectionSummary = {
 };
 
 const NOTABLE_EVIDENCE_KINDS = [
+  "mla.failure_context",
+  "mla.failure",
   "mla.task_anomaly",
   "mla.outcome",
   "mla.cycle_exit_blocker",
@@ -63,8 +65,9 @@ function isRepeatedNodeSegment(item: Evidence): boolean {
 
 /**
  * Embed identities for the evidence kinds a harness acts on right after reading the summary.
- * Each list is bounded and deterministic; outcome records put failures first, and signals
- * contribute only repeated node segments so recognition activity stays out of the summary.
+ * Each list is bounded and deterministic; failure_context and failure come first, outcome
+ * records put failed status first, and signals contribute only repeated node segments so
+ * recognition activity stays out of the summary.
  */
 function buildNotableEvidence(evidence: readonly Evidence[]): InspectionSummaryNotableEvidence[] {
   const notable: InspectionSummaryNotableEvidence[] = [];
