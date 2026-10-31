@@ -139,8 +139,15 @@ MEK 只保证它知道**哪些文件存在、多大、何时修改**。`modified
 
 ## `mla.recognition_detail` 聚合规则
 
-MLA 会按 `node + algorithm + status` 把识别事件聚合为 `mla.recognition_detail` evidence,
-按 detail 的真实 shape 通用提取,而不是按算法硬编码。顶层 `score` / `textCounts` 每次识别
+MLA 会按 `node + algorithm + status + task` 把识别事件聚合为 `mla.recognition_detail` evidence,
+其中 task 是唯一覆盖该事件 `task_id` 与时间戳、且观察到 `Tasker.Task.Starting` 的内核任务的
+entry 名。没有 Starting 的隐式补建任务不参与(投影器用节点名或 scope 名填 `entry`,那不是任务名)。
+缺 `end_time` 的开口区间在同 `task_id` 的下一次 Starting 处闭合(不含该时刻),时间戳按定长零填充
+字典序比较。零个或多个区间命中时该槽为空,不把后一个 session 复用的 `task_id` 猜成前一个事件的任务。
+上一个任务的 `end_time` 与下一个同 id 任务的 `start_time` 落在同一毫秒时,该时刻会命中两个区间,同样留空。
+同一节点在不同任务中会分成多条记录,能唯一归属时 `source.task` 与 `data.taskName` 带上该名字,
+因此 `search --task` 可以命中识别记录。每条识别记录仍对应一条
+`combined.recognition_pipeline_reference`。按 detail 的真实 shape 通用提取,而不是按算法硬编码。顶层 `score` / `textCounts` 每次识别
 只统计一个代表候选(优先 `best`,再取 `filtered` / `all` 首项),不会因同一候选同时出现在
 三个上游数组中而重复计数。`candidateStages.all` / `filtered` / `best` 分别保留各阶段的候选总数、
 文本计数、分数分布和最多 3 个带 source locator 的样本;`samplesTruncated` 明确表示仍有更多
@@ -177,8 +184,14 @@ MLA 会从 MaaFramework 核心日志中提取非空 `pipeline_override` JSON，�
 来源并去重；若 Context trace 不可见，仍保留可解析的任务或 API 输入，但不会补造其缺失的
 Context/task 关联。
 
+`source.task` / `data.taskName` 优先保留覆盖行自身写下的入口名(`post_task [entry=...]`)。
+没有行内名字时,再与 `mla.recognition_detail` 使用同一套内核区间规则：`(task_id, 时间戳)`
+落进唯一、且观察到 `Tasker.Task.Starting` 的任务区间才命名。不再用「整份日志里该 `task_id`
+是否只对应一个 entry」来命名，因此顺序复用 `task_id` 时 Alpha / Beta 的 override 与识别记录
+可以一起被 `search --task` 命中。
 只有日志同时提供唯一的 Context ID 到 MaaFramework `task_id` 映射时，才标记
 `taskAssociation: "task_id"`；仅能对应任务入口时使用 `entry_only`，否则为 `none`。
+`taskAssociation` 只表示是否观察到 `task_id`，不表示区间是否已经命名。
 空覆盖不会产生 evidence。单个 MLA target 最多保留 500 条非空覆盖，优先保留具备精确
 task ID 关联的记录，再对其余记录做时间轴取样；完整数量在
 `statistics.pipelineOverridesTotal`，入选数量在 `statistics.pipelineOverrides` 和

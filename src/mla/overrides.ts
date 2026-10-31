@@ -61,6 +61,12 @@ export type MlaPipelineOverrideObservation = {
   origin: "context" | "resource" | "task_submission" | "task_update";
   taskAssociation: "task_id" | "entry_only" | "none";
   taskId: number | null;
+  /**
+   * Line-local entry from this override record (typically `post_task [entry=...]`).
+   * The MLA engine keeps this name as-is and only fills unnamed records from a unique
+   * kernel interval, so `source.task` can match `mla.recognition_detail` without rewriting
+   * an observed entry.
+   */
   taskName: string | null;
   contextScopeId: string | null;
   nodeNames: string[];
@@ -195,33 +201,19 @@ function timestampWithin(timestamp: string, range: TimeRange | undefined): boole
   return true;
 }
 
-function taskMetadata(lines: readonly string[]): {
-  contextTaskIds: Map<string, Set<number>>;
-  taskNames: Map<number, Set<string>>;
-} {
+function contextTaskIdsFromLines(lines: readonly string[]): Map<string, Set<number>> {
   const contextTaskIds = new Map<string, Set<number>>();
-  const taskNames = new Map<number, Set<string>>();
   for (const line of lines) {
     const contextMatch = /"context_id":"([0-9A-Fa-f]+)"/.exec(line);
     const taskMatch = /"task_id":(\d+)/.exec(line);
-    if (contextMatch?.[1] !== undefined && taskMatch?.[1] !== undefined) {
-      const taskId = Number(taskMatch[1]);
-      if (Number.isSafeInteger(taskId)) {
-        const ids = contextTaskIds.get(contextMatch[1]) ?? new Set<number>();
-        ids.add(taskId);
-        contextTaskIds.set(contextMatch[1], ids);
-      }
-    }
-    if (taskMatch?.[1] === undefined) continue;
-    const entryMatch = /"entry":"([^"]+)"/.exec(line);
-    if (entryMatch?.[1] === undefined) continue;
+    if (contextMatch?.[1] === undefined || taskMatch?.[1] === undefined) continue;
     const taskId = Number(taskMatch[1]);
     if (!Number.isSafeInteger(taskId)) continue;
-    const names = taskNames.get(taskId) ?? new Set<string>();
-    names.add(entryMatch[1]);
-    taskNames.set(taskId, names);
+    const ids = contextTaskIds.get(contextMatch[1]) ?? new Set<number>();
+    ids.add(taskId);
+    contextTaskIds.set(contextMatch[1], ids);
   }
-  return { contextTaskIds, taskNames };
+  return contextTaskIds;
 }
 
 function exactSingle<T>(values: Set<T> | undefined): T | null {
@@ -302,7 +294,7 @@ export function extractPipelineOverrides(
 ): MlaPipelineOverrideExtraction {
   const lines = content.split(/\r?\n/);
   const activityLines = overrideActivityLines(lines);
-  const { contextTaskIds, taskNames } = taskMetadata(lines);
+  const contextTaskIds = contextTaskIdsFromLines(lines);
   const origins: OverrideOriginCandidate[] = [];
   const contexts: ContextOverrideCandidate[] = [];
   const contextApiInputs: ContextApiOverrideCandidate[] = [];
@@ -414,8 +406,7 @@ export function extractPipelineOverrides(
     if (contextApiInput !== null) matchedContextApiInputLines.add(contextApiInput.mergedLine);
     const mappedTaskId = exactSingle(contextTaskIds.get(context.contextId));
     const taskId = origin?.taskId ?? mappedTaskId;
-    const mappedTaskName = taskId === null ? null : exactSingle(taskNames.get(taskId));
-    const taskName = origin?.entry ?? mappedTaskName;
+    const taskName = origin?.entry ?? null;
     observations.push({
       sequence: context.mergedLine,
       scope: "context",
@@ -434,8 +425,7 @@ export function extractPipelineOverrides(
   for (const origin of origins) {
     if (matchedOriginLines.has(origin.mergedLine) || !timestampWithin(origin.timestamp, timeRange)) continue;
     if (origin.patches.every((patch) => Object.keys(patch).length === 0)) continue;
-    const taskName = origin.entry
-      ?? (origin.taskId === null ? null : exactSingle(taskNames.get(origin.taskId)));
+    const taskName = origin.entry;
     observations.push({
       sequence: origin.mergedLine,
       scope: "task",

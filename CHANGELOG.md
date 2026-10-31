@@ -7,6 +7,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **`mla.recognition_detail` now groups by `node + algorithm + status + task`.** The task slot is
+  the entry of the unique kernel task whose interval contains the event's `task_id` and timestamp.
+  Only tasks that observed `Tasker.Task.Starting` participate: the projector otherwise fills
+  `entry` with a node or scope name, which is not a task name. A live Starting map is not used: one
+  bundle can hold two sessions that both restart `task_id` at 1, and the last start would stamp the
+  earlier session's recognitions with the later name. An interval with no `end_time` closes
+  exclusively at the next same-id start, so a crashed task does not blank later sessions. Matching
+  uses lexicographic timestamp order (log timestamps are zero-padded). Zero or two-plus matching
+  intervals leave the slot empty rather than guessing, including the rare case where one task's
+  `end_time` equals the next same-id `start_time` on the same millisecond. A node reused across
+  tasks becomes several records, `source.task` / `data.taskName` carry the name when unique, and
+  `search --task` can match those records. Every `mla.recognition_detail` ID changes because
+  `taskName` (including `null`) is part of the hashed payload; each still produces one
+  `combined.recognition_pipeline_reference`, so those IDs change too and the correlation set grows
+  with the split. This family stays uncapped (action details and overrides cap at 500). A saved
+  report keeps the IDs it was written with; a Skill-driven host selects IDs from the inspection it
+  just ran. This is a regrouping of observed facts, not a new observation.
+- **`mla.pipeline_override` uses the same kernel-interval `source.task` rule as
+  `mla.recognition_detail`.** Naming no longer requires the `task_id` to map to one entry across the
+  whole file: sequential reuse of `task_id` 1 as Alpha then Beta names each override (and
+  `search --task Alpha` hits both kinds). A name written on the override line itself
+  (`post_task [entry=...]`) always wins; the interval only names records that have a `task_id`
+  and no line-local entry. Records that newly gain a name change IDs.
+  `taskAssociation` is unchanged: it still records whether a `task_id` was observed, not whether
+  the interval named it.
 ## [0.10.0] - 2026-10-10
 
 ### Added

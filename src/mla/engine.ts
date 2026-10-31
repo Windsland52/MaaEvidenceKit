@@ -134,6 +134,14 @@ export type MlaRecognitionDetail = {
   algorithm: string;
   node: string;
   status: "succeeded" | "failed";
+  /**
+   * Task entry from the unique named kernel task whose interval contains this group.
+   * Only tasks that observed `Tasker.Task.Starting` participate: the projector otherwise
+   * fills `entry` with a node or scope name. An open interval closes exclusively at the
+   * next same-id start. Null when the `task_id` is missing, maps to no interval, or maps
+   * to more than one.
+   */
+  taskName: string | null;
   occurrenceCount: number;
   textCounts: Array<{ text: string; count: number }>;
   textCountSummary: MlaRecognitionTextCountSummary;
@@ -1107,13 +1115,18 @@ function addRecognitionDetailEvidence(
   const childSummary = detail.childRecognition.length > 0
     ? ` children=${detail.childRecognitionTotal}${detail.childRecognitionTruncated ? " (truncated)" : ""}`
     : "";
-  const summary = `Recognition ${detail.node} ${detail.status} (${detail.algorithm}) x${detail.occurrenceCount}${textSummary}${scoreSummary}${filteredSummary}${bestSummary}${childSummary}`;
+  const taskSummary = detail.taskName === null ? "" : ` task=${detail.taskName}`;
+  const summary = `Recognition ${detail.node} ${detail.status} (${detail.algorithm}) x${detail.occurrenceCount}${taskSummary}${textSummary}${scoreSummary}${filteredSummary}${bestSummary}${childSummary}`;
   const representative = detail.representatives.worst ?? detail.representatives.first;
+  const sourceScope = {
+    node: detail.node,
+    ...(detail.taskName === null ? {} : { task: detail.taskName }),
+  };
   const sourceForSample = (sample: RecognitionDetailSample): EvidenceSource | undefined => {
     if (sample.mergedLine === null) return undefined;
     const position = positionForMergedLine(sourceSegments, sample.timestamp, sample.mergedLine);
     if (position.path === null || position.local_line === null) return undefined;
-    return evidenceSource(artifacts, inputPath, position, { node: detail.node });
+    return evidenceSource(artifacts, inputPath, position, sourceScope);
   };
   const withSampleSource = (sample: RecognitionDetailSample): RecognitionDetailSample => {
     const source = sourceForSample(sample);
@@ -1158,7 +1171,7 @@ function addRecognitionDetailEvidence(
       artifacts,
       inputPath,
       positionForMergedLine(sourceSegments, representative.timestamp, representative.mergedLine),
-      { node: detail.node },
+      sourceScope,
     ),
     detailWithSources,
   );
@@ -2046,14 +2059,115 @@ function candidateStageSummary(stage: RecognitionCandidateStageAccumulator): Mla
   };
 }
 
+type KernelTaskInterval = {
+  taskId: number;
+  entry: string;
+  start: string;
+  /** Kernel `end_time`, inclusive when present. */
+  end: string | null;
+  /**
+   * Next same-id named start, exclusive. Used only when `end` is missing so a later session
+   * can match instead of sharing a still-open interval.
+   */
+  nextStart: string | null;
+};
+
+function isNamedKernelTask(task: { events: ReadonlyArray<{ message: string }> }): boolean {
+  return task.events.some((event) => event.message === "Tasker.Task.Starting");
+}
+
+function compareKernelTimestamps(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+function kernelTaskIntervals(
+  analyzed: Awaited<ReturnType<typeof analyzeLogContent>>,
+): KernelTaskInterval[] {
+  // The projector fills `entry` with the first node or scope name when Starting never arrived.
+  // Those clues are not task names; skip them so a unique implicit hit cannot export a node name.
+  const named = analyzed.tasks.filter(isNamedKernelTask).sort((left, right) => {
+    const byId = left.task_id - right.task_id;
+    if (byId !== 0) return byId;
+    return compareKernelTimestamps(left.start_time, right.start_time);
+  });
+  return named.map((task, index) => {
+    const next = named[index + 1];
+    return {
+      taskId: task.task_id,
+      entry: task.entry,
+      start: task.start_time,
+      end: task.end_time ?? null,
+      nextStart: next !== undefined && next.task_id === task.task_id ? next.start_time : null,
+    };
+  });
+}
+
+function timestampInKernelTask(timestamp: string, interval: KernelTaskInterval): boolean {
+  if (timestamp < interval.start) return false;
+  if (interval.end !== null && interval.end.length > 0) return timestamp <= interval.end;
+  if (interval.nextStart !== null && timestamp >= interval.nextStart) return false;
+  return true;
+}
+
+/**
+ * Attribute a recognition to a kernel task by `(task_id, timestamp)` interval, not by the last
+ * `Tasker.Task.Starting` seen. One bundle can hold two sessions that both restart `task_id` at 1;
+ * a live map would stamp the earlier session's events with the later entry. An open interval is
+ * closed exclusively at the next same-id start so a crashed task does not blank later sessions.
+ * Zero or two-plus matching intervals leave the name empty rather than guessing.
+ * Inclusive `end_time` plus the next same-id `start_time` on the same millisecond is two hits.
+ */
+function taskNameForRecognition(
+  intervals: readonly KernelTaskInterval[],
+  taskId: number | null,
+  timestamp: string,
+): string | null {
+  if (taskId === null) return null;
+  const matches = intervals.filter((task) =>
+    task.taskId === taskId && timestampInKernelTask(timestamp, task)
+  );
+  if (matches.length !== 1) return null;
+  const entry = matches[0]?.entry;
+  return entry !== undefined && entry.length > 0 ? entry : null;
+}
+
+/**
+ * Keep a name written on the override record (`post_task [entry=...]`). Interval fill is only
+ * for records that have a `task_id` and no line-local entry: a context line can carry a
+ * submission's entry while its `task_id` still maps into the previous same-id interval.
+ */
+function resolveObservedTaskName(
+  intervals: readonly KernelTaskInterval[],
+  taskId: number | null,
+  timestamp: string,
+  lineEntry: string | null,
+): string | null {
+  if (lineEntry !== null && lineEntry.length > 0) return lineEntry;
+  return taskNameForRecognition(intervals, taskId, timestamp);
+}
+
+function namedPipelineOverrides(
+  observations: readonly MlaPipelineOverrideObservation[],
+  intervals: readonly KernelTaskInterval[],
+): MlaPipelineOverrideObservation[] {
+  return observations.map((item) => {
+    const taskName = resolveObservedTaskName(intervals, item.taskId, item.timestamp, item.taskName);
+    return taskName === item.taskName ? item : { ...item, taskName };
+  });
+}
+
 function extractRecognitionDetails(
   analyzed: Awaited<ReturnType<typeof analyzeLogContent>>,
   timeRange: TimeRange | undefined,
+  intervals: readonly KernelTaskInterval[],
 ): MlaRecognitionDetail[] {
   const groups = new Map<string, {
     algorithm: string;
     node: string;
     status: "succeeded" | "failed";
+    taskName: string | null;
     count: number;
     detailShapes: Set<string>;
     texts: Map<string, number>;
@@ -2101,11 +2215,14 @@ function extractRecognitionDetails(
     if (shape.kind === "none" || shape.kind === "unknown") continue;
     if (shape.kind === "child_array" && shape.children.length === 0) continue;
     const status = event.message === "Node.Recognition.Succeeded" ? "succeeded" : "failed";
-    const key = `${node}|${algorithm}|${status}`;
+    const taskId = typeof payload["task_id"] === "number" ? payload["task_id"] : null;
+    const taskName = taskNameForRecognition(intervals, taskId, event.timestamp);
+    const key = `${node}|${algorithm}|${status}|${taskName ?? ""}`;
     const group = groups.get(key) ?? {
       algorithm,
       node,
       status,
+      taskName,
       count: 0,
       detailShapes: new Set<string>(),
       texts: new Map<string, number>(),
@@ -2215,8 +2332,8 @@ function extractRecognitionDetails(
     groups.set(key, group);
   }
   return [...groups.values()].sort((left, right) =>
-    [left.node, left.algorithm, left.status].join("|").localeCompare(
-      [right.node, right.algorithm, right.status].join("|"),
+    [left.node, left.algorithm, left.status, left.taskName ?? ""].join("|").localeCompare(
+      [right.node, right.algorithm, right.status, right.taskName ?? ""].join("|"),
     ),
   ).map((group) => {
     const score = scoreDistribution(group.scores);
@@ -2250,6 +2367,7 @@ function extractRecognitionDetails(
       algorithm: group.algorithm,
       node: group.node,
       status: group.status,
+      taskName: group.taskName,
       occurrenceCount: group.count,
       ...texts,
       score,
@@ -2412,15 +2530,18 @@ async function loadMlaTarget(
   ) {
     return null;
   }
+  const intervals = kernelTaskIntervals(analyzed);
   const allActionDetails = extractActionDetails(analyzed, timeRange);
   const pipelineOverrideExtraction = extractPipelineOverrides(content, timeRange);
-  const pipelineOverrides = boundedPipelineOverrides(pipelineOverrideExtraction.observations);
+  const pipelineOverrides = boundedPipelineOverrides(
+    namedPipelineOverrides(pipelineOverrideExtraction.observations, intervals),
+  );
   const namespacedRuntime = namespaceRuntime(runtime, target.namespace);
   return {
     target,
     runtime: namespacedRuntime,
     taskTimelines: buildTargetTaskTimelines(analyzed, namespacedRuntime),
-    recognitionDetails: extractRecognitionDetails(analyzed, timeRange),
+    recognitionDetails: extractRecognitionDetails(analyzed, timeRange, intervals),
     actionDetails: boundedActionDetails(allActionDetails),
     actionDetailsTotal: allActionDetails.length,
     actionOccurrences: allActionDetails.reduce((total, detail) => total + detail.occurrenceCount, 0),

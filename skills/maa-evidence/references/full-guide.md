@@ -359,8 +359,16 @@ Each `mla.failure` carries two fields that separate a node result from a task re
   `statistics.failuresInSucceededTasks`, before reporting breakage. When such records exist,
   `mla_failures_in_succeeded_tasks` says so; the records are deliberately kept and not down-ranked.
 
-`mla.recognition_detail` aggregates recognition events by node/algorithm/status and extracts
-the detail generically by shape. Top-level `score` and `textCounts` select one representative per
+`mla.recognition_detail` aggregates recognition events by node/algorithm/status/task and extracts
+the detail generically by shape. The task slot is the entry of the unique kernel task that
+observed `Tasker.Task.Starting` and whose interval contains the event's `task_id` and timestamp.
+Implicit projector tasks (entry filled from a node or scope name) do not participate. An interval
+with no `end_time` closes exclusively at the next same-id start. Zero or two-plus matching
+intervals leave the slot empty rather than guessing a later session's reused id, including when one
+task's `end_time` equals the next same-id `start_time` on the same millisecond. A node reused
+across tasks is several records, `source.task` / `data.taskName` carry the name when unique, and
+`search --task` can match those records. Each detail still produces one
+`combined.recognition_pipeline_reference`. Top-level `score` and `textCounts` select one representative per
 recognition occurrence (`best`, then the first `filtered`/`all` candidate), so an upstream candidate
 repeated across all three arrays is not counted three times. Use `candidateStages.all`, `.filtered`,
 and `.best` for separate candidate totals, text counts, score distributions, and up to three
@@ -389,7 +397,9 @@ Use filtered counts and best candidates to distinguish a failed recognition from
 successful match, and to compare OCR text observed at issue time with the expected pipeline text.
 
 `mla.pipeline_override` preserves non-empty MaaFramework override patches in source order. Treat
-`patches` as observed override input, not as a serialized final node configuration. Use
+`patches` as observed override input, not as a serialized final node configuration. A name written
+on the override line itself (`post_task [entry=...]`) always wins; unnamed records with a `task_id`
+use the same kernel-interval rule as `mla.recognition_detail`. Use
 `taskAssociation: task_id` only as an exact task link; keep `entry_only` and `none` scoped records as
 possible context rather than silently assigning them to a run. Check
 `details.selection.pipelineOverrides`, `mla_pipeline_overrides_truncated`, and

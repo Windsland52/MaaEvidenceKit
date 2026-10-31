@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, expect, test } from "vitest";
 
-import { inspectMla, queryEvidenceWindow, renderText, type MlaAnomalyCode } from "../../src/index.js";
+import { inspectMla, queryEvidenceWindow, renderText, searchEvidence, type MlaAnomalyCode } from "../../src/index.js";
 import {
   correlateCycleBlockers,
   countPossibleMirroredTaskGroups,
@@ -372,6 +372,90 @@ test("extracts ordered pipeline overrides and maps a context to its task", async
     .toBe(false);
 });
 
+test("attributes reused task_id pipeline overrides by kernel interval so search --task matches both kinds", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-override-reuse-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  const recognition = (time: string, text: string): string => event(time, "Node.Recognition.Failed", {
+    name: "Eat",
+    task_id: 1,
+    reco_details: {
+      algorithm: "OCR",
+      name: "Eat",
+      reco_id: 10,
+      detail: { all: [{ box: [0, 0, 10, 10], score: 0.2, text }] },
+    },
+  });
+  const update = (time: string): string =>
+    `[${time}][DBG][Px1][Tx1][Tasker.cpp][L373][MaaNS::Tasker::override_pipeline] [task_id=1] [pipeline_override={"Eat":{"enabled":false}}] | enter`;
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "Alpha", hash: "h1", uuid: "u1",
+    }),
+    recognition("2026-07-19 10:01:01.000", "alpha"),
+    update("2026-07-19 10:01:01.500"),
+    event("2026-07-19 10:01:02.000", "Tasker.Task.Succeeded", {
+      task_id: 1, entry: "Alpha", hash: "h1", uuid: "u1",
+    }),
+    "[2026-07-19 11:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 11:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 11:01:00.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "Beta", hash: "h2", uuid: "u2",
+    }),
+    recognition("2026-07-19 11:01:01.000", "beta"),
+    update("2026-07-19 11:01:01.500"),
+    event("2026-07-19 11:01:02.000", "Tasker.Task.Succeeded", {
+      task_id: 1, entry: "Beta", hash: "h2", uuid: "u2",
+    }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const overrides = result.evidence.filter((item) => item.kind === "mla.pipeline_override");
+  expect(overrides.map((item) => item.source.task).sort()).toEqual(["Alpha", "Beta"]);
+  expect(searchEvidence(result, { kinds: ["mla.pipeline_override"], tasks: ["Alpha"] })).toMatchObject({
+    totalMatches: 1,
+  });
+  expect(searchEvidence(result, { kinds: ["mla.recognition_detail"], tasks: ["Alpha"] })).toMatchObject({
+    totalMatches: 1,
+  });
+});
+
+test("keeps an explicit post_task entry when the timestamp still sits in the previous same-id interval", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-override-entry-wins-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  const patch = "[{\"Eat\":{\"enabled\":false}}]";
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "Alpha", hash: "h1", uuid: "u1",
+    }),
+    `[2026-07-19 10:01:03.000][INF][Px1][Tx1][Tasker.cpp][L87][MaaNS::Tasker::post_task] [entry=Beta] [pipeline_override=${patch}]`,
+    `[2026-07-19 10:01:03.000][TRC][Px1][Tx1][Context.cpp][L195][MaaNS::TaskNS::Context::override_pipeline] [getptr()=ABC123] [pipeline_override=${patch}]`,
+    "[2026-07-19 10:01:03.010][INF][Px2][Tx2][AgentServer.cpp][L225][MaaNS::AgentNS::ServerNS::AgentServer::handle_action_request] [req={\"context_id\":\"ABC123\",\"task_id\":1}]",
+    event("2026-07-19 10:01:04.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "Beta", hash: "h2", uuid: "u2",
+    }),
+    event("2026-07-19 10:01:05.000", "Tasker.Task.Succeeded", {
+      task_id: 1, entry: "Beta", hash: "h2", uuid: "u2",
+    }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const overrides = result.evidence.filter((item) => item.kind === "mla.pipeline_override");
+  expect(overrides).toHaveLength(1);
+  expect(overrides[0]?.source.task).toBe("Beta");
+  expect(overrides[0]?.data).toMatchObject({
+    origin: "task_submission",
+    taskAssociation: "task_id",
+    taskId: 1,
+    taskName: "Beta",
+  });
+});
+
 test("extracts overrides from real C++ signature-form markers", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-override-signature-"));
   temporaryRoots.push(root);
@@ -587,6 +671,193 @@ test("extracts aggregated OCR text and TemplateMatch score recognition details",
   expect(templateScore?.count).toBe(2);
   expect(templateScore?.minimum).toBeCloseTo(0.212474);
   expect(templateScore?.maximum).toBeCloseTo(0.212808);
+  expect(ocr?.source.task).toBeUndefined();
+  expect((ocr?.data as { taskName?: string | null } | undefined)?.taskName).toBeNull();
+});
+
+test("groups recognition details by resolved task name so search --task can match them", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-recognition-task-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  const recognition = (time: string, taskId: number, score: number): string => event(time, "Node.Recognition.Failed", {
+    name: "Eat",
+    task_id: taskId,
+    reco_details: {
+      algorithm: "OCR",
+      name: "Eat",
+      reco_id: taskId * 10,
+      detail: { all: [{ box: [0, 0, 10, 10], score, text: "eat" }] },
+    },
+  });
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "Combat", hash: "h1", uuid: "u1",
+    }),
+    recognition("2026-07-19 10:01:01.000", 1, 0.2),
+    recognition("2026-07-19 10:01:02.000", 1, 0.3),
+    event("2026-07-19 10:01:03.000", "Tasker.Task.Succeeded", {
+      task_id: 1, entry: "Combat", hash: "h1", uuid: "u1",
+    }),
+    event("2026-07-19 10:02:00.000", "Tasker.Task.Starting", {
+      task_id: 2, entry: "Collect", hash: "h2", uuid: "u2",
+    }),
+    recognition("2026-07-19 10:02:01.000", 2, 0.4),
+    event("2026-07-19 10:02:02.000", "Tasker.Task.Succeeded", {
+      task_id: 2, entry: "Collect", hash: "h2", uuid: "u2",
+    }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const details = result.evidence.filter((item) => item.kind === "mla.recognition_detail");
+  expect(details).toHaveLength(2);
+  const combat = details.find((item) => item.source.task === "Combat");
+  const collect = details.find((item) => item.source.task === "Collect");
+  expect(combat?.data).toMatchObject({
+    node: "Eat",
+    status: "failed",
+    taskName: "Combat",
+    occurrenceCount: 2,
+  });
+  expect(collect?.data).toMatchObject({
+    node: "Eat",
+    status: "failed",
+    taskName: "Collect",
+    occurrenceCount: 1,
+  });
+  expect(combat?.id).not.toBe(collect?.id);
+  expect(combat?.summary).toContain("task=Combat");
+  expect(searchEvidence(result, { kinds: ["mla.recognition_detail"], tasks: ["Combat"] })).toMatchObject({
+    totalMatches: 1,
+    evidence: [{ id: combat?.id }],
+  });
+  expect(searchEvidence(result, { kinds: ["mla.recognition_detail"] }).totalMatches).toBe(2);
+});
+
+test("attributes reused task_id recognitions by kernel interval instead of the last start", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-recognition-reuse-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  const recognition = (time: string, text: string): string => event(time, "Node.Recognition.Failed", {
+    name: "Eat",
+    task_id: 1,
+    reco_details: {
+      algorithm: "OCR",
+      name: "Eat",
+      reco_id: 10,
+      detail: { all: [{ box: [0, 0, 10, 10], score: 0.2, text }] },
+    },
+  });
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "Alpha", hash: "h1", uuid: "u1",
+    }),
+    recognition("2026-07-19 10:01:01.000", "alpha"),
+    event("2026-07-19 10:01:02.000", "Tasker.Task.Succeeded", {
+      task_id: 1, entry: "Alpha", hash: "h1", uuid: "u1",
+    }),
+    "[2026-07-19 11:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 11:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 11:01:00.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "Beta", hash: "h2", uuid: "u2",
+    }),
+    recognition("2026-07-19 11:01:01.000", "beta"),
+    event("2026-07-19 11:01:02.000", "Tasker.Task.Succeeded", {
+      task_id: 1, entry: "Beta", hash: "h2", uuid: "u2",
+    }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const details = result.evidence.filter((item) => item.kind === "mla.recognition_detail");
+  const alpha = details.find((item) => item.source.task === "Alpha");
+  const beta = details.find((item) => item.source.task === "Beta");
+  expect(details.map((item) => item.source.task).sort()).toEqual(["Alpha", "Beta"]);
+  expect(alpha?.data).toMatchObject({ taskName: "Alpha", occurrenceCount: 1 });
+  expect(beta?.data).toMatchObject({ taskName: "Beta", occurrenceCount: 1 });
+  expect((alpha?.data as { textCounts?: Array<{ text?: string }> } | undefined)?.textCounts)
+    .toEqual([{ text: "alpha", count: 1 }]);
+  expect((beta?.data as { textCounts?: Array<{ text?: string }> } | undefined)?.textCounts)
+    .toEqual([{ text: "beta", count: 1 }]);
+});
+
+test("closes an open kernel interval at the next same-id start so a later session still names", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-recognition-open-end-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  const recognition = (time: string, text: string): string => event(time, "Node.Recognition.Failed", {
+    name: "Eat",
+    task_id: 1,
+    reco_details: {
+      algorithm: "OCR",
+      name: "Eat",
+      reco_id: 10,
+      detail: { all: [{ box: [0, 0, 10, 10], score: 0.2, text }] },
+    },
+  });
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "Alpha", hash: "h1", uuid: "u1",
+    }),
+    recognition("2026-07-19 10:01:01.000", "alpha"),
+    "[2026-07-19 11:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 11:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 11:01:00.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "Beta", hash: "h2", uuid: "u2",
+    }),
+    recognition("2026-07-19 11:01:01.000", "beta"),
+    event("2026-07-19 11:01:02.000", "Tasker.Task.Succeeded", {
+      task_id: 1, entry: "Beta", hash: "h2", uuid: "u2",
+    }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const details = result.evidence.filter((item) => item.kind === "mla.recognition_detail");
+  const byText = new Map(
+    details.map((item) => [
+      (item.data as { textCounts?: Array<{ text?: string }> } | undefined)?.textCounts?.[0]?.text,
+      item,
+    ]),
+  );
+  expect(byText.get("alpha")?.source.task).toBe("Alpha");
+  expect((byText.get("alpha")?.data as { taskName?: string | null } | undefined)?.taskName).toBe("Alpha");
+  expect(byText.get("beta")?.source.task).toBe("Beta");
+  expect((byText.get("beta")?.data as { taskName?: string | null } | undefined)?.taskName).toBe("Beta");
+});
+
+test("does not treat an implicit kernel task's node name as recognition taskName", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-recognition-implicit-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Node.PipelineNode.Starting", {
+      task_id: 1, node_id: 11, name: "Eat",
+    }),
+    event("2026-07-19 10:01:01.000", "Node.Recognition.Failed", {
+      name: "Eat",
+      task_id: 1,
+      reco_details: {
+        algorithm: "OCR",
+        name: "Eat",
+        reco_id: 10,
+        detail: { all: [{ box: [0, 0, 10, 10], score: 0.2, text: "eat" }] },
+      },
+    }),
+    event("2026-07-19 10:01:02.000", "Node.PipelineNode.Failed", {
+      task_id: 1, node_id: 11, name: "Eat",
+    }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const item = result.evidence.find((evidence) => evidence.kind === "mla.recognition_detail");
+  expect(item?.source.task).toBeUndefined();
+  expect((item?.data as { taskName?: string | null } | undefined)?.taskName).toBeNull();
 });
 
 test("bounds high-cardinality OCR text counts without hiding completeness", async () => {
