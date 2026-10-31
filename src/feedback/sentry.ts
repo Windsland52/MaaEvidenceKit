@@ -121,6 +121,9 @@ async function initializeSentry(): Promise<SentryModule> {
     urlQueryParams: false,
     graphQL: { document: false, variables: false },
     genAI: { inputs: false, outputs: false },
+    // Sentry 11.9 added an MCP category that defaults on; `Required<DataCollection>` makes it a
+    // compile error to leave it out of the all-off block.
+    mcp: { inputs: false, outputs: false },
     databaseQueryData: false,
     queues: false,
     stackFrameVariables: false,
