@@ -441,7 +441,8 @@ maa-evidence mla inspect C:\path\to\materials --format json --output inspection.
 
 文本输出用预算而不是投影来收敛:`window`、`view` 与 `timeline` 默认 **400 行 / 40000 字符**(也是上限),
 可用 `--max-lines`、`--max-characters` 调整,触顶时在输出里附上明确的截断标记
-(`window` 的 `truncated: true`、`view` / `timeline` 的 `… truncated: N of M lines ...`)。JSON 输出**永不截断**,
+(`window` 的 `truncated: true`、`view` / `timeline` 的
+`--- truncated: N of M lines, X of Y characters (raise --max-lines/--max-characters, or use --output FILE) ---`)。JSON 输出**永不截断**,
 所以给 JSON 传这两个选项会直接报错并指向 `--fields`;`--output FILE` 始终收到完整渲染,不受 stdout
 预算影响。
 `window` 的行数与字符预算同时受上界约束;当 `--max-characters` 连第一条候选行都放不下时,窗口返回

@@ -43,8 +43,11 @@ export function truncationMarker(
   shownCharacters: number,
   totalCharacters: number,
 ): string {
-  return `… truncated: ${shownLines} of ${totalLines} lines and ${shownCharacters} of ${totalCharacters} characters shown.`
-    + " Raise --max-lines/--max-characters, or use --output FILE for the complete rendering.";
+  // One delimited line, never prose: the counts and the flags are the whole content, and a bare
+  // `---` frame keeps it from reading as a continuation of the last rendered line. It is appended
+  // as the final line of the bounded text, which already contains no trailing newline.
+  return `--- truncated: ${shownLines} of ${totalLines} lines, ${shownCharacters} of ${totalCharacters} characters`
+    + " (raise --max-lines/--max-characters, or use --output FILE) ---";
 }
 
 export function boundText(text: string, budget: TextBudget): BoundedText {

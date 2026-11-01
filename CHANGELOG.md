@@ -20,6 +20,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   remaining network access is the automatic updater. This is a breaking CLI and SDK change: the
   telemetry and approval exports are gone, and `feedback` without `--out` or `--preview` is an
   error rather than a prompt.
+- **The text truncation marker is one delimited line.** `view`, `timeline`, and `window --format text`
+  used to end a truncated rendering with a prose sentence (`… truncated: N of M lines and X of Y
+  characters shown. Raise --max-lines/--max-characters, or use --output FILE for the complete
+  rendering.`); it now ends with a single framed line,
+  `--- truncated: N of M lines, X of Y characters (raise --max-lines/--max-characters, or use
+  --output FILE) ---`. JSON output and its `truncated` fields are unchanged.
 
 ## [0.11.0] - 2026-11-01
 
