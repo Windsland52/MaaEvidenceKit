@@ -1,7 +1,8 @@
 # Sentry investigation
 
 Use application Sentry telemetry as a separate evidence source owned by the host harness. Do not
-confuse it with MaaEvidenceKit's optional product telemetry and extraction-gap feedback. Every
+confuse it with MEK itself: MaaEvidenceKit has no product telemetry, no Sentry client, and no upload
+path; its `feedback` command only writes a local bundle. Every
 application-data query in this workflow is executed by the external Sentry CLI or MCP client. The
 MEK SDK and CLI neither receive Sentry credentials nor query application projects.
 

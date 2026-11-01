@@ -40,9 +40,7 @@ Usage:
   maa-evidence skill --print [--file NAME] [--format json|text]
   maa-evidence skill --install <agent-skill-dir>
   maa-evidence skill --check <agent-skill-dir>
-  maa-evidence telemetry status|enable|disable
-  maa-evidence feedback --message TEXT [--category blocker|bug|suggestion|other] [--component mla|mse|discovery|views|other] [--attachment FILE] [--preview]
-  maa-evidence feedback approve --message TEXT [--category ...] [--component ...] [--attachment FILE] --out token.json
+  maa-evidence feedback --message TEXT [--category blocker|bug|suggestion|other] [--component mla|mse|discovery|views|other] [--attachment FILE] --out FILE
 
 Common options:
   --output FILE       Write output to a file
@@ -264,50 +262,23 @@ const COMMANDS: Record<string, CommandHelp> = {
       "Text stdout uses the same 400-line / 40000-character budget as view; JSON is never truncated, so --max-lines/--max-characters with --format json are refused. --output FILE still receives the complete rendering.",
     ],
   },
-  telemetry: {
-    summary: "Show or change the operational telemetry opt-in.",
-    usage: [
-      "maa-evidence telemetry status | enable | disable",
-    ],
-    notes: [
-      "Telemetry is whitelist-only aggregate counts. It never includes paths, arguments, environment variables, usernames, logs, source, screenshots, or exception messages.",
-      "MAA_EVIDENCE_TELEMETRY=0 disables it without writing configuration. This command always prints JSON.",
-    ],
-  },
   feedback: {
-    summary: "Submit product feedback about an extraction gap, with explicit consent.",
+    summary: "Write a local review bundle describing an extraction gap, for you to send yourself.",
     usage: [
       "maa-evidence feedback --message TEXT [--category blocker|bug|suggestion|other]",
-      "                       [--component mla|mse|discovery|views|other] [--attachment FILE] [--preview]",
-      "                       [--token token.json]",
+      "                       [--component mla|mse|discovery|views|other] [--attachment FILE] --out FILE",
     ],
     options: [
       ["--message TEXT", "Required. What the harness could not extract or had to work around."],
       ["--category VALUE", "blocker, bug, suggestion, or other. Defaults to other."],
       ["--component VALUE", "mla, mse, discovery, views, or other. Defaults to other."],
-      ["--attachment FILE", "Original material to attach. Repeatable; attachments are never sent without an explicit approval."],
-      ["--preview", "Print the exact payload and submit nothing. Works without a terminal."],
-      ["--token FILE", "Submit under a prior human approval from `feedback approve`. Valid for 15 minutes and for exactly one submission."],
+      ["--attachment FILE", "File to name in the bundle. Repeatable. MEK records its path, size, and digest; it never copies or uploads the bytes."],
+      ["--out FILE", "Required unless --preview. Where to write the bundle."],
+      ["--preview", "Print the payload and write nothing."],
     ],
     notes: [
-      "Interactive submission prints the payload and requires typing UPLOAD. Without a terminal, run `feedback approve --out token.json` in a real terminal first: MEK refuses to answer the consent prompt for a human.",
-      "This command always prints JSON.",
-    ],
-  },
-  "feedback approve": {
-    summary: "Record one human approval for one exact feedback payload, without submitting it.",
-    usage: [
-      "maa-evidence feedback approve --message TEXT [--category ...] [--component ...] [--attachment FILE] --out token.json",
-    ],
-    options: [
-      ["--message TEXT", "Required. Must match the later submission exactly."],
-      ["--out FILE", "Required. Where to write the approval token."],
-      ["--category VALUE", "blocker, bug, suggestion, or other. Defaults to other."],
-      ["--component VALUE", "mla, mse, discovery, views, or other. Defaults to other."],
-      ["--attachment FILE", "Original material covered by this approval. Repeatable."],
-    ],
-    notes: [
-      "Requires an interactive terminal, because it records a human decision. The token binds the message, category, component, and attachment names and sizes; attachment bytes are not bound.",
+      "Nothing leaves the machine: the bundle is a JSON file you hand to whatever channel you choose. MEK has no network path for feedback.",
+      "The bundle lists attachments by path and sha256 so the recipient can confirm the bytes they received. Attachments may contain private data; review them first.",
       "This command always prints JSON.",
     ],
   },

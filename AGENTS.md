@@ -19,7 +19,7 @@ MaaEvidenceKit
     ├─ extracts deterministic MSE static facts
     ├─ inventories bounded repository-document facts when explicitly requested
     ├─ provides evidence windows and views
-    └─ sends optional, explicitly consented product feedback
+    └─ writes optional local feedback bundles the user sends themselves
 ```
 
 - Keep the project a single Node.js/TypeScript package.
@@ -40,7 +40,7 @@ src/
   repo-docs/   Bounded repository-document and skill-file structure inventory
   views/       JSON, text, and Mermaid rendering
   skills/      The packaged host-agent Skill: payload listing, digests, and offline install
-  feedback/    Consent state, operational telemetry, and extraction-gap feedback
+  feedback/    Local extraction-gap feedback bundles
   cli/         Argument handling and command entry point
   inspect.ts   Optional MLA/MSE composition
   index.ts     Stable SDK facade
@@ -82,24 +82,20 @@ Put new implementation into the narrowest existing domain. Do not introduce `uti
 
 ## Privacy and Feedback
 
-- Core inspection is offline. Sentry is used only for MEK product telemetry and feedback.
-- Operational telemetry (aggregate counts only) is enabled by default and can be disabled with
-  `telemetry disable` or `MAA_EVIDENCE_TELEMETRY=0`. CI/non-TTY use sends aggregate telemetry by
-  default but must never prompt.
-- Operational telemetry is whitelist-only. Never add paths, arguments, environment variables,
-  usernames, logs, source, screenshots, or exception messages.
-- Original-material feedback requires a preview and explicit confirmation for every submission.
-- Do not weaken `beforeSend`, the all-off `dataCollection` block that replaced v11's removed
-  `sendDefaultPii: false`, attachment limits, or consent tests.
-- Keep `PRIVACY.md` synchronized with collected fields and retention behavior.
+- MEK has no telemetry, no analytics endpoint, and no Sentry dependency. The only network access is
+  the automatic updater; keep it that way unless the notice and tests change together.
+- `feedback` writes a local JSON bundle only. MEK must never upload, copy attachment bytes into the
+  bundle, or add a submission endpoint.
+- Never add paths, arguments, environment variables, usernames, logs, source, screenshots, or
+  exception messages to anything MEK writes or sends.
+- Keep `PRIVACY.md` synchronized with what leaves the machine (today: nothing but update requests).
 
 ## TypeScript Conventions
 
 - Node.js 22.17 or newer is required. The floor is driven by the dependencies rather than by this
-  project: `@sentry/node` 11 excludes 22.0-22.11 through its own engine range, the pinned pnpm
-  requires `>=22.13`, and 22.12-22.16 leave `dev` unset on Windows path-based stats, which makes the
-  file-identity guards that MLA and repository-document discovery rely on reject every file they
-  open. It is enforced from both sides: `@types/node` is pinned to the oldest supported major, so an
+  project: the pinned pnpm requires `>=22.13`, and 22.12-22.16 leave `dev` unset on Windows
+  path-based stats, which makes the file-identity guards that MLA and repository-document discovery
+  rely on reject every file they open. It is enforced from both sides: `@types/node` is pinned to the oldest supported major, so an
   API newer than the floor fails `pnpm typecheck` on every machine, and CI runs the suite on the
   oldest supported version so a runtime-only incompatibility fails there too. Do not raise
   `@types/node` above the floor, or the compiler stops rejecting the newer APIs this rule forbids.

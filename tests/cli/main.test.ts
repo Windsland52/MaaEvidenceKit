@@ -34,7 +34,7 @@ async function mlaFixture(): Promise<string> {
   return root;
 }
 
-test("prints a stable CLI version without running inspection or telemetry", async () => {
+test("prints a stable CLI version without running inspection", async () => {
   let output = "";
   vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
     output += String(chunk);
@@ -525,6 +525,46 @@ test("skill --check reports an absent install for a path that is neither form", 
   expect(comparison.installed).toBe(false);
   expect(comparison.match).toBe(false);
   expect(comparison.installedDirectory).toBe(path.join(root, "maa-evidence"));
+});
+
+test("feedback writes a local bundle and refuses to guess where it goes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-cli-feedback-"));
+  temporaryRoots.push(root);
+  const attachment = path.join(root, "debug.log");
+  await writeFile(attachment, "log line\n", "utf8");
+  const out = path.join(root, "feedback.json");
+
+  const written = await captureStdout(() =>
+    main(["feedback", "--message", "gap", "--attachment", attachment, "--out", out]));
+  const summary = JSON.parse(written.output) as { written: string; attachments: number };
+  expect(written.code).toBe(0);
+  expect(summary.written).toBe(out);
+  expect(summary.attachments).toBe(1);
+  const bundle = JSON.parse(await readFile(out, "utf8")) as {
+    schemaVersion: string;
+    mekVersion: string;
+    attachments: Array<{ filename: string; sha256: string }>;
+  };
+  expect(bundle.schemaVersion).toBe("maa-evidence-feedback/v1");
+  expect(bundle.mekVersion).toBe(MAA_EVIDENCE_VERSION);
+  expect(bundle.attachments[0]?.filename).toBe("debug.log");
+  expect(bundle.attachments[0]?.sha256).toMatch(/^[0-9a-f]{64}$/u);
+
+  // No --out and no --preview is an error rather than a write into an implicit location.
+  let errorOutput = "";
+  vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    errorOutput += String(chunk);
+    return true;
+  });
+  const refused = await main(["feedback", "--message", "gap"]);
+  expect(refused).toBe(1);
+  expect(errorOutput).toContain("feedback requires --out");
+
+  // --preview writes nothing at all.
+  const previewed = await captureStdout(() => main(["feedback", "--message", "gap", "--preview"]));
+  expect(previewed.code).toBe(0);
+  expect(JSON.parse(previewed.output)).toMatchObject({ previewOnly: true });
+  await expect(stat(out)).resolves.toBeDefined();
 });
 
 test("skill requires exactly one of --print, --install, or --check", async () => {

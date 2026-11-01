@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, expect, test } from "vitest";
 
 import { main } from "../../src/cli/main.js";
-import { inspect, inspectMla, setTelemetryEnabled } from "../../src/index.js";
+import { inspect, inspectMla } from "../../src/index.js";
 
 const temporaryRoots: string[] = [];
 const originalConfigDirectory = process.env["MAA_EVIDENCE_CONFIG_DIR"];
@@ -304,9 +304,6 @@ test("combined inspection marks a task-scoped miss as incomplete instead of not 
 
 test("CLI writes JSON inspection and can query a cited source window", async () => {
   const root = await createCombinedFixture();
-  const configDirectory = path.join(root, "config");
-  process.env["MAA_EVIDENCE_CONFIG_DIR"] = configDirectory;
-  await setTelemetryEnabled(false, configDirectory);
   const inspectionPath = path.join(root, "inspection.json");
   const profilePath = path.join(root, "inspection-profile.json");
   const windowPath = path.join(root, "window.json");

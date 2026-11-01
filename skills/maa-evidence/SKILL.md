@@ -34,9 +34,8 @@ installed the CLI it wants (a CI job that `npm i -g maa-evidence-kit@latest`, or
 needs the handoff. While the install is behind, each handed-off command pays a preparation probe
 plus `npm exec`, seconds each; a failed preparation retries at most once per 24 hours and falls
 back to the installed version with one diagnostic line and one upgrade hint on stderr.
-`MAA_EVIDENCE_AUTO_UPDATE=0` opts a single call out, and `skill`, `feedback`, `telemetry`, and
-`--help` never pay update work. Keep `MAA_EVIDENCE_TELEMETRY=0` plus any existing telemetry
-opt-out the same way.
+`MAA_EVIDENCE_AUTO_UPDATE=0` opts a single call out, and `skill`, `feedback`, and `--help` never pay
+update work.
 
 Choose the smallest operation that answers the question:
 
@@ -230,10 +229,7 @@ Read additional material only when the investigation reaches that branch:
   product-gap rules: [references/full-guide.md](references/full-guide.md). Read the relevant section,
   not the entire guide, unless conducting a MEK product audit.
 
-Core inspection is offline. Operational telemetry is aggregate and whitelist-only; when enabled,
-it uses a random local installation identity only to estimate active installations and invocation
-frequency, never a hardware-derived identity. Original material feedback always requires a preview
-and explicit `UPLOAD`; never submit it automatically. To submit on behalf of a human who already
-approved, have the human run `feedback approve --out token.json` in a real terminal, then submit with
-`--token token.json`; a token expires after 15 minutes and only matches the exact approved payload.
-`--preview` prints the payload without submitting and needs no terminal.
+Core inspection is offline and MEK has no telemetry, no analytics endpoint, and no upload path: the
+only network access is the automatic updater. `feedback` writes a local JSON bundle you hand to a
+channel you choose; it never uploads and never copies attachment bytes into the bundle. Ask the user
+before writing one, and prefer message-only feedback when the cited facts are sufficient.

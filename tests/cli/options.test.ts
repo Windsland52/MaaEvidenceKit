@@ -15,7 +15,6 @@ describe("command keys", () => {
     expect(commandKey(parsed(["mse", "inspect", "path"]))).toBe("mse inspect");
     expect(commandKey(parsed(["mse", "resolve", "path"]))).toBe("mse resolve");
     expect(commandKey(parsed(["mla", "inspect", "path"]))).toBe("mla inspect");
-    expect(commandKey(parsed(["feedback", "approve"]))).toBe("feedback approve");
     expect(commandKey(parsed(["feedback"]))).toBe("feedback");
     expect(commandKey(parsed(["view"]))).toBe("view");
     expect(commandKey(parsed([]))).toBe("");
@@ -84,15 +83,11 @@ describe("per-command option validation", () => {
     }))).not.toThrow();
 
     expect(() => rejectUnknownOptions(parsed(["feedback"], {
+      "--attachment": "debug.zip",
       "--category": "bug",
       "--message": "text",
+      "--out": "feedback.json",
       "--preview": "true",
-      "--token": "token.json",
-    }))).not.toThrow();
-
-    expect(() => rejectUnknownOptions(parsed(["feedback", "approve"], {
-      "--message": "text",
-      "--out": "token.json",
     }))).not.toThrow();
   });
 
@@ -105,10 +100,10 @@ describe("per-command option validation", () => {
   test("reports every rejected option at once with a reason for each", () => {
     // Explaining why an option is rejected is the point: the caller should not have to work out
     // whether it is misspelled, belongs elsewhere, or is unsupported here.
-    expect(() => rejectUnknownOptions(parsed(["view"], { "--token": "t", "--summary": "true" })))
+    expect(() => rejectUnknownOptions(parsed(["view"], { "--requests": "q.json", "--summary": "true" })))
       .toThrow(/- --summary: only the inspection commands print a bounded summary/u);
-    expect(() => rejectUnknownOptions(parsed(["view"], { "--token": "t", "--summary": "true" })))
-      .toThrow(/- --token: this option belongs to feedback/u);
+    expect(() => rejectUnknownOptions(parsed(["view"], { "--requests": "q.json", "--summary": "true" })))
+      .toThrow(/- --requests: this option belongs to batch/u);
     expect(() => rejectUnknownOptions(parsed(["mla", "inspect", "p"], { "--syntax-mode": "maa" })))
       .toThrow(/- --syntax-mode: this option belongs to mse inspect, mse resolve, or inspect/u);
     expect(() => rejectUnknownOptions(parsed(["search"], { "--evidence-id": "e" })))
@@ -126,8 +121,8 @@ describe("per-command option validation", () => {
   });
 
   test("rejects --format where the output is always JSON", () => {
-    // feedback, feedback approve, and telemetry print JSON unconditionally.
-    for (const key of [["telemetry"], ["feedback"], ["feedback", "approve"]]) {
+    // feedback prints JSON unconditionally.
+    for (const key of [["feedback"]]) {
       expect(() => rejectUnknownOptions(parsed(key, { "--format": "text" })))
         .toThrow(/- --format: this command always prints JSON/u);
     }

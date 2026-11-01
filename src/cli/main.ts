@@ -2,14 +2,11 @@
 
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { createInterface } from "node:readline/promises";
 
 import type {
   FeedbackCategory,
   InspectionResult,
   MseSyntaxMode,
-  OperationalCounts,
-  OperationalErrorStage,
   TimeRange,
   ViewFormat,
 } from "../index.js";
@@ -529,21 +526,6 @@ async function runSkill(parsed: ParsedArguments): Promise<void> {
   await emit(content, option(parsed, "--output"));
 }
 
-async function runTelemetry(parsed: ParsedArguments): Promise<void> {
-  const action = requirePositional(parsed, 1, "telemetry action");
-  const sdk = await loadSdk();
-  if (action === "status") {
-    await emit(JSON.stringify({ status: await sdk.getTelemetryStatus() }, null, 2), option(parsed, "--output"));
-    return;
-  }
-  if (action === "enable" || action === "disable") {
-    await sdk.setTelemetryEnabled(action === "enable");
-    await emit(JSON.stringify({ status: action === "enable" ? "enabled" : "disabled" }, null, 2), option(parsed, "--output"));
-    return;
-  }
-  throw new UsageError("telemetry action must be status, enable, or disable.");
-}
-
 function feedbackComponent(parsed: ParsedArguments): "mla" | "mse" | "discovery" | "views" | "other" {
   const component = option(parsed, "--component") ?? "other";
   if (!["mla", "mse", "discovery", "views", "other"].includes(component)) {
@@ -560,11 +542,9 @@ function feedbackCategory(parsed: ParsedArguments): FeedbackCategory {
   return value as FeedbackCategory;
 }
 
-async function runFeedbackApprove(parsed: ParsedArguments): Promise<void> {
+async function runFeedback(parsed: ParsedArguments): Promise<void> {
   const message = option(parsed, "--message");
-  if (message === undefined) throw new UsageError("feedback approve requires --message.");
-  const out = option(parsed, "--out");
-  if (out === undefined) throw new UsageError("feedback approve requires --out.");
+  if (message === undefined) throw new UsageError("feedback requires --message.");
   const sdk = await loadSdk();
   const preview = await sdk.previewFeedback({
     message,
@@ -572,56 +552,9 @@ async function runFeedbackApprove(parsed: ParsedArguments): Promise<void> {
     component: feedbackComponent(parsed),
     attachmentPaths: options(parsed, "--attachment"),
   });
-  // Approval is the human step: it writes a token instead of submitting, so an agent can later
-  // submit exactly this payload without answering a prompt on the human's behalf.
-  if (!process.stdin.isTTY || !process.stderr.isTTY) {
-    throw new UsageError(
-      "feedback approve must run in an interactive terminal; it records the human approval that a later --token submission relies on.",
-    );
-  }
-  process.stderr.write("\nFeedback approval\n");
-  process.stderr.write(`Category: ${preview.category}\n`);
-  process.stderr.write(`Message: ${preview.message}\n`);
-  process.stderr.write(`Attachments: ${preview.attachments.length} (${preview.totalAttachmentBytes} bytes)\n`);
-  for (const attachment of preview.attachments) {
-    process.stderr.write(`- ${attachment.path} (${attachment.sizeBytes} bytes)\n`);
-  }
-  for (const warning of preview.warnings) process.stderr.write(`WARNING: ${warning}\n`);
-  const reader = createInterface({ input: process.stdin, output: process.stderr });
-  try {
-    const answer = await reader.question(
-      "Type UPLOAD to approve exactly this feedback for later submission, or anything else to cancel: ",
-    );
-    if (answer.trim() !== "UPLOAD") throw new UsageError("Feedback approval cancelled.");
-  } finally {
-    reader.close();
-  }
-  const token = sdk.createApprovalToken({
-    message: preview.message,
-    category: preview.category,
-    component: preview.component,
-    attachments: preview.attachments,
-  });
-  await sdk.writeApprovalToken(out, token);
-  process.stderr.write(
-    `Approved until ${token.expiresAt}. Submit with: maa-evidence feedback --message ... --token ${out}\n`,
-  );
-}
 
-async function runFeedback(parsed: ParsedArguments): Promise<void> {
-  const message = option(parsed, "--message");
-  if (message === undefined) throw new UsageError("feedback requires --message.");
-  const attachments = options(parsed, "--attachment");
-  const sdk = await loadSdk();
-  const preview = await sdk.previewFeedback({
-    message,
-    category: feedbackCategory(parsed),
-    component: feedbackComponent(parsed),
-    attachmentPaths: attachments,
-  });
-
-  // Printing the exact payload is the cheapest way to let a human or an agent review what would be
-  // sent. It never submits, and it works without a terminal so an agent can show a human.
+  // Printing the exact bundle payload is the cheapest way to let a human or an agent review what
+  // they are about to send. Nothing is written and nothing leaves the machine.
   if (flag(parsed, "--preview")) {
     await emit(JSON.stringify({
       previewOnly: true,
@@ -639,129 +572,26 @@ async function runFeedback(parsed: ParsedArguments): Promise<void> {
     return;
   }
 
-  const tokenPath = option(parsed, "--token");
-  if (tokenPath !== undefined) {
-    // A valid approval stands in for the terminal prompt; an invalid or mismatched token is refused
-    // rather than silently falling back to prompting. Consuming the token before uploading keeps one
-    // approval to one submission.
-    await sdk.consumeApprovalToken(tokenPath, {
-      message: preview.message,
-      category: preview.category,
-      component: preview.component,
-      attachments: preview.attachments,
-    });
-    const eventId = await sdk.submitFeedback(preview);
-    await emit(JSON.stringify({ sent: true, eventId, approvedBy: tokenPath }, null, 2), option(parsed, "--output"));
-    return;
+  const out = option(parsed, "--out");
+  if (out === undefined) {
+    throw new UsageError("feedback requires --out FILE so the bundle goes somewhere you chose, or --preview to print it.");
   }
-
-  if (!process.stdin.isTTY || !process.stderr.isTTY) {
-    throw new UsageError(
-      "Feedback submission requires an interactive terminal for per-submission confirmation. "
-      + "Run \"feedback approve --message ... --out token.json\" in a real terminal first, then submit with --token token.json.",
-    );
-  }
-  process.stderr.write("\nFeedback preview\n");
-  process.stderr.write(`Category: ${preview.category}\n`);
-  process.stderr.write(`Message: ${preview.message}\n`);
-  process.stderr.write(`Attachments: ${preview.attachments.length} (${preview.totalAttachmentBytes} bytes)\n`);
-  for (const attachment of preview.attachments) {
-    process.stderr.write(`- ${attachment.path} (${attachment.sizeBytes} bytes)\n`);
-  }
-  for (const warning of preview.warnings) process.stderr.write(`WARNING: ${warning}\n`);
-  const reader = createInterface({ input: process.stdin, output: process.stderr });
-  try {
-    const answer = await reader.question("Type UPLOAD to send this feedback to the MaaEvidenceKit Sentry project: ");
-    if (answer.trim() !== "UPLOAD") throw new UsageError("Feedback upload cancelled.");
-  } finally {
-    reader.close();
-  }
-  const eventId = await sdk.submitFeedback(preview);
-  await emit(JSON.stringify({ sent: true, eventId }, null, 2), option(parsed, "--output"));
-}
-
-function countsFromInspection(result: InspectionResult): OperationalCounts {
-  const counts: { [key: string]: number } = { evidenceCount: result.evidence.length };
-  const details = result.details as { mla?: { evidence?: unknown[] } | null; mse?: { evidence?: unknown[] } | null } | null;
-  if (details?.mla?.evidence !== undefined) counts["mlaEvidenceCount"] = details.mla.evidence.length;
-  if (details?.mse?.evidence !== undefined) counts["mseEvidenceCount"] = details.mse.evidence.length;
-  if (result.kind === "combined") {
-    const statistics = (result as { statistics: Record<string, number> }).statistics;
-    counts["adapters"] = statistics["adapters"] ?? 0;
-    counts["runtimeNodeResolutionOmitted"] = statistics["mseRuntimeNodesOmitted"] ?? 0;
-  }
-  if (result.kind === "mla" || result.kind === "combined") {
-    if (result.kind === "mla") {
-      counts["signalsTotal"] = (result as { statistics: Record<string, number> }).statistics["signalsTotal"] ?? 0;
-    }
-    const evidence = (result as { evidence: Array<{ kind: string }> }).evidence;
-    counts["recognitionDetails"] = evidence.filter((item) => item.kind === "mla.recognition_detail").length;
-    counts["cycleExitBlockers"] = evidence.filter((item) => item.kind === "mla.cycle_exit_blocker").length;
-    counts["taskAnomalies"] = evidence.filter((item) => item.kind === "mla.task_anomaly").length;
-    counts["possibleMirroredTaskGroups"] = evidence.filter((item) => item.kind === "mla.possible_mirrored_task_group").length;
-    counts["recognitionPipelineReferences"] = evidence.filter((item) => item.kind === "combined.recognition_pipeline_reference").length;
-  }
-  if (result.kind === "repo_docs") {
-    counts["repoDocsAgentsDocuments"] = result.statistics["agentsDocumentsSelected"] ?? 0;
-    counts["repoDocsAgentsOmitted"] = result.statistics["agentsDocumentsOmitted"] ?? 0;
-    counts["repoDocsAgentsTruncated"] = result.statistics["agentsDocumentsTruncated"] ?? 0;
-    counts["repoDocsSkillFiles"] = result.statistics["skillFilesSelected"] ?? 0;
-    counts["repoDocsSkillFilesOmitted"] = result.statistics["skillFilesOmitted"] ?? 0;
-    counts["repoDocsScanTruncated"] = result.statistics["scanTruncated"] ?? 0;
-  }
-  return Object.fromEntries(
-    Object.entries(counts).filter(([, value]) => value !== undefined),
-  ) as OperationalCounts;
-}
-
-async function withOperationalTelemetry(
-  command: string,
-  component: "mla" | "mse" | "combined" | "view" | "window" | "search" | "batch" | "repo-docs"
-    | "timeline",
-  operation: () => Promise<InspectionResult | void>,
-): Promise<void> {
-  const startedAt = performance.now();
-  try {
-    const result = await operation();
-    const { recordOperationalTelemetry } = await loadSdk();
-    await recordOperationalTelemetry({
-      command,
-      component,
-      status: "ok",
-      durationMs: performance.now() - startedAt,
-      ...(result === undefined ? {} : { counts: countsFromInspection(result) }),
-    });
-  } catch (error: unknown) {
-    // Both the reporter and the classifier are only needed once a command has ended, so neither is
-    // imported while a command is still running.
-    const { recordOperationalTelemetry } = await loadSdk();
-    const { classifyOperationalError } = await import("../feedback/sentry.js");
-    const errorStage: OperationalErrorStage = component === "repo-docs"
-      ? "repository_scan"
-      : ["window", "view", "search", "batch", "timeline"].includes(component)
-        ? "evidence_query"
-        : "inspection";
-    await recordOperationalTelemetry({
-      command,
-      component,
-      status: "error",
-      durationMs: performance.now() - startedAt,
-      errorCategory: classifyOperationalError(error),
-      errorStage,
-    });
-    throw error;
-  }
+  const bundle = await sdk.writeFeedbackBundle(preview, out, { version: MAA_EVIDENCE_VERSION });
+  await emit(JSON.stringify({
+    written: out,
+    schemaVersion: bundle.schemaVersion,
+    attachments: bundle.attachments.length,
+    totalAttachmentBytes: bundle.totalAttachmentBytes,
+    warnings: bundle.warnings,
+  }, null, 2), option(parsed, "--output"));
 }
 
 async function runOperationalCommand(
   parsed: ParsedArguments,
   command: string,
-  component: "mla" | "mse" | "combined" | "view" | "window" | "search" | "batch" | "repo-docs"
-    | "timeline",
   operation: () => Promise<InspectionResult | void>,
 ): Promise<void> {
-  await withLocalProfile(command, parsed, () =>
-    withOperationalTelemetry(command, component, operation));
+  await withLocalProfile(command, parsed, operation);
 }
 
 export async function main(args: string[] = process.argv.slice(2)): Promise<number> {
@@ -783,59 +613,49 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<numb
     switch (requirePositional(parsed, 0, "command")) {
       case "mla":
         rejectUnexpectedPositionals(parsed, 3);
-        await runOperationalCommand(parsed, "mla.inspect", "mla", () => runMla(parsed));
+        await runOperationalCommand(parsed, "mla.inspect", () => runMla(parsed));
         return 0;
       case "mse":
         rejectUnexpectedPositionals(parsed, 3);
         await runOperationalCommand(
           parsed,
           `mse.${mseCommand(parsed)}`,
-          "mse",
           () => runMse(parsed),
         );
         return 0;
       case "repo-docs":
         rejectUnexpectedPositionals(parsed, 2);
-        await runOperationalCommand(parsed, "repo-docs", "repo-docs", () => runRepoDocs(parsed));
+        await runOperationalCommand(parsed, "repo-docs", () => runRepoDocs(parsed));
         return 0;
       case "inspect":
         rejectUnexpectedPositionals(parsed, 2);
-        await runOperationalCommand(parsed, "inspect", "combined", () => runCombined(parsed));
+        await runOperationalCommand(parsed, "inspect", () => runCombined(parsed));
         return 0;
       case "window":
         rejectUnexpectedPositionals(parsed, 1);
-        await runOperationalCommand(parsed, "window", "window", () => runWindow(parsed));
+        await runOperationalCommand(parsed, "window", () => runWindow(parsed));
         return 0;
       case "view":
         rejectUnexpectedPositionals(parsed, 1);
-        await runOperationalCommand(parsed, "view", "view", () => runView(parsed));
+        await runOperationalCommand(parsed, "view", () => runView(parsed));
         return 0;
       case "search":
         rejectUnexpectedPositionals(parsed, 1);
-        await runOperationalCommand(parsed, "search", "search", () => runSearch(parsed));
+        await runOperationalCommand(parsed, "search", () => runSearch(parsed));
         return 0;
       case "batch":
         rejectUnexpectedPositionals(parsed, 1);
-        await runOperationalCommand(parsed, "batch", "batch", () => runBatch(parsed));
+        await runOperationalCommand(parsed, "batch", () => runBatch(parsed));
         return 0;
       case "timeline":
         rejectUnexpectedPositionals(parsed, 1);
-        await runOperationalCommand(parsed, "timeline", "timeline", () => runTimeline(parsed));
-        return 0;
-      case "telemetry":
-        rejectUnexpectedPositionals(parsed, 2);
-        await runTelemetry(parsed);
+        await runOperationalCommand(parsed, "timeline", () => runTimeline(parsed));
         return 0;
       case "skill":
         rejectUnexpectedPositionals(parsed, 1);
         await runSkill(parsed);
         return 0;
       case "feedback":
-        if (parsed.positionals[1] === "approve") {
-          rejectUnexpectedPositionals(parsed, 2);
-          await runFeedbackApprove(parsed);
-          return 0;
-        }
         rejectUnexpectedPositionals(parsed, 1);
         await runFeedback(parsed);
         return 0;

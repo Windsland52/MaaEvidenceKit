@@ -65,6 +65,5 @@ test("command help states the defaults that decide cost and bounds", () => {
 
 test("commandKey stays the single source of the command identity", () => {
   expect(commandKey(parseArguments(["mse", "resolve", "p"]))).toBe("mse resolve");
-  expect(commandKey(parseArguments(["feedback", "approve"]))).toBe("feedback approve");
   expect(commandKey(parseArguments(["mla", "inspect", "p"]))).toBe("mla inspect");
 });

@@ -7,6 +7,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Telemetry and Sentry are gone; `feedback` now writes a local bundle.** MEK no longer depends on
+  `@sentry/node` and has no analytics endpoint, installation identifier, or upload path. The
+  `telemetry` command, `MAA_EVIDENCE_TELEMETRY`, `MAA_EVIDENCE_SENTRY_DSN`, the consent record, the
+  installation seed, and the `feedback approve`/`--token` approval flow are removed. `feedback` now
+  requires `--out FILE` and writes a `maa-evidence-feedback/v1` JSON bundle naming the message,
+  category, component, and each attachment's path, filename, size, and sha256; `--preview` still
+  prints it without writing. MEK never copies attachment bytes into the bundle and never uploads it,
+  so the receiving channel is the user's choice. Core inspection was already offline, and the only
+  remaining network access is the automatic updater. This is a breaking CLI and SDK change: the
+  telemetry and approval exports are gone, and `feedback` without `--out` or `--preview` is an
+  error rather than a prompt.
+
 ## [0.11.0] - 2026-11-01
 
 ### Added

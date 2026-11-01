@@ -13,9 +13,8 @@ const COMMON = ["--help", "-h", "--output", "--profile", "--version"];
 const SUMMARY_COMMANDS = new Set(["mla inspect", "mse inspect", "mse resolve", "repo-docs", "inspect"]);
 
 /**
- * Commands whose output format is selectable. `feedback`, `feedback approve`, and `telemetry` always
- * print JSON, so accepting `--format` there would be the same silent no-op this table exists to
- * prevent.
+ * Commands whose output format is selectable. `feedback` always prints JSON, so accepting `--format`
+ * there would be the same silent no-op this table exists to prevent.
  */
 export const FORMAT_COMMANDS = new Set([
   "mla inspect",
@@ -45,12 +44,11 @@ const SOLE_COMMAND_OPTIONS: Record<string, string> = {
   "--kind": "search",
   "--kinds": "search",
   "--message": "feedback",
-  "--out": "feedback approve",
+  "--out": "feedback",
   "--preview": "feedback",
   "--referencers": "inspect",
   "--requests": "batch",
   "--syntax-mode": "mse inspect, mse resolve, or inspect",
-  "--token": "feedback",
   "--no-mla": "inspect",
   "--no-mse": "inspect",
 };
@@ -102,7 +100,7 @@ const MSE_OPTIONS = [
  * Options each command accepts, beyond the common set.
  *
  * `parseArguments` validates options against one global vocabulary, so before this table a
- * misplaced flag such as `mla inspect --token foo` was accepted and silently ignored. MEK exports
+ * misplaced flag such as `mla inspect --limit 5` was accepted and silently ignored. MEK exports
  * facts other people cite, and a flag that appears to take effect but does nothing is worse than a
  * rejection, so each command now declares what it understands. Command keys are the leading
  * positional words, which is also what makes `mse inspect` and `mse resolve` distinct.
@@ -155,23 +153,20 @@ export const COMMAND_OPTIONS: Record<string, readonly string[]> = {
   batch: [...INSPECTION_INPUT, "--fields", "--requests"],
   skill: ["--check", "--file", "--install", "--print"],
   timeline: [...INSPECTION_INPUT, "--fields", "--max-characters", "--max-lines", "--task"],
-  telemetry: [],
-  feedback: ["--attachment", "--category", "--component", "--message", "--preview", "--token"],
-  "feedback approve": ["--attachment", "--category", "--component", "--message", "--out"],
+  feedback: ["--attachment", "--category", "--component", "--message", "--out", "--preview"],
 };
 
 /**
  * Resolve the command key used by `COMMAND_OPTIONS` from positional arguments.
  *
- * The key is built from the leading non-option words that name a command, so `mse inspect` and
- * `feedback approve` are distinct from `mse resolve` and `feedback`.
+ * The key is built from the leading non-option words that name a command, so `mse inspect` is
+ * distinct from `mse resolve`.
  */
 export function commandKey(parsed: ParsedArguments): string {
   const [first, second] = parsed.positionals;
   if (first === undefined) return "";
   if (first === "mse") return second === "resolve" ? "mse resolve" : "mse inspect";
   if (first === "mla") return "mla inspect";
-  if (first === "feedback") return second === "approve" ? "feedback approve" : "feedback";
   return first;
 }
 

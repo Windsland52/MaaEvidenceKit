@@ -22,8 +22,7 @@ CLI. The default gate keeps that work out of non-interactive callers. Do not pre
 `npm i -g maa-evidence-kit@latest`, or job env `MAA_EVIDENCE_AUTO_UPDATE=0`): that undoes the pin
 and pays `npm exec` per command. Prefix `MAA_EVIDENCE_AUTO_UPDATE=1` (PowerShell:
 `$env:MAA_EVIDENCE_AUTO_UPDATE = "1"`) only on an unpinned global install that needs the handoff.
-`MAA_EVIDENCE_AUTO_UPDATE=0` opts one call out; `skill`, `feedback`, `telemetry`, and `--help` are
-always exempt. Never guess or write Codex, Claude Code, Cursor, Pi, or other agent Skill paths.
+`MAA_EVIDENCE_AUTO_UPDATE=0` opts one call out; `skill`, `feedback`, and `--help` are always exempt. Never guess or write Codex, Claude Code, Cursor, Pi, or other agent Skill paths.
 If the user is migrating from `0.1.x` or installed this Skill from a local path, tell them to
 reinstall it once from `https://github.com/Windsland52/MaaEvidenceKit` with
 `--skill maa-evidence --global`; this gives the installer a remote source and lets it preserve the
@@ -151,24 +150,16 @@ depends on application pixels, such as a click position or recognition ROI, also
 the relevant screenshot and scale; framework semantics cannot validate application-specific
 geometry.
 
-## Respect the telemetry choice
+## Respect the offline posture
 
-Anonymous aggregate operational telemetry is enabled by default, including in CI and non-TTY use,
-and never prompts. It excludes paths, arguments, logs, source, screenshots, exception messages, and
-hardware identifiers. When enabled, it uses a random local installation identity to estimate active
-installations and invocation frequency; it is not derived from a machine identifier, and disabling
-telemetry deletes the local identity.
-Respect `maa-evidence telemetry disable` and `MAA_EVIDENCE_TELEMETRY=0`; never re-enable telemetry
-after the user or environment disables it. Original-material feedback remains separate and always
-requires a preview plus explicit `UPLOAD` confirmation: either interactively at submission, or once
-in a real terminal through `feedback approve --out token.json`, whose token then authorizes exactly
-that approved payload for one submission within 15 minutes. `--preview` prints the payload without
-submitting and needs no terminal.
+MEK has no telemetry, no analytics endpoint, no Sentry dependency, and no upload path. The only
+network access is the automatic updater above. Do not describe MEK as sending usage data, and do not
+rerun work to "record" anything: every command writes its own output and nothing else.
 
-Eligible inspection and follow-up commands attempt operational telemetry automatically. Do not
-rerun work merely to manufacture telemetry, and do not treat telemetry controls as a diagnostic
-submission. Aggregate telemetry cannot describe a specific extraction gap; use the feedback
-workflow below when problem details matter.
+`feedback` is local: it writes a `maa-evidence-feedback/v1` JSON bundle that names the message,
+category, component, and each attachment's path, filename, size, and sha256. MEK never uploads it and
+never copies attachment bytes into the bundle. Ask the user before writing one, then let them choose
+the channel; `--preview` prints the payload without writing a file.
 
 ## Prepare input
 
@@ -261,9 +252,9 @@ the cached result as view/search-only or rerun inspection before requesting a so
 rewrite an artifact path to an uninventoried file. Cache only successfully completed output, retain
 its warnings and missing evidence, and invalidate it when any key component changes.
 
-These caches contain user material even though operational telemetry does not. Apply the harness's
-normal access controls and retention policy, and never attach cached content to MEK feedback without
-the same per-submission preview and explicit confirmation as the original files.
+These caches contain user material and MEK never sends them anywhere. Apply the harness's normal
+access controls and retention policy; if a cache is named in a feedback bundle, its path and digest
+are recorded there, so treat the bundle itself as sensitive.
 
 ## Profile unexplained local latency
 
@@ -279,15 +270,11 @@ maa-evidence mla inspect C:\path\to\materials `
 
 The `maa-evidence-profile/v1` file contains only the MEK version, command category, success/error
 status, wall-clock duration, and aggregate stage names/counts/durations. It does not contain paths,
-arguments, evidence, or exception messages and is never sent through operational telemetry. Treat
+arguments, evidence, or exception messages and is never sent anywhere by MEK. Treat
 it as local diagnostic output, not evidence. `mla.load_parse` isolates upstream log loading and
 analysis; `mse.preflight` and `mse.resolution` may overlap because they run concurrently;
 `inspection.load`, `render`, and `output.write` expose follow-up overhead. Concurrent stage totals
-can exceed command wall-clock duration, so do not sum them as a serial critical path. When
-operational telemetry is enabled, `telemetry.config` and `telemetry.send` separate local consent
-lookup and send/flush time from extraction time.
-Operational telemetry delivery is best-effort and uses a 200ms command-exit budget, so do not treat
-the absence of one event as evidence that a harness did not run MEK.
+can exceed command wall-clock duration, so do not sum them as a serial critical path.
 
 Use the profile to choose a response rather than to form a diagnosis: narrow MLA only when the
 question permits it, focus or defer MSE, batch follow-ups, or investigate local I/O. Do not cite
@@ -625,13 +612,12 @@ When a product-gap candidate remains:
 
 1. Cite the source fact and the MEK output, warning, or missing evidence that demonstrates the
    discrepancy.
-2. Tell the user that operational telemetry may already have recorded aggregate command usage but
-   cannot contain the problem description, paths, arguments, logs, source, or screenshots.
+2. Tell the user that nothing was transmitted: MEK has no telemetry, so the report only reaches the
+   maintainer if the user sends it.
 3. Proactively offer a minimal feedback draft with a category, component, message, and whether an
    attachment is actually needed. Prefer message-only feedback when the cited facts are sufficient.
-4. Wait for permission before invoking `feedback`; then preserve its preview and explicit `UPLOAD`
-   confirmation, either interactively or through the one-time `feedback approve --out token.json`
-   approval described in the privacy rules. Enabled operational telemetry is not feedback consent.
+4. Wait for permission before invoking `feedback`, then hand the resulting bundle to the user; MEK
+   writes it locally and never uploads it.
 
 Use `blocker` for unusable commands or crashes, `bug` for incorrect or missing supported evidence,
 `suggestion` for useful unsupported coverage or performance improvements, and `other` only when the
@@ -645,9 +631,8 @@ maa-evidence feedback `
   --attachment C:\path\to\maafw.log
 ```
 
-The command displays a preview and requires the user to type `UPLOAD`, or to record that approval
-once with `feedback approve --out token.json` and submit it later with `--token token.json`. Never
-send original material automatically or treat general telemetry consent as feedback or attachment
-consent. Even when the gap is fixed in the MEK repository during the same task, state that aggregate
-telemetry did not record the gap details and surface the separate feedback choice instead of silently
-assuming the code change replaced consent.
+The command writes a local bundle at `--out`; MEK never uploads it and never copies attachment
+bytes into it. Hand the bundle to the user, who chooses the channel and decides whether the named
+attachments go with it. Never send original material automatically. Even when the gap is fixed in
+the MEK repository during the same task, state that nothing was transmitted and offer the bundle
+instead of silently assuming the code change replaced the report.

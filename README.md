@@ -190,25 +190,20 @@ repo-docs、证据窗口和文本视图,而不是对每个问题都运行完整�
   目录回退与三层缓存等规则,`reporting.md` 对接最终报告产出,`maa-llm-wiki.md` 查框架字段与
   API 语义。
 
-## 遥测与反馈
+## 反馈与隐私
 
-核心检查离线运行。匿名运行遥测(仅聚合计数,不含路径、参数、用户名、硬件标识、日志、源码或
-截图)默认启用,`maa-evidence telemetry status|enable|disable` 或 `MAA_EVIDENCE_TELEMETRY=0`
-可切换;CI 与非交互环境同样默认发送,但从不弹出提示。
+核心检查离线运行,**没有遥测**:MEK 没有分析端点、不打包 Sentry 客户端、没有安装标识,也没有任何
+上传检查结果的代码路径。唯一的网络访问是自动更新,`MAA_EVIDENCE_AUTO_UPDATE=0` 可完全离线。
 
-原始日志、截图和源码等附件**永不自动发送**:交互式 `feedback` 必须预览后输入 `UPLOAD`;非交互场景
-先用 `feedback approve --out token.json` 让人类批准一次(15 分钟内有效、一次一用),再用
-`feedback --token token.json` 提交,`feedback --preview` 只打印不提交。首次发送遥测时会在本地
-配置目录创建随机安装种子,只向 Sentry 上报其单向 SHA-256 派生值(不读机器码、账户或硬件指纹),
-用于估算活跃安装数与命令频率;`telemetry disable` 会删除该种子,多设备或重装会形成新 ID,因此
-它不是精确人数。反馈分 `blocker` / `bug` / `suggestion` / `other` 四类,默认 `other`;完整字段
-与保留策略见 [`PRIVACY.md`](PRIVACY.md)(20MB 仅为配额警告,不是 MEK 拒绝上限)。
+`maa-evidence feedback --message TEXT --out FILE` 只在你指定的路径写一份本地 JSON 包:消息、类别、
+组件,以及每个附件的路径/大小/sha256。**附件字节不会进包,也不会被 MEK 发送**——包交给什么渠道由你
+决定;`--preview` 只打印不写文件。完整口径见 [`PRIVACY.md`](PRIVACY.md)。
 
 ## 架构
 
 单包 TypeScript 项目,`src/` 下按域划分:`evidence/`(事实、来源、稳定 ID、原文窗口)、`mla/`(日志发现与
 MLA 集成)、`mse/`(MSE 集成与静态关系图)、`repo-docs/`(仓库说明与 Skill 文件结构清点)、
-`views/`(JSON、文本、Mermaid)、`feedback/`(同意状态、匿名遥测与分级反馈)、`cli/`(命令行入口),
+`views/`(JSON、文本、Mermaid)、`feedback/`(本地反馈包)、`cli/`(命令行入口),
 外加 `profiling.ts`(本地旁路阶段计时)、`inspect.ts`(可选组合)与 `index.ts`(SDK 公共入口)。
 
 依赖固定为精确版本,并只使用 MSE 的公开包。项目没有 Python、LangGraph、MCP 或内置模型。

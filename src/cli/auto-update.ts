@@ -53,7 +53,7 @@ const AUTO_UPDATE_ENVIRONMENT_KEY = "MAA_EVIDENCE_AUTO_UPDATE";
 const PROBE_BIN = "maa-evidence-probe";
 
 /** Commands whose whole purpose is local, version-exact behavior: never worth an update detour. */
-const UPDATE_EXEMPT_COMMANDS = new Set(["telemetry", "feedback", "skill"]);
+const UPDATE_EXEMPT_COMMANDS = new Set(["feedback", "skill"]);
 
 type UpdateState = {
   schemaVersion: typeof UPDATE_STATE_SCHEMA_VERSION;
@@ -589,7 +589,7 @@ async function synchronizeSkill(
  * Command-name resolution is npm behavior and it drifts between npm releases, so the shape of a
  * probe failure depends on which npm is on PATH; recording its version next to the captured output
  * turns a one-off "the probe answered something else" report into a reproducible one. Version
- * number only, stderr only, never telemetry.
+ * number only, stderr only, never uploaded.
  */
 async function npmVersionLabel(
   environment: NodeJS.ProcessEnv,

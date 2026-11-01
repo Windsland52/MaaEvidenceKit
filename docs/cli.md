@@ -10,7 +10,7 @@
 ```
 Unknown option for mla inspect:
 - --syntax-mode: this option belongs to mse inspect, mse resolve, or inspect
-- --token: this option belongs to feedback
+- --requests: this option belongs to batch
 mla inspect accepts: --all-signals, --fields, --format, --from, --help, --keyword, --output, --profile, --summary, --to, --version, -h.
 ```
 
@@ -61,8 +61,8 @@ marker 只含版本号、进程 ID 与时间戳,留在本地、永不上传(见 
 **更新工作只在交互式终端进行**:`--version`、分析命令默认仅在 stdout 是 TTY 时检查更新。
 agent、harness、被重定向或管道输出的调用不探测、不接力、不写状态,因此不会为一次普通命令付出
 `npm exec` 的秒级开销。`MAA_EVIDENCE_AUTO_UPDATE=1` 可在非交互环境显式开启,
-`MAA_EVIDENCE_AUTO_UPDATE=0` 关闭;CI 默认关闭。无参数、`--help`、`telemetry`、`feedback` 和
-`skill` 不触发更新;SDK import 也不触发。
+`MAA_EVIDENCE_AUTO_UPDATE=0` 关闭;CI 默认关闭。无参数、`--help`、`feedback` 和 `skill` 不触发更新;
+SDK import 也不触发。
 
 某个版本的探测失败后,`updates.json` 会记住该版本与时间,24 小时内不再重试(否则一次失败会让
 之后每条命令都重复等待一次注定失败的 `npm exec`)。这只是在同样不改变证据的前提下省掉重复等待。
@@ -350,36 +350,18 @@ maa-evidence skill --install ~/.agents/skills/maa-evidence
 受管安装(符号链接、多 agent 目标)仍应使用 `npx skills add` / `npx skills update`;
 `--install` 面向自己管理副本的 harness。
 
-### `telemetry`
+### `feedback`:可选的产品反馈（只写本地包）
 
 ```powershell
-maa-evidence telemetry status
-maa-evidence telemetry enable
-maa-evidence telemetry disable
+# 写一份本地反馈包;--preview 只打印同样内容,不写文件
+maa-evidence feedback --message TEXT --category bug --component mla `
+  --attachment debug.zip --out feedback.json
 ```
 
-### `feedback`:可选的产品反馈
-
-```powershell
-# 只打印将要发送的确切 payload,不提交(无需终端)
-maa-evidence feedback --message TEXT --category bug --component mla --preview
-
-# 人类在真实终端里批准一次,写出 token
-maa-evidence feedback approve --message TEXT --category bug --component mla --out token.json
-
-# 提交时用该 token 代替交互确认;token 过期或不匹配会被拒绝
-maa-evidence feedback --message TEXT --category bug --component mla --token token.json
-```
-
-`feedback approve` 是交互步骤:它打印与提交相同的预览并要求输入 `UPLOAD`,然后**写 token 而不是
-提交**。token 有效期 15 分钟,并绑定到"被批准的消息、类别、组件、附件名与附件大小"的摘要;
-提交成功消费后**立即删除**,因此一个批准只授权一次上传。不匹配、过期或已被消费的 token 一律拒绝,
-不会静默退回交互提示。token 文件只包含摘要、一个不可读的随机值和时间戳,**不含消息正文或原始素材**。
-
-该机制**绑定内容**（批准过的措辞/类别/附件集合不能被换成别的,且不能重放），但它**不是本地进程
-无法绕过的密码学边界**:摘要无密钥、token 路径由调用方指定,任何能运行 `maa-evidence` 并在同一文件
-系统写入的进程都能构造等价批准。MEK 将其定位为**把人类决定留在记录里的策略闸门**,而非强制边界。
-另外**附件内容不在绑定范围内**（摘要只覆盖附件名与大小），且附件字节不经 `beforeSend` 清洗。
+`feedback` 只在你指定的 `--out` 路径写一个 `maa-evidence-feedback/v1` JSON:消息、类别、组件,
+以及每个附件的**路径、文件名、大小与 sha256**。MEK **不上传**任何内容——没有提交端点、没有 Sentry
+客户端、没有安装标识;附件字节不会被复制进包,由你决定用什么渠道发送给谁。`--out` 缺失且未指定
+`--preview` 会直接报错,不会猜一个默认路径。
 
 `--preview` 可让 agent 把确切 payload 展示给人类审阅,且不提交。
 
@@ -511,5 +493,4 @@ maa-evidence mla inspect C:\path\to\materials --format json --output inspection.
 preflight/resolution、inspection load、render 和 output write 等阶段的 `count`、总耗时与最大耗时。
 profile 与 inspection 输出必须使用不同文件;失败命令也会写 `status: error`,但不会写异常消息、
 路径或命令参数。并发阶段会重叠,所以各阶段总耗时之和可能大于命令墙钟耗时。该文件不是
-evidence,也不会通过运行遥测自动发送。启用运行遥测时,profile 还会以 `telemetry.config` 和
-`telemetry.send` 单独显示本地配置读取与发送/flush 耗时,便于区分分析慢和命令退出慢。
+evidence,也不会被 MEK 发送到任何地方。

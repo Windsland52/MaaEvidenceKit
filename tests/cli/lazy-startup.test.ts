@@ -24,19 +24,10 @@ async function staticImports(relativePath: string): Promise<StaticImport[]> {
   return imports;
 }
 
-test("the CLI entry point does not import the SDK facade or Sentry at startup", async () => {
+test("the CLI entry point does not import the SDK facade at startup", async () => {
   const imports = await staticImports("src/cli/main.ts");
   const valueImports = imports.filter((entry) => !entry.typeOnly).map((entry) => entry.specifier);
   expect(valueImports).not.toContain("../index.js");
-  expect(valueImports).not.toContain("../feedback/sentry.js");
   // The type-only import is the shape that keeps the barrel out of the runtime graph.
   expect(imports).toContainEqual({ specifier: "../index.js", typeOnly: true });
-});
-
-test("the feedback module imports the Sentry client only when it reports something", async () => {
-  const imports = await staticImports("src/feedback/sentry.ts");
-  expect(imports.map((entry) => entry.specifier)).not.toContain("@sentry/node");
-  // The client is loaded through one memoized dynamic import, not a static one.
-  const source = await readFile(path.join(repositoryRoot, "src/feedback/sentry.ts"), "utf8");
-  expect(source).toContain('import("@sentry/node")');
 });
