@@ -7,6 +7,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Session-only material now says so.** An MLA inspection whose logs hold MAA process sessions but
+  no task execution (for example a `MAA Process Start` / `Version` header with no task records) now
+  adds warning `mla_no_task_evidence`, and `--summary --format text` prints a dedicated line after
+  the Evidence block: there is no task-level evidence, only N session boundaries, and the result is
+  not an empty evidence ledger. Previously such material reported one `mla.session` record with
+  `warnings: []` and `statistics.tasks: 0`, and nothing explained that task-level conclusions were
+  unsupported. `missingEvidence`, the schema, and evidence IDs are unchanged.
+
 ### Changed
 
 - **Telemetry and Sentry are gone; `feedback` now writes a local bundle.** MEK no longer depends on

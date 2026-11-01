@@ -53,6 +53,19 @@ MLA 默认输出其优先级为 `high` 的信号和每个任务的高亮信号,�
 `mla.recognition_detail` 的快照(算法、状态、best 分数/文本,或 Or 类子识别摘要),
 让 harness 能直接看到“退出阻塞候选最近一次识别的观测事实”。
 
+## 仅会话边界的材料
+
+若材料只包含 MAA 进程启动与版本等头部行,MLA 仍能提取会话边界(`mla.session`、
+`statistics.sessions`),但 `statistics.tasks` 为 0。此时输出 warning `mla_no_task_evidence`:
+材料含 N 个会话边界、没有任务级证据,只提取到会话与进程生命周期,不能支持任务、节点、识别、
+动作或失败层面的结论。这是**材料限制**,不表示该次运行没有执行任务;提供记录任务运行的
+MaaFramework 日志才能得到任务级证据。
+
+该条件不写入 `missingEvidence`——文件并不缺失,只是内容不足以支撑任务级结论。`--summary
+--format text` 也会在 Evidence 块之后单独输出一行相同的限制说明,避免把 `evidenceCount` 读成
+"运行没有产生证据";JSON 摘要不改变 schema,该 warning 与其他 warning 一样原样出现在
+`warnings` 中。
+
 ## 未支持文件的有界清点
 
 发现阶段会看到未选中的文件。它们既不进入 evidence，也不由 MEK 解析，但"被静默丢弃"会让 harness

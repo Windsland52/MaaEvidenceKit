@@ -223,3 +223,53 @@ test("caps notable identities at ten and reports the omitted remainder", () => {
   expect(outcome?.omitted).toBe(2);
   expect(outcome?.identities[0]).toEqual({ id: "outcome-1", summary: "Task T1 was failed." });
 });
+
+test("states in the text summary that session-only material has no task-level evidence", () => {
+  const sessionOnly: InspectionResult = {
+    ...result(),
+    statistics: { sessions: 1, tasks: 0, signalsTotal: 0 },
+    warnings: [{
+      code: "mla_no_task_evidence",
+      message: "Extracted 1 MAA session boundary and no task-level evidence.",
+    }],
+  };
+
+  const text = renderInspectionSummary(sessionOnly, "text");
+  expect(text).toContain(
+    "No task-level evidence: only 1 session boundary extracted.",
+  );
+  expect(text).toContain("This is not an empty evidence ledger");
+  expect(text).toContain("cannot support task-level conclusions");
+
+  // JSON carries the warning unchanged; the summary schema does not change.
+  const json = JSON.parse(renderInspectionSummary(sessionOnly, "json")) as {
+    schemaVersion: string;
+    warnings: Array<{ code: string }>;
+  };
+  expect(json.warnings.some((item) => item.code === "mla_no_task_evidence")).toBe(true);
+  expect(json.schemaVersion).toBe(INSPECTION_SUMMARY_SCHEMA_VERSION);
+});
+
+test("omits the session-only hint for mse summaries and for mla summaries with tasks", () => {
+  const base = result();
+  const noTaskEvidencePhrase = "No task-level evidence";
+
+  const mse: InspectionResult = { ...base, kind: "mse", statistics: { sessions: 1, tasks: 0 } };
+  expect(renderInspectionSummary(mse, "text")).not.toContain(noTaskEvidencePhrase);
+
+  const withTasks: InspectionResult = { ...base, statistics: { sessions: 2, tasks: 3 } };
+  expect(renderInspectionSummary(withTasks, "text")).not.toContain(noTaskEvidencePhrase);
+
+  const noSessions: InspectionResult = { ...base, statistics: { sessions: 0, tasks: 0 } };
+  expect(renderInspectionSummary(noSessions, "text")).not.toContain(noTaskEvidencePhrase);
+});
+
+test("uses the plural session boundary wording", () => {
+  const sessionOnly: InspectionResult = {
+    ...result(),
+    statistics: { sessions: 3, tasks: 0 },
+  };
+
+  expect(renderInspectionSummary(sessionOnly, "text"))
+    .toContain("No task-level evidence: only 3 session boundaries extracted.");
+});

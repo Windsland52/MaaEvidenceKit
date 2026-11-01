@@ -210,6 +210,53 @@ test("extracts source-backed runtime facts and filters them by time", async () =
   expect(renderText(focused)).not.toContain("Second: failed");
 });
 
+test("warns when the material holds session boundaries but no task-level evidence", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-session-only-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  // A header-only log: process start and framework version, then nothing else.
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+
+  expect(result.statistics["sessions"]).toBe(1);
+  expect(result.statistics["tasks"]).toBe(0);
+  const warning = result.warnings.find((item) => item.code === "mla_no_task_evidence");
+  expect(warning).toBeDefined();
+  expect(warning?.message).toContain("1 MAA session boundary");
+  expect(warning?.message).toContain("no task-level evidence");
+  expect(warning?.message).toContain("Only session and process lifecycle records were extracted");
+  expect(warning?.message).toContain("not proof that the run performed no work");
+  expect(warning?.message).toContain("MaaFramework log that records the task run");
+  // The condition is a warning about material limits, not a missing artifact.
+  expect(result.missingEvidence.some((item) => item.code === "mla_no_task_evidence")).toBe(false);
+});
+
+test("does not warn about missing task evidence when a task was extracted", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-task-present-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "First", hash: "h1", uuid: "u1",
+    }),
+    event("2026-07-19 10:01:01.000", "Tasker.Task.Succeeded", {
+      task_id: 1, entry: "First", hash: "h1", uuid: "u1",
+    }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+
+  expect(result.statistics["sessions"]).toBe(1);
+  expect(result.statistics["tasks"]).toBe(1);
+  expect(result.warnings.some((item) => item.code === "mla_no_task_evidence")).toBe(false);
+});
+
 test("correlates timelines for repeated task ids by task start time", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-repeated-"));
   temporaryRoots.push(root);

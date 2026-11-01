@@ -2767,6 +2767,12 @@ export async function inspectMla(
   }
   const failuresInSucceededTasks = (failureTaskOutcomes.get("succeeded") ?? 0)
     + (failureTaskOutcomes.get("succeeded_with_open_end") ?? 0);
+  // These counters also fill statistics.sessions/tasks. A session boundary with no task
+  // execution is the only thing a header-only log can support, so the warning and the statistics
+  // entry must be derived from the same numbers.
+  const sessionCount = runtime.sessions.length;
+  const taskCount = runtime.sessions.reduce((total, session) => total + session.tasks.length, 0)
+    + runtime.unscoped_tasks.length;
   const byteIdenticalArtifacts = findByteIdenticalArtifacts(artifacts);
   const missingEvidence = [
     ...discovery.missingEvidence,
@@ -2803,6 +2809,12 @@ export async function inspectMla(
     ...discovery.warnings,
     ...targetFailureReport.warnings,
     ...runtime.warnings.map((message) => ({ code: "mla_warning", message })),
+    ...(taskCount === 0 && sessionCount > 0
+      ? [{
+        code: "mla_no_task_evidence",
+        message: `Extracted ${sessionCount} MAA session ${sessionCount === 1 ? "boundary" : "boundaries"} and no task-level evidence. Only session and process lifecycle records were extracted, so this material cannot support task, node, recognition, action, or failure conclusions. This is a material limitation, not proof that the run performed no work. The MaaFramework log that records the task run is what supplies task-level evidence.`,
+      }]
+      : []),
     ...(options.timeRange === undefined
       ? []
       : [{
@@ -2895,9 +2907,8 @@ export async function inspectMla(
       failuresInFailedTasks: failureTaskOutcomes.get("failed") ?? 0,
       failuresInRunningTasks: failureTaskOutcomes.get("running") ?? 0,
       failuresWithoutTaskOutcome,
-      sessions: runtime.sessions.length,
-      tasks: runtime.sessions.reduce((total, session) => total + session.tasks.length, 0)
-        + runtime.unscoped_tasks.length,
+      sessions: sessionCount,
+      tasks: taskCount,
       possibleMirroredTaskGroups: possibleMirroredTaskGroups.length,
       failures: runtime.failures.length,
       outcomes: runtime.outcomes.length,

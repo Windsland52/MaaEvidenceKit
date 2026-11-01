@@ -118,6 +118,12 @@ export function summarizeInspection(result: InspectionResult): InspectionSummary
   };
 }
 
+function isSessionOnlyMla(summary: InspectionSummary): boolean {
+  return summary.kind === "mla"
+    && summary.statistics["tasks"] === 0
+    && (summary.statistics["sessions"] ?? 0) > 0;
+}
+
 function renderSummaryText(summary: InspectionSummary): string {
   const selected = summary.artifacts.filter((artifact) => artifact.status === "selected").length;
   const lines = [
@@ -136,6 +142,13 @@ function renderSummaryText(summary: InspectionSummary): string {
   }
   lines.push(`Evidence: ${summary.evidenceCount}`);
   for (const entry of summary.evidenceKinds) lines.push(`- ${entry.kind}: ${entry.count}`);
+  if (isSessionOnlyMla(summary)) {
+    const sessions = summary.statistics["sessions"] ?? 0;
+    lines.push(
+      `No task-level evidence: only ${sessions} session ${sessions === 1 ? "boundary" : "boundaries"} extracted. `
+      + "This is not an empty evidence ledger, but the material cannot support task-level conclusions.",
+    );
+  }
   if (summary.notableEvidence.length > 0) {
     lines.push("Notable evidence:");
     for (const entry of summary.notableEvidence) {
