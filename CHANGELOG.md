@@ -7,20 +7,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
-
-- **Task attribution now starts from the upstream process id instead of guessing by time.**
-  `@windsland52/maa-log-tools` moves to 2.2.0 (which carries `maa-log-parser` 2.1.0,
-  `maa-log-kernel` 1.1.0, `maa-log-adapter` 1.1.2 and `maa-log-runtime` 1.1.1), so every task now
-  reports the process that created it, whether the log really opened it with `Tasker.Task.Starting`,
-  and whether its `entry` came from the log or was filled in by the projector.
-  `mla.recognition_detail` and `mla.pipeline_override` use `(process_id, task_id)` first and fall
-  back to the timestamp interval only when one process reused the id; a task name is recorded only
-  when the log wrote the entry itself (`entry_source === "field"`) and the task was really started.
-  Two processes that reuse one `task_id` with overlapping runs are now named separately instead of
-  collapsing to an empty slot, and an implicit task can no longer contribute a node name. Evidence
-  attribution is unchanged for logs without process ids, where the interval still decides.
-
 ## [0.11.0] - 2026-11-01
 
 ### Added
@@ -34,8 +20,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Task attribution now starts from the upstream process id instead of guessing by time.**
+  `@windsland52/maa-log-tools` moves to 2.2.0 (which carries `maa-log-parser` 2.1.0,
+  `maa-log-kernel` 1.1.0, `maa-log-adapter` 1.1.2 and `maa-log-runtime` 1.1.1), so every task now
+  reports the process that created it, whether the log really opened it with `Tasker.Task.Starting`,
+  and whether its `entry` came from the log or was filled in by the projector.
+  `mla.recognition_detail` and `mla.pipeline_override` use `(process_id, task_id)` first and fall
+  back to the timestamp interval only when one process reused the id; a task name is recorded only
+  when the log wrote the entry itself (`entry_source === "field"`) and the task was really started.
+  Two processes that reuse one `task_id` with overlapping runs are now named separately instead of
+  collapsing to an empty slot, and an implicit task can no longer contribute a node name. Evidence
+  attribution is unchanged for logs without process ids, where the interval still decides.
 - **`mla.recognition_detail` now groups by `node + algorithm + status + task`.** The task slot is
-  the entry of the unique kernel task whose interval contains the event's `task_id` and timestamp.
+  the entry of the kernel task that owns the event's `(process_id, task_id)`, narrowed by that
+  task's `[start_time, end_time]` only when one process reused the id.
   Only tasks that observed `Tasker.Task.Starting` participate: the projector otherwise fills
   `entry` with a node or scope name, which is not a task name. A live Starting map is not used: one
   bundle can hold two sessions that both restart `task_id` at 1, and the last start would stamp the
