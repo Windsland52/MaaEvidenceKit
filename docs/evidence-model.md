@@ -140,10 +140,13 @@ MEK 只保证它知道**哪些文件存在、多大、何时修改**。`modified
 ## `mla.recognition_detail` 聚合规则
 
 MLA 会按 `node + algorithm + status + task` 把识别事件聚合为 `mla.recognition_detail` evidence,
-其中 task 是唯一覆盖该事件 `task_id` 与时间戳、且观察到 `Tasker.Task.Starting` 的内核任务的
-entry 名。没有 Starting 的隐式补建任务不参与(投影器用节点名或 scope 名填 `entry`,那不是任务名)。
+其中 task 优先由事件的 `(process_id, task_id)` 定位到内核任务,同一进程复用 `task_id` 时再用时间戳
+收窄到唯一那次执行。`task_id` 只在进程内唯一,所以进程维度先于时间维度;事件没有 `process_id` 时
+才退回纯时间区间判断。只有日志自己观察到 `Tasker.Task.Starting` 的任务参与——没有 Starting 的隐式
+补建任务不参与(投影器用节点名或 scope 名填 `entry`,那不是任务名);`entry_source` 不是 `field` 的
+任务同样不导出名字,因为那是兜底推断而不是日志事实。
 缺 `end_time` 的开口区间在同 `task_id` 的下一次 Starting 处闭合(不含该时刻),时间戳按定长零填充
-字典序比较。零个或多个区间命中时该槽为空,不把后一个 session 复用的 `task_id` 猜成前一个事件的任务。
+字典序比较。按进程与区间收窄后仍有零个或多个候选时该槽为空,不把复用过的 `task_id` 猜成某个任务。
 上一个任务的 `end_time` 与下一个同 id 任务的 `start_time` 落在同一毫秒时,该时刻会命中两个区间,同样留空。
 同一节点在不同任务中会分成多条记录,能唯一归属时 `source.task` 与 `data.taskName` 带上该名字,
 因此 `search --task` 可以命中识别记录。每条识别记录仍对应一条
@@ -185,8 +188,9 @@ MLA 会从 MaaFramework 核心日志中提取非空 `pipeline_override` JSON，�
 Context/task 关联。
 
 `source.task` / `data.taskName` 优先保留覆盖行自身写下的入口名(`post_task [entry=...]`)。
-没有行内名字时,再与 `mla.recognition_detail` 使用同一套内核区间规则：`(task_id, 时间戳)`
-落进唯一、且观察到 `Tasker.Task.Starting` 的任务区间才命名。不再用「整份日志里该 `task_id`
+没有行内名字时,再与 `mla.recognition_detail` 使用同一套内核规则:按 `task_id` 找候选,区间唯一
+时命名,且同样只接受日志自己观察到 `Tasker.Task.Starting`、`entry_source === "field"` 的任务。
+覆盖记录没有事件级 `process_id`,所以这条路径只用时间区间收窄。不再用「整份日志里该 `task_id`
 是否只对应一个 entry」来命名，因此顺序复用 `task_id` 时 Alpha / Beta 的 override 与识别记录
 可以一起被 `search --task` 命中。
 只有日志同时提供唯一的 Context ID 到 MaaFramework `task_id` 映射时，才标记

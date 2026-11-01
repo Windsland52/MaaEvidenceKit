@@ -135,11 +135,11 @@ export type MlaRecognitionDetail = {
   node: string;
   status: "succeeded" | "failed";
   /**
-   * Task entry from the unique named kernel task whose interval contains this group.
-   * Only tasks that observed `Tasker.Task.Starting` participate: the projector otherwise
-   * fills `entry` with a node or scope name. An open interval closes exclusively at the
-   * next same-id start. Null when the `task_id` is missing, maps to no interval, or maps
-   * to more than one.
+   * Task entry from the kernel task that owns this group's `(process_id, task_id)`, narrowed by
+   * `[start_time, end_time]` when one process ran the id twice. Only tasks the log itself opened
+   * (`has_starting_event`) and named (`entry_source === "field"`) participate; an open interval
+   * closes exclusively at the next same-id start. Null when the id is missing, matches nothing,
+   * or still matches more than one run.
    */
   taskName: string | null;
   occurrenceCount: number;
@@ -2061,7 +2061,10 @@ function candidateStageSummary(stage: RecognitionCandidateStageAccumulator): Mla
 
 type KernelTaskInterval = {
   taskId: number;
-  entry: string;
+  /** Creator process, from the task's start event; null when the log did not name it. */
+  processId: string | null;
+  /** Task entry, only when the log wrote it itself (`entry_source === "field"`). */
+  entry: string | null;
   start: string;
   /** Kernel `end_time`, inclusive when present. */
   end: string | null;
@@ -2072,8 +2075,14 @@ type KernelTaskInterval = {
   nextStart: string | null;
 };
 
-function isNamedKernelTask(task: { events: ReadonlyArray<{ message: string }> }): boolean {
-  return task.events.some((event) => event.message === "Tasker.Task.Starting");
+/**
+ * Whether the log itself opened this task with `Tasker.Task.Starting`.
+ *
+ * The upstream projector now exposes this directly. Deriving it from `events` was a guess that
+ * broke whenever the source filter dropped the Starting record.
+ */
+function isNamedKernelTask(task: { has_starting_event?: boolean }): boolean {
+  return task.has_starting_event === true;
 }
 
 function compareKernelTimestamps(left: string, right: string): number {
@@ -2085,8 +2094,9 @@ function compareKernelTimestamps(left: string, right: string): number {
 function kernelTaskIntervals(
   analyzed: Awaited<ReturnType<typeof analyzeLogContent>>,
 ): KernelTaskInterval[] {
-  // The projector fills `entry` with the first node or scope name when Starting never arrived.
-  // Those clues are not task names; skip them so a unique implicit hit cannot export a node name.
+  // Implicit tasks are excluded by the upstream `has_starting_event` flag: without it, the
+  // projector fills `entry` with the first node or scope name, which is not a task name.
+  // `entry_source` is the second gate: only a value the log wrote itself may become evidence.
   const named = analyzed.tasks.filter(isNamedKernelTask).sort((left, right) => {
     const byId = left.task_id - right.task_id;
     if (byId !== 0) return byId;
@@ -2096,7 +2106,8 @@ function kernelTaskIntervals(
     const next = named[index + 1];
     return {
       taskId: task.task_id,
-      entry: task.entry,
+      processId: task.process_id ?? null,
+      entry: task.entry_source === "field" ? task.entry : null,
       start: task.start_time,
       end: task.end_time ?? null,
       nextStart: next !== undefined && next.task_id === task.task_id ? next.start_time : null,
@@ -2111,26 +2122,38 @@ function timestampInKernelTask(timestamp: string, interval: KernelTaskInterval):
   return true;
 }
 
+function usableTaskEntry(interval: KernelTaskInterval | undefined): string | null {
+  const entry = interval?.entry;
+  return entry !== null && entry !== undefined && entry.length > 0 ? entry : null;
+}
+
 /**
- * Attribute a recognition to a kernel task by `(task_id, timestamp)` interval, not by the last
- * `Tasker.Task.Starting` seen. One bundle can hold two sessions that both restart `task_id` at 1;
- * a live map would stamp the earlier session's events with the later entry. An open interval is
- * closed exclusively at the next same-id start so a crashed task does not blank later sessions.
- * Zero or two-plus matching intervals leave the name empty rather than guessing.
- * Inclusive `end_time` plus the next same-id `start_time` on the same millisecond is two hits.
+ * Attribute a recognition to a kernel task by `(process_id, task_id)` first and by
+ * `[start_time, end_time]` only when the id is reused inside one process.
+ *
+ * `task_id` is unique per process, not per bundle: two processes in one bundle can both use
+ * id 1. The upstream event carries `process_id`, so that pair usually decides on its own; when
+ * the log did not name a process, or one process ran the same id twice, the timestamp interval
+ * separates the runs. Zero or two-plus remaining candidates leave the name empty rather than
+ * guessing, and a task whose entry the log never wrote (`entry_source !== "field"`) never
+ * becomes evidence.
  */
 function taskNameForRecognition(
   intervals: readonly KernelTaskInterval[],
   taskId: number | null,
+  processId: string | null,
   timestamp: string,
 ): string | null {
   if (taskId === null) return null;
-  const matches = intervals.filter((task) =>
-    task.taskId === taskId && timestampInKernelTask(timestamp, task)
-  );
-  if (matches.length !== 1) return null;
-  const entry = matches[0]?.entry;
-  return entry !== undefined && entry.length > 0 ? entry : null;
+  const sameId = intervals.filter((task) => task.taskId === taskId);
+  if (sameId.length === 0) return null;
+  const byProcess = processId === null
+    ? sameId
+    : sameId.filter((task) => task.processId === processId);
+  const scoped = byProcess.length > 0 ? byProcess : sameId;
+  if (scoped.length === 1) return usableTaskEntry(scoped[0]);
+  const byTime = scoped.filter((task) => timestampInKernelTask(timestamp, task));
+  return byTime.length === 1 ? usableTaskEntry(byTime[0]) : null;
 }
 
 /**
@@ -2145,7 +2168,7 @@ function resolveObservedTaskName(
   lineEntry: string | null,
 ): string | null {
   if (lineEntry !== null && lineEntry.length > 0) return lineEntry;
-  return taskNameForRecognition(intervals, taskId, timestamp);
+  return taskNameForRecognition(intervals, taskId, null, timestamp);
 }
 
 function namedPipelineOverrides(
@@ -2216,7 +2239,8 @@ function extractRecognitionDetails(
     if (shape.kind === "child_array" && shape.children.length === 0) continue;
     const status = event.message === "Node.Recognition.Succeeded" ? "succeeded" : "failed";
     const taskId = typeof payload["task_id"] === "number" ? payload["task_id"] : null;
-    const taskName = taskNameForRecognition(intervals, taskId, event.timestamp);
+    const processId = typeof event.process_id === "string" ? event.process_id : null;
+    const taskName = taskNameForRecognition(intervals, taskId, processId, event.timestamp);
     const key = `${node}|${algorithm}|${status}|${taskName ?? ""}`;
     const group = groups.get(key) ?? {
       algorithm,

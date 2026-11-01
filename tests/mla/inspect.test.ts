@@ -26,8 +26,13 @@ afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-function event(timestamp: string, message: string, details: Record<string, unknown>): string {
-  return `[${timestamp}][INF][Px1][Tx2][test] !!!OnEventNotify!!! [handle=1] [msg=${message}] [details=${JSON.stringify(details)}]`;
+function event(
+  timestamp: string,
+  message: string,
+  details: Record<string, unknown>,
+  process = "Px1",
+): string {
+  return `[${timestamp}][INF][${process}][Tx2][test] !!!OnEventNotify!!! [handle=1] [msg=${message}] [details=${JSON.stringify(details)}]`;
 }
 
 /**
@@ -733,6 +738,57 @@ test("groups recognition details by resolved task name so search --task can matc
     evidence: [{ id: combat?.id }],
   });
   expect(searchEvidence(result, { kinds: ["mla.recognition_detail"] }).totalMatches).toBe(2);
+});
+
+test("names a recognition by process when two processes reuse one task_id with overlapping runs", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-recognition-process-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  const recognition = (time: string, text: string, process: string): string =>
+    event(time, "Node.Recognition.Failed", {
+      name: "Eat",
+      task_id: 1,
+      reco_details: {
+        algorithm: "OCR",
+        name: "Eat",
+        reco_id: 10,
+        detail: { all: [{ box: [0, 0, 10, 10], score: 0.2, text }] },
+      },
+    }, process);
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    "[2026-07-19 10:00:00.500][DBG][Px2][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.501][DBG][Px2][Tx1][Logger] Version v5.12.2",
+    // Two processes both use task_id 1 and their runs overlap, so the timestamp alone cannot
+    // tell the runs apart; process_id is what keeps them separate.
+    event("2026-07-19 10:01:00.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "Alpha", hash: "h1", uuid: "u1",
+    }, "Px1"),
+    event("2026-07-19 10:01:30.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "Beta", hash: "h2", uuid: "u2",
+    }, "Px2"),
+    recognition("2026-07-19 10:02:00.000", "alpha", "Px1"),
+    recognition("2026-07-19 10:02:10.000", "beta", "Px2"),
+    event("2026-07-19 10:03:00.000", "Tasker.Task.Succeeded", {
+      task_id: 1, entry: "Alpha", hash: "h1", uuid: "u1",
+    }, "Px1"),
+    event("2026-07-19 10:03:10.000", "Tasker.Task.Succeeded", {
+      task_id: 1, entry: "Beta", hash: "h2", uuid: "u2",
+    }, "Px2"),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const details = result.evidence.filter((item) => item.kind === "mla.recognition_detail");
+  const tasks = details.map((item) => item.source.task).sort();
+
+  expect(tasks).toEqual(["Alpha", "Beta"]);
+  const alpha = details.find((item) => item.source.task === "Alpha");
+  const beta = details.find((item) => item.source.task === "Beta");
+  expect((alpha?.data as { textCounts?: Array<{ text?: string }> } | undefined)?.textCounts)
+    .toEqual([{ text: "alpha", count: 1 }]);
+  expect((beta?.data as { textCounts?: Array<{ text?: string }> } | undefined)?.textCounts)
+    .toEqual([{ text: "beta", count: 1 }]);
 });
 
 test("attributes reused task_id recognitions by kernel interval instead of the last start", async () => {

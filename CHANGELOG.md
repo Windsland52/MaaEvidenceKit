@@ -7,6 +7,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Task attribution now starts from the upstream process id instead of guessing by time.**
+  `@windsland52/maa-log-tools` moves to 2.2.0 (which carries `maa-log-parser` 2.1.0,
+  `maa-log-kernel` 1.1.0, `maa-log-adapter` 1.1.2 and `maa-log-runtime` 1.1.1), so every task now
+  reports the process that created it, whether the log really opened it with `Tasker.Task.Starting`,
+  and whether its `entry` came from the log or was filled in by the projector.
+  `mla.recognition_detail` and `mla.pipeline_override` use `(process_id, task_id)` first and fall
+  back to the timestamp interval only when one process reused the id; a task name is recorded only
+  when the log wrote the entry itself (`entry_source === "field"`) and the task was really started.
+  Two processes that reuse one `task_id` with overlapping runs are now named separately instead of
+  collapsing to an empty slot, and an implicit task can no longer contribute a node name. Evidence
+  attribution is unchanged for logs without process ids, where the interval still decides.
+
 ## [0.11.0] - 2026-11-01
 
 ### Added
