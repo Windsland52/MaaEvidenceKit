@@ -322,6 +322,12 @@ Complete totals are always in `statistics` (`signalsTotal`, `recognitionOccurren
 `repeatedNodeSegments`, `repeatedNodeTotalRepeatCount`) plus their `*Focused` counterparts;
 do not derive totals from the focused signal list alone.
 
+Decide from `statistics.signals` and `statistics.signalsTotal`: when the selected share is below
+half, narrow `--from`/`--to` and re-run before adding `--all-signals`. Narrowing can raise the ratio
+(one inspection selected 348 of 1936 signals, a three-minute window of the same material 8 of 16)
+but it does not guarantee it, so `--all-signals` stays the fallback for a scope that still needs the
+unfocused set.
+
 ## Read results
 
 Inspect these fields before forming a diagnosis:

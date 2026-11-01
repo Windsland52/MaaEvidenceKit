@@ -423,6 +423,11 @@ maa-evidence mla inspect C:\path\to\materials --format json --output inspection.
 其中 `evidenceKinds` 直接给出可用的 `--kind` 取值及数量,便于规划后续 `search`;
 `notableEvidence` 为 `mla.failure_context`、`mla.failure`、`mla.task_anomaly`、`mla.outcome`
 等可操作 kind 嵌入最多十条 identity,便于直接 `view --evidence-id`。
+
+**`notableEvidence: []` 不代表没有证据。** 它只列出可操作的 kind,干净报告上本来就是空的;
+证据总量看 `evidenceCount` 与 `evidenceKinds`(text 模式为 `Evidence: N` 加各 kind 的计数)。
+把空列表读成"没有抽到证据"会直接跳过一份正常报告。
+
 该文档不是 inspection 结果,不能作为 `--input` 回传。
 
 已知事发时间时先用 `--from` / `--to` 收窄窗口:实测一份 16 MB 的产物在收窄到十分钟窗口后

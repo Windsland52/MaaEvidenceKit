@@ -37,6 +37,11 @@ CLI 与 SDK 共用该模型;命令用法见 [`docs/cli.md`](cli.md),SDK 用法�
 MLA 默认输出其优先级为 `high` 的信号和每个任务的高亮信号,并在 `details.selection.signals`
 记录完整数量与入选数量。需要穷举普通、低优先级信号时使用 `--all-signals`,SDK 则设置
 `includeAllSignals: true`;筛选只依据 MLA 的通用信号语义,不包含应用项目名称或节点特判。
+入选是取舍而不是过滤:`statistics.signals` 是入选数,`statistics.signalsTotal` 是总数,两者
+按设计可以相差很多。当入选数不足总数一半时,先缩小 `--from`/`--to` 重跑一次(时间窗口会先
+收窄加载范围与事实集),仍不足再显式使用 `--all-signals`。缩窗口**可能**提高入选比例
+(实测同一材料 348/1936 收窄到三分钟窗口后为 8/16),但不保证:高优先级信号由 MLA 语义决定,
+不随窗口变化。
 完整计数始终基于未裁剪的运行时,`statistics` 同时提供 `signalsTotal`、
 `recognitionOccurrences`、`repeatedNodeSegments` 和
 `repeatedNodeTotalRepeatCount` 及其 `*Focused` 对应值,避免聚焦视图被误当成总量。

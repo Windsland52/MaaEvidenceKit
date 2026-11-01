@@ -115,6 +115,9 @@ paths, source refs, or request shapes. Stop optional branches when their evidenc
 - Missing multipart archives, empty windows, truncation, unreadable files, unsupported formats, and
   unavailable source/Sentry/images remain explicit evidence gaps.
 - `--all-signals` expands supported MLA signals; it never makes MEK parse unsupported generic logs.
+- Before `--all-signals`, compare `statistics.signals` with `signalsTotal`: when the selected share is
+  below half, narrow `--from`/`--to` and re-run first. Narrowing may raise the ratio but does not
+  guarantee it; pass `--all-signals` only when the narrowed scope still needs every signal.
 - `--keyword` is a loading focus, not an evidence filter: a log bundle that contains none of the
   keywords is skipped whole, and records from a bundle that was loaded are never filtered by keyword.
   It changes which files are read, so it is not a way to search a report; narrow the evidence set with
@@ -152,6 +155,18 @@ when the folder's contents are unknown.
 
 ## Read focused output
 
+Three copy-paste forms cover most follow-ups on a saved `REPORT`; replace `REPORT`, `ID`, and `N`:
+
+```powershell
+maa-evidence search --input REPORT --fields evidence.id,evidence.kind,evidence.summary --limit N
+maa-evidence view --input REPORT --evidence-id ID --fields id,kind,summary
+maa-evidence window --input REPORT --evidence-id ID --before 5 --after 5 --max-lines 60
+```
+
+`search --limit` defaults to 50 (maximum 500) and reports `totalMatches`/`truncated`. A `search`
+projection is rooted at the result envelope, so its evidence paths start with `evidence.`; `view`
+projects the single record it returns.
+
 Always inspect `evidence`, `missingEvidence`, `warnings`, `artifacts`, `statistics`, and `details`.
 Focused output omits ordinary signals by design; use `statistics.*Total` for complete counts.
 
@@ -163,6 +178,11 @@ bounds the first read and keeps REPORT consumable by `search`, `view`, and `wind
 `mla.failure`, `mla.task_anomaly`, `mla.outcome` with failures first, `mla.cycle_exit_blocker`,
 `mla.possible_mirrored_task_group`, and repeated `mla.signal` node segments) with `total`/`omitted`,
 so follow-ups can go straight to `view --evidence-id` instead of a discovery search round trip.
+
+The summary has no `evidence` field: read `evidenceCount` and `evidenceKinds` for what was extracted.
+An empty `notableEvidence` does not mean "no evidence": it lists actionable kinds only, so a clean
+report with none of them legitimately has none while `evidenceCount` stays nonzero. Text mode prints
+`Evidence: N` and one `- kind: count` line per kind.
 
 To reconstruct how one task unfolded, use the compressed task timeline instead of rebuilding the
 node event sequence by hand: `maa-evidence timeline --input REPORT --task TaskName --format text`
@@ -187,12 +207,23 @@ accepts the same `query` object as `search` and reports `matchCount`.
 
 Read only what the next step needs. `--fields statistics` or `--fields evidence.id,evidence.summary`
 projects JSON output onto named paths and refuses a path that does not exist, which is cheaper and
-safer than piping a whole report through a hand-written script. Every requested path must resolve,
-a path through an array applies to each element (there is no index syntax), and paths that select
-different numbers of elements on one array are refused instead of merged by position. `window` and `view` bound their text
-output (`--max-lines`, `--max-characters`) and mark truncation explicitly; `--output FILE` always
-receives the complete rendering. Every command answers `--help` with its own usage, defaults, and
-limits.
+safer than piping a whole report through a hand-written script; one measured full `view --format
+text` of one record was 6254 B and the same record with `--fields id,summary` was 187 B, about 33x
+smaller. Every requested path must resolve, a path through an array applies to each element (there
+is no index syntax), and paths that select different numbers of elements on one array are refused
+instead of merged by position. `window` and `view` bound their text output (`--max-lines`,
+`--max-characters`) and mark truncation explicitly; `--output FILE` always receives the complete
+rendering. Every command answers `--help` with its own usage, defaults, and limits.
+
+## When the CLI cannot run
+
+If the host shell sandbox refuses to execute external commands, read the saved report from an
+earlier `--summary --output REPORT` run directly. Read `evidence[].id`, `evidence[].kind`,
+`evidence[].summary`, `warnings`, `missingEvidence`, and the `statistics` counts; skip
+`evidence[].data`, the full `artifacts[]` list, and `details`, which dominate the file and rarely
+answer a follow-up. Do not stand up an HTTP/stdio server, and do not assume a default `--input`
+path: without a saved report there is nothing to read. Citation rules are unchanged, because the
+report is the document the CLI reads.
 
 ## Harness integration
 

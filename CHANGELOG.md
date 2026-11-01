@@ -36,6 +36,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rendering.`); it now ends with a single framed line,
   `--- truncated: N of M lines, X of Y characters (raise --max-lines/--max-characters, or use
   --output FILE) ---`. JSON output and its `truncated` fields are unchanged.
+- **The packaged Skill documents a degraded read path.** When the host shell sandbox refuses to run
+  external commands, the Skill now says to read the saved `--output` report directly with
+  `evidence[].id` / `kind` / `summary`, `warnings`, `missingEvidence`, and the `statistics` counts,
+  skipping `evidence[].data`, `artifacts[]`, and `details`. It deliberately adds no HTTP/stdio
+  server and no default `--input` path.
+- **The packaged Skill opens focused reads with runnable templates and summary-count guidance.**
+  `## Read focused output` now starts with copy-paste `search` / `view` / `window` forms that each
+  project with `--fields` (`search --limit` defaults to 50), records a measured 6254 B text view
+  against 187 B with `--fields id,summary` (about 33x), and states that an empty `notableEvidence`
+  does not mean "no evidence": `--summary` reports `evidenceCount` and `evidenceKinds` and lists
+  actionable kinds only.
+- **The packaged Skill gates `--all-signals` on the measured selection ratio.** Compare
+  `statistics.signals` with `statistics.signalsTotal`; when the selected share is below half, narrow
+  `--from`/`--to` and re-run first in both `SKILL.md` and `references/full-guide.md`, because
+  narrowing can raise the ratio (measured 348/1936 → 8/16) but does not guarantee it.
 
 ### Fixed
 
