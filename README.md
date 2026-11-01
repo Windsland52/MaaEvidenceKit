@@ -22,7 +22,7 @@ MaaEvidenceKit(MEK)从 MaaFramework 日志和 Maa 项目中提取可定位的运
 | 显式清点 issue-time checkout 中受界的 `AGENTS.md` 文本和 Skill 文件结构 | 解析、激活或遵循 checkout 中的 Skill |
 | 生成稳定 evidence ID,以及文件、行号、时间、任务和节点定位 | |
 | 输出 JSON、纯文本和可选 Mermaid | |
-| 默认发送匿名聚合遥测(可关闭),并按需发送需明确确认的提取缺口反馈 | |
+| 按需在你指定的本地路径写 `feedback` JSON 包(不上传,不复制附件字节) | |
 
 ## 安装
 
