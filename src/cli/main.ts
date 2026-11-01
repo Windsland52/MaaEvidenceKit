@@ -63,6 +63,18 @@ function requireValueOption(parsed: ParsedArguments, name: string, command: stri
   return value;
 }
 
+/**
+ * Read an optional identifier option, rejecting an explicitly empty value.
+ *
+ * `--evidence-id ""` is present but matches nothing, so the lookup answered `Unknown evidence ID: `
+ * with nothing after the colon. An empty identifier is a usage error, not an unknown record.
+ */
+function identifierOption(parsed: ParsedArguments, name: string): string | undefined {
+  const value = option(parsed, name);
+  if (value === "") throw new UsageError(`${name} must not be empty.`);
+  return value;
+}
+
 function timeRange(parsed: ParsedArguments): TimeRange | undefined {
   const from = option(parsed, "--from");
   const to = option(parsed, "--to");
@@ -316,14 +328,12 @@ async function runCombined(parsed: ParsedArguments): Promise<InspectionResult> {
 async function runWindow(parsed: ParsedArguments): Promise<void> {
   const input = requireValueOption(parsed, "--input", "window");
   const result = await readInspection(input);
+  const evidenceId = identifierOption(parsed, "--evidence-id");
+  const artifactId = identifierOption(parsed, "--artifact-id");
   const sdk = await loadSdk();
   const evidenceWindow = await profileStage("evidence.window", () => sdk.queryEvidenceWindow(result, {
-    ...(option(parsed, "--evidence-id") === undefined
-      ? {}
-      : { evidenceId: option(parsed, "--evidence-id") as string }),
-    ...(option(parsed, "--artifact-id") === undefined
-      ? {}
-      : { artifactId: option(parsed, "--artifact-id") as string }),
+    ...(evidenceId === undefined ? {} : { evidenceId }),
+    ...(artifactId === undefined ? {} : { artifactId }),
     ...(integerOption(parsed, "--line") === undefined ? {} : { line: integerOption(parsed, "--line") as number }),
     ...(integerOption(parsed, "--before") === undefined ? {} : { before: integerOption(parsed, "--before") as number }),
     ...(integerOption(parsed, "--after") === undefined ? {} : { after: integerOption(parsed, "--after") as number }),
@@ -391,7 +401,7 @@ async function emitRendered(
 async function runView(parsed: ParsedArguments): Promise<void> {
   const input = requireValueOption(parsed, "--input", "view");
   const result = await readInspection(input);
-  const evidenceId = option(parsed, "--evidence-id");
+  const evidenceId = identifierOption(parsed, "--evidence-id");
   const sdk = await loadSdk();
   const manifest = manifestFormat(parsed);
   if (manifest !== undefined) {

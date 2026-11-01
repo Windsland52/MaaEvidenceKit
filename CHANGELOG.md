@@ -45,6 +45,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nothing after the colon. Each command now fails before reading anything with
   `<command> requires --input FILE.`, and `batch` reports `batch requires --requests FILE.` for its
   request list. An explicitly empty value is rejected the same way.
+- **An explicitly empty evidence or artifact identifier is a usage error.** `view --evidence-id ""`,
+  `window --evidence-id ""`, and `window --artifact-id ""` printed `Unknown evidence ID: ` /
+  `Unknown artifact ID: ` with nothing after the colon, because the empty string reached the lookup.
+  The CLI now rejects an empty identifier before reading the report with
+  `--evidence-id must not be empty.` / `--artifact-id must not be empty.`
 
 ## [0.11.0] - 2026-11-01
 

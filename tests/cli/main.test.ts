@@ -222,6 +222,44 @@ test("rejects an omitted required file option instead of reporting an empty path
   expect(errorOutput).toContain("search requires --input FILE.");
 });
 
+test("rejects an explicitly empty evidence or artifact identifier", async () => {
+  const root = await mlaFixture();
+  const reportPath = path.join(root, "report.json");
+  let errorOutput = "";
+  vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+  vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    errorOutput += String(chunk);
+    return true;
+  });
+
+  expect(await main(["mla", "inspect", root, "--output", reportPath])).toBe(0);
+
+  const cases: Array<{ args: string[]; message: string; lookupError: string }> = [
+    // An empty identifier is a usage error, not a lookup miss: it cannot match any record.
+    {
+      args: ["view", "--input", reportPath, "--evidence-id", ""],
+      message: "--evidence-id must not be empty.",
+      lookupError: "Unknown evidence ID",
+    },
+    {
+      args: ["window", "--input", reportPath, "--evidence-id", ""],
+      message: "--evidence-id must not be empty.",
+      lookupError: "Unknown evidence ID",
+    },
+    {
+      args: ["window", "--input", reportPath, "--artifact-id", ""],
+      message: "--artifact-id must not be empty.",
+      lookupError: "Unknown artifact ID",
+    },
+  ];
+  for (const { args, message, lookupError } of cases) {
+    errorOutput = "";
+    await expect(main(args)).resolves.toBe(1);
+    expect(errorOutput).toContain(message);
+    expect(errorOutput).not.toContain(lookupError);
+  }
+});
+
 test("reports a missing output directory as an actionable usage error", async () => {
   const root = await mlaFixture();
   const output = path.join(root, "no-such-dir", "report.json");

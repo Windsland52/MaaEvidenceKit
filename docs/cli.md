@@ -278,6 +278,8 @@ resolve、不 stat、不打开 `input.path`,摘要直接取报告内的 `content
 **`--input` 是必需选项。** `window`、`view`、`search`、`timeline`、`batch` 漏传 `--input` 时报
 `<命令> requires --input FILE.`(`batch` 漏传 `--requests` 时报 `batch requires --requests FILE.`),
 并在读取任何文件之前就退出——空路径不会被当作文件名交给报告读取层;显式传入空值同样按缺参处理。
+`--evidence-id` / `--artifact-id` 显式传空值也会被拒绝(`--evidence-id must not be empty.`、
+`--artifact-id must not be empty.`),不会被当成"查不到的 ID"。
 
 ```powershell
 # 读取某条证据附近的原始行
