@@ -275,6 +275,10 @@ resolve、不 stat、不打开 `input.path`,摘要直接取报告内的 `content
 移走或删除后,清单照样渲染。它的 `input.extraction` 是 `"reported"`(抽取发生在另一个进程、另一个时刻),
 `generatedAt` 沿用报告自己的值,于是"同一份报告的清单"逐字节确定。
 
+**`--input` 是必需选项。** `window`、`view`、`search`、`timeline`、`batch` 漏传 `--input` 时报
+`<命令> requires --input FILE.`(`batch` 漏传 `--requests` 时报 `batch requires --requests FILE.`),
+并在读取任何文件之前就退出——空路径不会被当作文件名交给报告读取层;显式传入空值同样按缺参处理。
+
 ```powershell
 # 读取某条证据附近的原始行
 maa-evidence window --input inspection.json --evidence-id evidence-abc123

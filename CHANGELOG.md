@@ -27,6 +27,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--- truncated: N of M lines, X of Y characters (raise --max-lines/--max-characters, or use
   --output FILE) ---`. JSON output and its `truncated` fields are unchanged.
 
+### Fixed
+
+- **A missing `--input` is now a usage error instead of an empty-path report read.** `window`, `view`,
+  `search`, `timeline`, and `batch` fell back to an empty string when `--input` was omitted, and
+  `batch` did the same for `--requests`, so the report loader answered `Input file not found: ` with
+  nothing after the colon. Each command now fails before reading anything with
+  `<command> requires --input FILE.`, and `batch` reports `batch requires --requests FILE.` for its
+  request list. An explicitly empty value is rejected the same way.
+
 ## [0.11.0] - 2026-11-01
 
 ### Added

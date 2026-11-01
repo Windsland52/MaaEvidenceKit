@@ -191,6 +191,37 @@ test("reports a missing inspection file as an actionable usage error", async () 
   expect(errorOutput).toContain(`Input file not found: ${missing}`);
 });
 
+test("rejects an omitted required file option instead of reporting an empty path", async () => {
+  let errorOutput = "";
+  vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    errorOutput += String(chunk);
+    return true;
+  });
+
+  const cases: Array<{ args: string[]; message: string }> = [
+    { args: ["search", "--kind", "mla.task"], message: "search requires --input FILE." },
+    { args: ["view"], message: "view requires --input FILE." },
+    { args: ["timeline"], message: "timeline requires --input FILE." },
+    { args: ["window", "--evidence-id", "evidence-abc123"], message: "window requires --input FILE." },
+    { args: ["batch", "--requests", "queries.json"], message: "batch requires --input FILE." },
+    // Checked before the report is read: a valid --input without --requests is still a usage error.
+    { args: ["batch", "--input", "inspection.json"], message: "batch requires --requests FILE." },
+  ];
+  for (const { args, message } of cases) {
+    errorOutput = "";
+    await expect(main(args)).resolves.toBe(1);
+    expect(errorOutput).toContain(message);
+    // A required-option failure, not a missing file: the empty fallback used to reach the report
+    // loader and surface as `Input file not found: ` with nothing after the colon.
+    expect(errorOutput).not.toContain("not found");
+    expect(errorOutput).not.toContain("ENOENT");
+  }
+
+  errorOutput = "";
+  await expect(main(["search", "--input", "", "--kind", "mla.task"])).resolves.toBe(1);
+  expect(errorOutput).toContain("search requires --input FILE.");
+});
+
 test("reports a missing output directory as an actionable usage error", async () => {
   const root = await mlaFixture();
   const output = path.join(root, "no-such-dir", "report.json");

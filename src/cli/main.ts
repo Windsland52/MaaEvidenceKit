@@ -47,6 +47,22 @@ function requirePositional(parsed: ParsedArguments, index: number, label: string
   return value;
 }
 
+/**
+ * Read a required value option that names a file the command cannot run without.
+ *
+ * A missing option must fail as a required-option error before the value reaches a reader: falling
+ * back to an empty string turns the omission into a path, and the report loader then answers
+ * `Input file not found: ` with nothing after the colon. An explicitly empty value is rejected for
+ * the same reason: no command here accepts an empty path.
+ */
+function requireValueOption(parsed: ParsedArguments, name: string, command: string): string {
+  const value = option(parsed, name);
+  if (value === undefined || value === "") {
+    throw new UsageError(`${command} requires ${name} FILE.`);
+  }
+  return value;
+}
+
 function timeRange(parsed: ParsedArguments): TimeRange | undefined {
   const from = option(parsed, "--from");
   const to = option(parsed, "--to");
@@ -298,7 +314,8 @@ async function runCombined(parsed: ParsedArguments): Promise<InspectionResult> {
 }
 
 async function runWindow(parsed: ParsedArguments): Promise<void> {
-  const result = await readInspection(option(parsed, "--input") ?? "");
+  const input = requireValueOption(parsed, "--input", "window");
+  const result = await readInspection(input);
   const sdk = await loadSdk();
   const evidenceWindow = await profileStage("evidence.window", () => sdk.queryEvidenceWindow(result, {
     ...(option(parsed, "--evidence-id") === undefined
@@ -372,7 +389,8 @@ async function emitRendered(
 }
 
 async function runView(parsed: ParsedArguments): Promise<void> {
-  const result = await readInspection(option(parsed, "--input") ?? "");
+  const input = requireValueOption(parsed, "--input", "view");
+  const result = await readInspection(input);
   const evidenceId = option(parsed, "--evidence-id");
   const sdk = await loadSdk();
   const manifest = manifestFormat(parsed);
@@ -412,7 +430,8 @@ async function runView(parsed: ParsedArguments): Promise<void> {
 }
 
 async function runSearch(parsed: ParsedArguments): Promise<void> {
-  const result = await readInspection(option(parsed, "--input") ?? "");
+  const input = requireValueOption(parsed, "--input", "search");
+  const result = await readInspection(input);
   const range = timeRange(parsed);
   const sdk = await loadSdk();
   const search = profileStageSync("evidence.search", () => sdk.searchEvidence(result, {
@@ -432,7 +451,8 @@ async function runSearch(parsed: ParsedArguments): Promise<void> {
 }
 
 async function runTimeline(parsed: ParsedArguments): Promise<void> {
-  const result = await readInspection(option(parsed, "--input") ?? "");
+  const input = requireValueOption(parsed, "--input", "timeline");
+  const result = await readInspection(input);
   const format = option(parsed, "--format") ?? (process.stdout.isTTY ? "text" : "json");
   if (format !== "json" && format !== "text") {
     throw new UsageError("timeline --format must be json or text.");
@@ -448,10 +468,13 @@ async function runTimeline(parsed: ParsedArguments): Promise<void> {
 }
 
 async function runBatch(parsed: ParsedArguments): Promise<void> {
-  const result = await readInspection(option(parsed, "--input") ?? "");
+  // Both files are checked before the report is read: `batch` cannot answer anything without its
+  // request list, so a missing --requests is a usage error even when --input names a valid report.
+  const input = requireValueOption(parsed, "--input", "batch");
+  const requestsPath = requireValueOption(parsed, "--requests", "batch");
+  const result = await readInspection(input);
   const sdk = await loadSdk();
-  const requests = await profileStage("batch.requests_load", () =>
-    readBatchRequests(option(parsed, "--requests") ?? ""));
+  const requests = await profileStage("batch.requests_load", () => readBatchRequests(requestsPath));
   const batch = await profileStage("evidence.batch", () => sdk.queryEvidenceBatch(result, requests));
   if (await emitSelection(sdk, batch, parsed, "json")) return;
   const rendered = profileStageSync("render", () => JSON.stringify(batch, null, 2));
