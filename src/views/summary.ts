@@ -119,7 +119,11 @@ export function summarizeInspection(result: InspectionResult): InspectionSummary
 }
 
 function isSessionOnlyMla(summary: InspectionSummary): boolean {
+  // Only an untimed inspection can say the material itself is session-only. A `--from`/`--to` window
+  // may keep a session boundary while the material holds tasks outside it, and claiming otherwise
+  // would describe the window as a material limitation.
   return summary.kind === "mla"
+    && summary.input.timeRange === undefined
     && summary.statistics["tasks"] === 0
     && (summary.statistics["sessions"] ?? 0) > 0;
 }

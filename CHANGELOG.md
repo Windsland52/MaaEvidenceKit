@@ -65,6 +65,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Unknown artifact ID: ` with nothing after the colon, because the empty string reached the lookup.
   The CLI now rejects an empty identifier before reading the report with
   `--evidence-id must not be empty.` / `--artifact-id must not be empty.`
+- **`mla_no_task_evidence` is limited to the whole material, not to a time window.** A
+  `--from`/`--to` inspection can keep a session boundary while filtering out every task in it, so a
+  windowed run could claim the material cannot support task-level conclusions even though the same
+  material holds tasks outside the window. The warning and the matching `--summary --format text`
+  line now only apply when no time range is set; an empty window already reports
+  `mla_time_window_empty`.
 
 ## [0.11.0] - 2026-11-01
 

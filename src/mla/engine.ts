@@ -2809,7 +2809,11 @@ export async function inspectMla(
     ...discovery.warnings,
     ...targetFailureReport.warnings,
     ...runtime.warnings.map((message) => ({ code: "mla_warning", message })),
-    ...(taskCount === 0 && sessionCount > 0
+    // A time window can keep a session boundary while filtering out every task in it, and the same
+    // material may still hold tasks outside the window. This verdict is about the whole material, so
+    // it only applies to an untimed inspection; an empty window already reports
+    // `mla_time_window_empty`.
+    ...(options.timeRange === undefined && taskCount === 0 && sessionCount > 0
       ? [{
         code: "mla_no_task_evidence",
         message: `Extracted ${sessionCount} MAA session ${sessionCount === 1 ? "boundary" : "boundaries"} and no task-level evidence. Only session and process lifecycle records were extracted, so this material cannot support task, node, recognition, action, or failure conclusions. This is a material limitation, not proof that the run performed no work. The MaaFramework log that records the task run is what supplies task-level evidence.`,

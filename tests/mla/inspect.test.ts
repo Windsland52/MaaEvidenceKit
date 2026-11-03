@@ -257,6 +257,35 @@ test("does not warn about missing task evidence when a task was extracted", asyn
   expect(result.warnings.some((item) => item.code === "mla_no_task_evidence")).toBe(false);
 });
 
+test("does not warn about the whole material when a time window holds only session boundaries", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-window-session-only-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:05:00.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "First", hash: "h1", uuid: "u1",
+    }),
+    event("2026-07-19 10:05:01.000", "Tasker.Task.Succeeded", {
+      task_id: 1, entry: "First", hash: "h1", uuid: "u1",
+    }),
+  ].join("\n"), "utf8");
+
+  // The window keeps the 10:00 session boundary but no task, which used to read as session-only
+  // material even though the same log holds a task after the window.
+  const windowed = await inspectMla(log, {
+    timeRange: { from: "2026-07-19T10:00:00.000", to: "2026-07-19T10:00:01.000" },
+  });
+  expect(windowed.statistics["sessions"]).toBeGreaterThan(0);
+  expect(windowed.statistics["tasks"]).toBe(0);
+  expect(windowed.warnings.some((item) => item.code === "mla_no_task_evidence")).toBe(false);
+
+  // The untimed inspection of the same material extracts the task, so it never qualified either.
+  const whole = await inspectMla(log);
+  expect(whole.statistics["tasks"]).toBe(1);
+});
+
 test("correlates timelines for repeated task ids by task start time", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-repeated-"));
   temporaryRoots.push(root);

@@ -71,6 +71,10 @@ MaaFramework 日志才能得到任务级证据。
 "运行没有产生证据";JSON 摘要不改变 schema,该 warning 与其他 warning 一样原样出现在
 `warnings` 中。
 
+该判断只针对**未设置时间窗口的整份材料**。`--from`/`--to` 窗口可能只保留会话边界、把窗口外的
+任务全部过滤掉,而同一份材料在窗口外仍有任务;此时不会输出 `mla_no_task_evidence`,summary 文本
+也不出现该限制说明,窗口内完全没有证据时由 `mla_time_window_empty` 说明。
+
 ## 未支持文件的有界清点
 
 发现阶段会看到未选中的文件。它们既不进入 evidence，也不由 MEK 解析，但"被静默丢弃"会让 harness

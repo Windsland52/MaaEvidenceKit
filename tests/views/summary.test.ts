@@ -227,6 +227,8 @@ test("caps notable identities at ten and reports the omitted remainder", () => {
 test("states in the text summary that session-only material has no task-level evidence", () => {
   const sessionOnly: InspectionResult = {
     ...result(),
+    // Untimed: only an inspection of the whole material can call the material session-only.
+    input: { path: "C:/materials" },
     statistics: { sessions: 1, tasks: 0, signalsTotal: 0 },
     warnings: [{
       code: "mla_no_task_evidence",
@@ -262,11 +264,21 @@ test("omits the session-only hint for mse summaries and for mla summaries with t
 
   const noSessions: InspectionResult = { ...base, statistics: { sessions: 0, tasks: 0 } };
   expect(renderInspectionSummary(noSessions, "text")).not.toContain(noTaskEvidencePhrase);
+
+  // A time-window inspection may legitimately hold only session boundaries: the whole material can
+  // still have tasks outside the window, so the summary must not describe it as insufficient.
+  const windowed: InspectionResult = {
+    ...base,
+    input: { path: base.input.path, timeRange: { from: "2026-09-01T20:12:00.000Z" } },
+    statistics: { sessions: 2, tasks: 0 },
+  };
+  expect(renderInspectionSummary(windowed, "text")).not.toContain(noTaskEvidencePhrase);
 });
 
 test("uses the plural session boundary wording", () => {
   const sessionOnly: InspectionResult = {
     ...result(),
+    input: { path: "C:/materials" },
     statistics: { sessions: 3, tasks: 0 },
   };
 
