@@ -9,6 +9,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Reports carry a top-level `completeness` block, and `--summary` keeps it.** An MLA inspection now
+  states, per dimension (`signals` / `actionDetails` / `pipelineOverrides`), how many records were
+  kept out of how many and which strategy selected them (`complete` / `focused` / `sampled` /
+  `prioritized`), plus `anyDowngraded`, so a sampled report cannot be read as a complete one. A
+  bounded `fieldTruncation` sub-block counts record-level `*Truncated` flags (top 10 fields plus an
+  `omitted` count, never record paths) and deliberately does not feed `anyDowngraded`.
+  `--summary` copies the block verbatim and text mode prints one `Completeness:` line; the paired
+  `statistics` counts are now derived from the block, the schema stays `maa-evidence/v1` (the field
+  is optional), and the three existing sampling warnings are unchanged.
 - **Session-only material now says so.** An MLA inspection whose logs hold MAA process sessions but
   no task execution (for example a `MAA Process Start` / `Version` header with no task records) now
   adds warning `mla_no_task_evidence`, and `--summary --format text` prints a dedicated line after

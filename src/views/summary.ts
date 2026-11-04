@@ -1,5 +1,6 @@
 import type {
   Artifact,
+  Completeness,
   Evidence,
   InspectionInput,
   InspectionKind,
@@ -42,6 +43,12 @@ export type InspectionSummary = {
   evidenceCount: number;
   evidenceKinds: InspectionEvidenceKindCount[];
   notableEvidence: InspectionSummaryNotableEvidence[];
+  /**
+   * Sampling completeness, copied verbatim from the inspection. It is the one summary block that
+   * tells a reader whether the listed evidence is the whole set; `details`, where the same data is
+   * scattered on a full report, is not part of the summary.
+   */
+  completeness?: Completeness;
 };
 
 const NOTABLE_EVIDENCE_KINDS = [
@@ -115,6 +122,7 @@ export function summarizeInspection(result: InspectionResult): InspectionSummary
       .map(([kind, count]) => ({ kind, count }))
       .sort((left, right) => left.kind.localeCompare(right.kind)),
     notableEvidence: buildNotableEvidence(result.evidence),
+    ...(result.completeness === undefined ? {} : { completeness: result.completeness }),
   };
 }
 
@@ -126,6 +134,19 @@ function isSessionOnlyMla(summary: InspectionSummary): boolean {
     && summary.input.timeRange === undefined
     && summary.statistics["tasks"] === 0
     && (summary.statistics["sessions"] ?? 0) > 0;
+}
+
+function renderCompletenessText(completeness: Completeness): string {
+  const parts = [
+    `signals ${completeness.signals.selected}/${completeness.signals.total} ${completeness.signals.mode}`,
+    `actionDetails ${completeness.actionDetails.selected}/${completeness.actionDetails.total} ${completeness.actionDetails.mode}`,
+    `pipelineOverrides ${completeness.pipelineOverrides.selected}/${completeness.pipelineOverrides.total} ${completeness.pipelineOverrides.mode}`,
+  ];
+  const state = completeness.anyDowngraded ? "reduced" : "complete";
+  const field = completeness.fieldTruncation.any
+    ? `; field-level truncation present (${completeness.fieldTruncation.total} flags counted)`
+    : "";
+  return `Completeness: ${state} (${parts.join(", ")})${field}`;
 }
 
 function renderSummaryText(summary: InspectionSummary): string {
@@ -146,6 +167,9 @@ function renderSummaryText(summary: InspectionSummary): string {
   }
   lines.push(`Evidence: ${summary.evidenceCount}`);
   for (const entry of summary.evidenceKinds) lines.push(`- ${entry.kind}: ${entry.count}`);
+  if (summary.completeness !== undefined) {
+    lines.push(renderCompletenessText(summary.completeness));
+  }
   if (isSessionOnlyMla(summary)) {
     const sessions = summary.statistics["sessions"] ?? 0;
     lines.push(

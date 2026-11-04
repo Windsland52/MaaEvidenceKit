@@ -430,6 +430,10 @@ maa-evidence mla inspect C:\path\to\materials --format json --output inspection.
 
 该文档不是 inspection 结果,不能作为 `--input` 回传。
 
+`--summary` 还会原样保留可选的 `completeness` 块(见 `docs/evidence-model.md`),text 模式在
+kind 计数后多一行 `Completeness: …`。报告是否被抽样看这个块,不要从 `evidenceCount` 或单个
+kind 的计数推断。
+
 已知事发时间时先用 `--from` / `--to` 收窄窗口:实测一份 16 MB 的产物在收窄到十分钟窗口后
 降到约 8%,而结论所需证据完全保留。
 

@@ -182,7 +182,10 @@ so follow-ups can go straight to `view --evidence-id` instead of a discovery sea
 The summary has no `evidence` field: read `evidenceCount` and `evidenceKinds` for what was extracted.
 An empty `notableEvidence` does not mean "no evidence": it lists actionable kinds only, so a clean
 report with none of them legitimately has none while `evidenceCount` stays nonzero. Text mode prints
-`Evidence: N` and one `- kind: count` line per kind.
+`Evidence: N` and one `- kind: count` line per kind. The summary also keeps the report-level
+`completeness` block (`signals` / `actionDetails` / `pipelineOverrides` modes plus `anyDowngraded`,
+and bounded `fieldTruncation` counts): read it before treating any count as the whole set, because a
+`downgraded` dimension lists a selection, not the complete population.
 
 To reconstruct how one task unfolded, use the compressed task timeline instead of rebuilding the
 node event sequence by hand: `maa-evidence timeline --input REPORT --task TaskName --format text`

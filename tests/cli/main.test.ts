@@ -101,6 +101,7 @@ test("writes the full report to --output while --summary keeps stdout bounded", 
   expect(stdoutSummary["statistics"]).toBeDefined();
   expect(Array.isArray(stdoutSummary["evidenceKinds"])).toBe(true);
   expect(typeof stdoutSummary["evidenceCount"]).toBe("number");
+  expect(stdoutSummary["completeness"]).toBeDefined();
 
   const saved = JSON.parse(await readFile(reportPath, "utf8")) as Record<string, unknown>;
   expect(saved["schemaVersion"]).toBe("maa-evidence/v1");

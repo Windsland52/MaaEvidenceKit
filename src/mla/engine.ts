@@ -17,6 +17,7 @@ import {
   EVIDENCE_SCHEMA_VERSION,
   EvidenceLedger,
   artifactId,
+  buildCompleteness,
   coverageAnnotation,
   findByteIdenticalArtifacts,
   findCrossArtifactDuplicateObservations,
@@ -2756,6 +2757,24 @@ export async function inspectMla(
     (total, target) => total + target.pipelineOverrideActivityLines,
     0,
   );
+  const actionDetailsSelected = loadedTargets.reduce(
+    (total, target) => total + target.actionDetails.length,
+    0,
+  );
+  const actionDetailsTotal = loadedTargets.reduce(
+    (total, target) => total + target.actionDetailsTotal,
+    0,
+  );
+  const completeness = buildCompleteness({
+    signals: {
+      mode: signalFocus.selection.mode === "all" ? "complete" : "focused",
+      selected: signalFocus.selection.selected,
+      total: signalFocus.selection.total,
+    },
+    actionDetails: { selected: actionDetailsSelected, total: actionDetailsTotal },
+    pipelineOverrides: { selected: pipelineOverridesSelected, total: pipelineOverridesTotal },
+    evidence,
+  });
   const failureTaskOutcomes = new Map<MlaTaskOutcome, number>();
   let failuresWithoutTaskOutcome = 0;
   for (const failure of runtime.failures) {
@@ -2897,6 +2916,7 @@ export async function inspectMla(
     missingEvidence,
     warnings,
     coverage: coverageAnnotation(artifacts, resolvedPath, isDirectory),
+    completeness,
     statistics: {
       scannedFiles: discovery.scannedFileCount,
       omittedUnsupportedFiles: discovery.omittedOtherFileCount,
@@ -2917,15 +2937,15 @@ export async function inspectMla(
       failures: runtime.failures.length,
       outcomes: runtime.outcomes.length,
       taskAnomalies: taskAnomalies.length,
-      signals: focusedSignalCounts.total,
-      signalsTotal: completeSignalCounts.total,
+      signals: completeness.signals.selected,
+      signalsTotal: completeness.signals.total,
       recognitionOccurrences: completeSignalCounts.recognitionOccurrences,
       recognitionOccurrencesFocused: focusedSignalCounts.recognitionOccurrences,
       actionOccurrences: loadedTargets.reduce((total, target) => total + target.actionOccurrences, 0),
-      actionDetails: loadedTargets.reduce((total, target) => total + target.actionDetails.length, 0),
-      actionDetailsTotal: loadedTargets.reduce((total, target) => total + target.actionDetailsTotal, 0),
-      pipelineOverrides: pipelineOverridesSelected,
-      pipelineOverridesTotal,
+      actionDetails: completeness.actionDetails.selected,
+      actionDetailsTotal: completeness.actionDetails.total,
+      pipelineOverrides: completeness.pipelineOverrides.selected,
+      pipelineOverridesTotal: completeness.pipelineOverrides.total,
       pipelineOverrideActivityLines,
       crossArtifactDuplicateObservations: duplicateObservations.observationGroups,
       crossArtifactDuplicateObservationRecords: duplicateObservations.duplicateRecords,

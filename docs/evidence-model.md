@@ -58,6 +58,27 @@ MLA 默认输出其优先级为 `high` 的信号和每个任务的高亮信号,�
 `mla.recognition_detail` 的快照(算法、状态、best 分数/文本,或 Or 类子识别摘要),
 让 harness 能直接看到“退出阻塞候选最近一次识别的观测事实”。
 
+## 完整性与抽样块
+
+顶层 `completeness` 描述这份 inspection 在各个可抽样维度上的完整度,只有 MLA 参与时出现
+(`mse`、`repo_docs`、`--no-mla` 的组合检查整块缺省,不是 `null`)。它是**可选**字段:旧报告
+没有它仍然合法(`isInspectionResult` 不检查),`maa-evidence-summary/v1` 不升版。
+
+- `signals {mode: complete|focused, selected, total, downgraded}`;
+- `actionDetails {mode: complete|sampled, selected, total, downgraded}`;
+- `pipelineOverrides {mode: complete|prioritized, selected, total, downgraded}`;
+- `fieldTruncation {any, total, byField:[{field,total,truncatedTrue}], omitted}`:记录级
+  `*Truncated` 布尔字段的有界聚合,`byField` 最多 10 项、其余计入 `omitted`;它统计的是
+  **单条记录的字段裁剪**而不是记录取舍,因此**不参与** `anyDowngraded`;
+- `anyDowngraded`:三个抽样维度任一 `selected < total`。
+
+`downgraded` 恒等于 `selected < total`;`statistics` 的成对计数(`signals` / `signalsTotal`、
+`actionDetails` / `actionDetailsTotal`、`pipelineOverrides` / `pipelineOverridesTotal`)由该块
+派生,因此不会出现两套数。`--summary` 会原样保留 `completeness`(它是 summary 里唯一说明
+"证据是否被抽样"的块),text 模式在证据 kind 计数后输出一行 `Completeness: …`。现有三条抽样
+warning(`mla_signals_focused`、`mla_action_details_truncated`、`mla_pipeline_overrides_truncated`)
+保持不变。
+
 ## 仅会话边界的材料
 
 若材料只包含 MAA 进程启动与版本等头部行,MLA 仍能提取会话边界(`mla.session`、

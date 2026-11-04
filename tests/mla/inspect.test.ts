@@ -286,6 +286,42 @@ test("does not warn about the whole material when a time window holds only sessi
   expect(whole.statistics["tasks"]).toBe(1);
 });
 
+test("reports completeness from the same counters as statistics", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-completeness-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "First", hash: "h1", uuid: "u1",
+    }),
+    event("2026-07-19 10:01:01.000", "Tasker.Task.Succeeded", {
+      task_id: 1, entry: "First", hash: "h1", uuid: "u1",
+    }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const completeness = result.completeness;
+
+  expect(completeness).toBeDefined();
+  // statistics is derived from the block, so the two can never disagree.
+  expect(completeness?.signals.selected).toBe(result.statistics["signals"]);
+  expect(completeness?.signals.total).toBe(result.statistics["signalsTotal"]);
+  expect(completeness?.actionDetails.selected).toBe(result.statistics["actionDetails"]);
+  expect(completeness?.actionDetails.total).toBe(result.statistics["actionDetailsTotal"]);
+  expect(completeness?.pipelineOverrides.selected).toBe(result.statistics["pipelineOverrides"]);
+  expect(completeness?.pipelineOverrides.total).toBe(result.statistics["pipelineOverridesTotal"]);
+  // Signals are focused by default unless the inspection asked for every signal.
+  expect(completeness?.signals.mode).toBe("focused");
+  expect(completeness?.anyDowngraded).toBe(false);
+  for (const dimension of ["signals", "actionDetails", "pipelineOverrides"] as const) {
+    const entry = completeness?.[dimension];
+    expect(entry?.downgraded).toBe((entry?.selected ?? 0) < (entry?.total ?? 0));
+  }
+  expect(completeness?.fieldTruncation.total).toBe(0);
+});
+
 test("correlates timelines for repeated task ids by task start time", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-repeated-"));
   temporaryRoots.push(root);

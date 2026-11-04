@@ -285,3 +285,35 @@ test("uses the plural session boundary wording", () => {
   expect(renderInspectionSummary(sessionOnly, "text"))
     .toContain("No task-level evidence: only 3 session boundaries extracted.");
 });
+
+test("keeps completeness in the summary and prints one text line", () => {
+  const completeness: NonNullable<InspectionResult["completeness"]> = {
+    signals: { mode: "focused", selected: 348, total: 1936, downgraded: true },
+    actionDetails: { mode: "sampled", selected: 500, total: 4319, downgraded: true },
+    pipelineOverrides: { mode: "prioritized", selected: 500, total: 866, downgraded: true },
+    fieldTruncation: {
+      any: true,
+      total: 9,
+      byField: [{ field: "bestTruncated", total: 9, truncatedTrue: 2 }],
+      omitted: 0,
+    },
+    anyDowngraded: true,
+  };
+  const withCompleteness: InspectionResult = { ...result(), completeness };
+
+  const json = JSON.parse(renderInspectionSummary(withCompleteness, "json")) as {
+    completeness?: unknown;
+  };
+  expect(json.completeness).toEqual(completeness);
+
+  const text = renderInspectionSummary(withCompleteness, "text");
+  expect(text).toContain(
+    "Completeness: reduced (signals 348/1936 focused, actionDetails 500/4319 sampled, "
+    + "pipelineOverrides 500/866 prioritized); field-level truncation present (9 flags counted)",
+  );
+
+  // A report produced before the block existed keeps the old summary text and JSON shape.
+  expect(renderInspectionSummary(result(), "text")).not.toContain("Completeness:");
+  const legacyJson = JSON.parse(renderInspectionSummary(result(), "json")) as Record<string, unknown>;
+  expect(legacyJson).not.toHaveProperty("completeness");
+});

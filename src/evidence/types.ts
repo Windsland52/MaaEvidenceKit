@@ -98,6 +98,63 @@ export type CoverageAnnotation = {
   rotationFamilyLabel: string;
 };
 
+/**
+ * How much of one sampling dimension an inspection kept, and which strategy produced the selection.
+ * `downgraded` is exactly `selected < total`; both are recorded so a reader never has to infer the
+ * flag from the counters, and a test keeps the pair consistent.
+ */
+export type SignalsCompleteness = {
+  mode: "complete" | "focused";
+  selected: number;
+  total: number;
+  downgraded: boolean;
+};
+
+export type ActionDetailsCompleteness = {
+  mode: "complete" | "sampled";
+  selected: number;
+  total: number;
+  downgraded: boolean;
+};
+
+export type PipelineOverridesCompleteness = {
+  mode: "complete" | "prioritized";
+  selected: number;
+  total: number;
+  downgraded: boolean;
+};
+
+export type FieldTruncationField = {
+  field: string;
+  total: number;
+  truncatedTrue: number;
+};
+
+/**
+ * Bounded aggregate of record-level `*Truncated` booleans. It counts occurrences of data fields
+ * whose name ends in `Truncated`; it never lists record paths, and `byField` is capped so the block
+ * cannot grow with the report.
+ */
+export type FieldTruncationCompleteness = {
+  any: boolean;
+  total: number;
+  byField: FieldTruncationField[];
+  omitted: number;
+};
+
+/**
+ * How complete this inspection is on every dimension that can be sampled or truncated. Present only
+ * when MLA participated; `mse`, `repo_docs`, and a combined inspection with `--no-mla` omit the
+ * block rather than reporting empty dimensions.
+ */
+export type Completeness = {
+  signals: SignalsCompleteness;
+  actionDetails: ActionDetailsCompleteness;
+  pipelineOverrides: PipelineOverridesCompleteness;
+  fieldTruncation: FieldTruncationCompleteness;
+  anyDowngraded: boolean;
+};
+
 export type MissingEvidence = {
   code: string;
   message: string;
@@ -131,6 +188,12 @@ export type InspectionResult<TDetails = unknown> = {
    * artifact records.
    */
   coverage?: CoverageAnnotation;
+  /**
+   * Sampling and field-truncation completeness. Optional so reports written before the block
+   * existed stay readable; MLA inspections emit it, and a reader that needs to know whether
+   * evidence was sampled must read it instead of inferring from the counts.
+   */
+  completeness?: Completeness;
   details: TDetails;
 };
 
