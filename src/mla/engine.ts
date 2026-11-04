@@ -8,6 +8,7 @@ import {
   loadFrameworkLogSources,
   loadNodeLogDirectory,
   readNodeTextFileContent,
+  type FrameworkVersionSummary,
   type LogBundleFocus,
   type SourceSegment,
 } from "@windsland52/maa-log-tools";
@@ -54,6 +55,15 @@ import {
 const MAX_ACTION_DETAILS = 500;
 const MAX_MIRROR_GROUPS = 25;
 const MAX_PIPELINE_OVERRIDES = 500;
+const MAX_LOG_GROUPS = 20;
+/**
+ * The v4.x MaaFramework event format this analyzer cannot parse writes every notification through
+ * `MessageNotifier`. The symbol appears on both the entry line (with `[msg=...]`) and the matching
+ * leave line of one notification, so this counts format markers, not task events. `notify_trans_arg_`
+ * is a parameter printed inside an entry line that already carries this symbol, so counting it too
+ * would double-count that line; it is deliberately not a second marker.
+ */
+const LEGACY_NOTIFY_MARKER = "MessageNotifier::notify";
 const MAX_FAILURE_CONTEXT_TASKS = 5;
 const MAX_FAILURE_CONTEXT_FAILURES = 5;
 
@@ -443,6 +453,32 @@ export type MlaInspectOptions = {
   includeAllSignals?: boolean;
 };
 
+export type MlaFrameworkVersionStatus = "none" | "single" | "multiple" | "conflict";
+
+/**
+ * Framework-version facts aggregated from every loaded target's session extraction. Additive
+ * selection metadata: it says which MaaFramework versions the selected logs contain, not which
+ * tasks ran.
+ */
+export type MlaFrameworkVersionSummary = {
+  status: MlaFrameworkVersionStatus;
+  versions: string[];
+};
+
+/**
+ * One loaded log target described by the same counters the inspection reports globally. It exists
+ * so a harness can tell a target that produced tasks from one that only contributed sessions or
+ * legacy-format markers; the targets are never dropped or merged by this description.
+ */
+export type MlaLogGroupSummary = {
+  label: string;
+  versions: string[];
+  status: MlaFrameworkVersionStatus;
+  sessions: number;
+  tasks: number;
+  legacyEventMarkers: number;
+};
+
 export type MlaInspectionDetails = {
   runtime: MlaRuntimeInspectionResult;
   taskTimelines: MlaTaskTimeline[];
@@ -470,6 +506,11 @@ export type MlaInspectionDetails = {
       /** Override-bearing log lines seen, independent of any known marker name. */
       activityLines: number;
     };
+    /** Per-target framework-version and format facts, sorted by label; bounded by `MAX_LOG_GROUPS`. */
+    logGroups: MlaLogGroupSummary[];
+    /** Set only when `logGroups` was capped; the number of further loaded targets it omits. */
+    logGroupsOmitted?: number;
+    frameworkVersions: MlaFrameworkVersionSummary;
     /**
      * Bounded description of files discovery saw but did not classify or parse. Present only when
      * such files were omitted, so a harness knows what to inspect itself.
@@ -1267,6 +1308,9 @@ type LoadedMlaTarget = {
   pipelineOverridesTotal: number;
   pipelineOverrideMalformedLines: number;
   pipelineOverrideActivityLines: number;
+  frameworkVersionSummary: FrameworkVersionSummary;
+  legacyEventMarkers: number;
+  parsedTaskCount: number;
   sourceSegments: SourceSegment[];
   artifacts: Artifact[];
 };
@@ -2494,6 +2538,66 @@ function mergeTaskTimelines(
   }));
 }
 
+function countLegacyEventMarkers(content: string): number {
+  let count = 0;
+  let offset = content.indexOf(LEGACY_NOTIFY_MARKER);
+  while (offset !== -1) {
+    count += 1;
+    offset = content.indexOf(LEGACY_NOTIFY_MARKER, offset + LEGACY_NOTIFY_MARKER.length);
+  }
+  return count;
+}
+
+function summarizeLogGroups(loadedTargets: readonly LoadedMlaTarget[]): MlaLogGroupSummary[] {
+  return loadedTargets
+    .map((loaded) => ({
+      label: loaded.target.label,
+      versions: [...new Set(loaded.frameworkVersionSummary.versions)].sort(),
+      status: loaded.frameworkVersionSummary.status,
+      sessions: loaded.runtime.sessions.length,
+      tasks: loaded.parsedTaskCount,
+      legacyEventMarkers: loaded.legacyEventMarkers,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function aggregateFrameworkVersions(
+  loadedTargets: readonly LoadedMlaTarget[],
+): MlaFrameworkVersionSummary {
+  const versions = [...new Set(loadedTargets.flatMap((loaded) =>
+    loaded.frameworkVersionSummary.versions))].sort();
+  const status: MlaFrameworkVersionStatus = loadedTargets.some((loaded) =>
+    loaded.frameworkVersionSummary.status === "conflict")
+    ? "conflict"
+    : versions.length === 0
+      ? "none"
+      : versions.length === 1
+        ? "single"
+        : "multiple";
+  return { status, versions };
+}
+
+/** First three affected labels with their detected versions, then a bounded "and K more". */
+function legacyAffectedTargets(groups: readonly MlaLogGroupSummary[]): string {
+  const shown = groups.slice(0, 3).map((group) =>
+    `${group.label} (${group.versions.length === 0 ? "version unknown" : group.versions.join(", ")})`);
+  return groups.length <= 3
+    ? shown.join(", ")
+    : `${shown.join(", ")}, and ${groups.length - 3} more`;
+}
+
+function legacyLogFormatWarning(
+  markerCount: number,
+  groups: readonly MlaLogGroupSummary[],
+): string {
+  return `Found ${markerCount} legacy-format v4.x MaaFramework log ${markerCount === 1 ? "marker" : "markers"} `
+    + `in ${groups.length} selected log ${groups.length === 1 ? "target" : "targets"} (${legacyAffectedTargets(groups)}). `
+    + "v4.x MessageNotifier-style task events are not parsed by the current framework log analyzer, "
+    + "so the task events this material contains were not extracted into tasks. "
+    + "This is a format limitation, not proof that the run had no tasks: supplying v5+ logs or "
+    + "upgrading MaaFramework is what produces task-level evidence.";
+}
+
 async function loadMlaTarget(
   target: MlaTarget,
   artifacts: readonly Artifact[],
@@ -2541,6 +2645,7 @@ async function loadMlaTarget(
     }];
     analyzed = await analyzeLogContent({ content, ...imageMaps });
   }
+  const legacyEventMarkers = countLegacyEventMarkers(content);
   const runtime = filterRuntime(
     translateRuntimeInspection(buildRuntimeInspection(analyzed, framework, sourceSegments)),
     timeRange,
@@ -2562,6 +2667,10 @@ async function loadMlaTarget(
     namedPipelineOverrides(pipelineOverrideExtraction.observations, intervals),
   );
   const namespacedRuntime = namespaceRuntime(runtime, target.namespace);
+  const parsedTaskCount = namespacedRuntime.sessions.reduce(
+    (total, session) => total + session.tasks.length,
+    0,
+  ) + namespacedRuntime.unscoped_tasks.length;
   return {
     target,
     runtime: namespacedRuntime,
@@ -2574,6 +2683,9 @@ async function loadMlaTarget(
     pipelineOverridesTotal: pipelineOverrideExtraction.observations.length,
     pipelineOverrideMalformedLines: pipelineOverrideExtraction.malformedLines,
     pipelineOverrideActivityLines: pipelineOverrideExtraction.activityLines,
+    frameworkVersionSummary: framework.summary,
+    legacyEventMarkers,
+    parsedTaskCount,
     sourceSegments,
     artifacts: targetArtifacts(target, artifacts),
   };
@@ -2792,6 +2904,15 @@ export async function inspectMla(
   const sessionCount = runtime.sessions.length;
   const taskCount = runtime.sessions.reduce((total, session) => total + session.tasks.length, 0)
     + runtime.unscoped_tasks.length;
+  const logGroups = summarizeLogGroups(loadedTargets);
+  const frameworkVersions = aggregateFrameworkVersions(loadedTargets);
+  const legacyLogGroups = logGroups.filter((group) => group.legacyEventMarkers > 0);
+  const legacyEventMarkerCount = legacyLogGroups.reduce(
+    (total, group) => total + group.legacyEventMarkers,
+    0,
+  );
+  const reportedLogGroups = logGroups.slice(0, MAX_LOG_GROUPS);
+  const logGroupsOmitted = logGroups.length - reportedLogGroups.length;
   const byteIdenticalArtifacts = findByteIdenticalArtifacts(artifacts);
   const missingEvidence = [
     ...discovery.missingEvidence,
@@ -2836,6 +2957,18 @@ export async function inspectMla(
       ? [{
         code: "mla_no_task_evidence",
         message: `Extracted ${sessionCount} MAA session ${sessionCount === 1 ? "boundary" : "boundaries"} and no task-level evidence. Only session and process lifecycle records were extracted, so this material cannot support task, node, recognition, action, or failure conclusions. This is a material limitation, not proof that the run performed no work. The MaaFramework log that records the task run is what supplies task-level evidence.`,
+      }]
+      : []),
+    // A v4.x log writes task events through a format the analyzer does not parse, so the task
+    // counter is deliberately empty. Without this warning an empty task list looks like a run that
+    // performed no work; the warning says the format, not the run, is the limitation. Like
+    // `mla_no_task_evidence`, this verdict is about the whole material: a time window can empty the
+    // task counter while the legacy-format events sit outside it, so an untimed inspection is the
+    // only one this statement is true for.
+    ...(options.timeRange === undefined && taskCount === 0 && legacyLogGroups.length > 0
+      ? [{
+        code: "mla_legacy_log_format_unsupported",
+        message: legacyLogFormatWarning(legacyEventMarkerCount, legacyLogGroups),
       }]
       : []),
     ...(options.timeRange === undefined
@@ -2976,6 +3109,9 @@ export async function inspectMla(
           malformedLines: pipelineOverrideMalformedLines,
           activityLines: pipelineOverrideActivityLines,
         },
+        logGroups: reportedLogGroups,
+        ...(logGroupsOmitted === 0 ? {} : { logGroupsOmitted }),
+        frameworkVersions,
         ...(discovery.omittedUnsupportedFiles.length === 0
           ? {}
           : { omittedUnsupportedFiles: discovery.omittedUnsupportedFiles }),

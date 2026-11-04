@@ -58,6 +58,24 @@ MLA 默认输出其优先级为 `high` 的信号和每个任务的高亮信号,�
 `mla.recognition_detail` 的快照(算法、状态、best 分数/文本,或 Or 类子识别摘要),
 让 harness 能直接看到“退出阻塞候选最近一次识别的观测事实”。
 
+## 旧版日志格式(v4.x `MessageNotifier`)
+
+MaaFramework 4.x 的日志通过 `MessageNotifier::notify`(携带 `notify_trans_arg_` 参数)发出
+`Tasker.Task.*` 事件,5.x 改用 `EventDispatcher` / `!!!OnEventNotify!!!`;当前上游解析器只认新
+格式。因此一份 v4.x 日志可以解析出会话边界却得到 `tasks: 0`。当整份材料 `statistics.tasks` 为 0
+且至少一个已加载 target 含旧格式标记时,输出 warning `mla_legacy_log_format_unsupported`:说明
+标记数量、涉及的 target 与版本,并明确这是**格式限制**,不是"这次运行没有任务";提供 v5+ 日志或
+升级 MaaFramework 才能得到任务级证据。与 `mla_no_task_evidence` 一样,该判断只针对未设置
+`--from`/`--to` 的整份材料,且不写入 `missingEvidence`。
+
+`details.selection` 同时给出(均为加法字段):
+
+- `logGroups[] {label, versions, status, sessions, tasks, legacyEventMarkers}`:每个已加载 target
+  的事实,按 label 排序,最多 20 条;超出时 `logGroupsOmitted` 给出省略数。**不据此丢弃任何组**;
+- `frameworkVersions {status: none|single|multiple|conflict, versions[]}`:上游
+  `extractFrameworkSessions` 返回的版本摘要汇总(此前被整个丢弃),用于回答"这份材料包含哪几个
+  MaaFramework 版本"。
+
 ## 完整性与抽样块
 
 顶层 `completeness` 描述这份 inspection 在各个可抽样维度上的完整度,只有 MLA 参与时出现

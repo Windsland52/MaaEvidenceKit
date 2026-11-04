@@ -9,6 +9,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Legacy v4.x log format is reported instead of silently yielding `tasks: 0`.** MaaFramework 4.x
+  writes task events through `MessageNotifier`, which the current framework log analyzer does not
+  parse, so such material could extract sessions and still report zero tasks with no explanation.
+  An untimed inspection whose task count is 0 and whose loaded targets contain that marker now emits
+  warning `mla_legacy_log_format_unsupported` naming the affected targets and versions, and
+  `details.selection` gains a bounded, sorted `logGroups` list (label / versions / status / sessions
+  / tasks / legacy markers, capped at 20 with `logGroupsOmitted`) plus the previously discarded
+  `frameworkVersions` summary. No log group is dropped or selected by this metadata.
 - **`--max-report-bytes` bounds the saved report without losing traceability.** `mla inspect` and
   `inspect` accept a UTF-8 byte budget (4096 through 268435456) for the 2-space JSON document. A
   report already within the budget is written byte-identically; an oversized one loses whole entries

@@ -411,6 +411,11 @@ MSE 未提供 `--task` 时只执行 Interface、资源组合和静态诊断预�
 stdout 且超过 text 视图的字符预算时,stderr 会写一行体积提示并指向 `--summary --output FILE`
 或 `--fields`;`--output`、`--summary`、`--fields` 和非 JSON 格式不提示。
 
+v4.x 日志的 `MessageNotifier` 事件不被上游解析器识别时,报告带 warning
+`mla_legacy_log_format_unsupported`,并在 `details.selection.logGroups` / `frameworkVersions`
+给出已加载日志组与 MaaFramework 版本;这类材料可能 `tasks: 0`,不要读成"没有跑任务"
+(详见 `docs/evidence-model.md`)。
+
 ```powershell
 # 只输出 artifacts、missingEvidence、warnings、statistics 和各 evidence kind 的数量
 maa-evidence mla inspect C:\path\to\materials --summary --format text

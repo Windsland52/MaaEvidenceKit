@@ -114,6 +114,9 @@ paths, source refs, or request shapes. Stop optional branches when their evidenc
   later application state as separate layers.
 - Missing multipart archives, empty windows, truncation, unreadable files, unsupported formats, and
   unavailable source/Sentry/images remain explicit evidence gaps.
+- `mla_legacy_log_format_unsupported` means the material's v4.x `MessageNotifier` task events are not
+  parsed by the current analyzer: `tasks: 0` there is a log-format limitation, not proof the run had
+  no tasks. `details.selection.logGroups` / `frameworkVersions` name the loaded groups and versions.
 - `--all-signals` expands supported MLA signals; it never makes MEK parse unsupported generic logs.
 - Before `--all-signals`, compare `statistics.signals` with `signalsTotal`: when the selected share is
   below half, narrow `--from`/`--to` and re-run first. Narrowing may raise the ratio but does not
