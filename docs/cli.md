@@ -441,6 +441,28 @@ kind 的计数推断。
 `view --fields statistics`。实测的教训:直接 `view --format json` 打整份文档会一次返回数万字符,
 而投影或窗口预算能把同样的结论压到几百字符。
 
+## 报告体积上限:`--max-report-bytes`
+
+只有 `mla inspect` 与 `inspect` 接受该选项(`inspect` 只约束其中的 MLA 部分),单位是
+`JSON.stringify(result, null, 2)` 的 **UTF-8 字节**,取值 4096–268435456。它只降低最终写出的
+**文档**,不重新抽取、不改变统计:`--summary` 始终按完整 inspection 计算,`--output` 与 stdout
+JSON 收到缩减后的文档;与 `--fields` 互斥(有界与投影二选一)。
+
+- 报告本来就在预算内:**逐字节不变**,不出现 `reduction` 块;
+- 超出时按**固定阶梯**整条删除(绝不截断单条记录),顶层写入
+  `reduction: {maxBytes, actualBytes, steps:[{id, removedItems, removedBytes}], dropped:{items, bytes}}`,
+  exit code 仍为 0;
+- 阶梯顺序:`details.runtime.signals` → `details.taskTimelines` → `details.mirrorGroups` →
+  `mla.recognition_detail` → `mla.pipeline_override` → `mla.signal`(repeated-node 记录除外)
+  → `mla.action_detail`(失败记录优先保留)→ `mla.cycle_candidate_outcome`;
+- **保护集永不删除**:`--summary` 的 `notableEvidence` 引用的 kind(`mla.failure`、
+  `mla.failure_context`、`mla.outcome`、`mla.task_anomaly`、`mla.task`、`mla.session`、
+  `mla.cycle_exit_blocker`、`mla.possible_mirrored_task_group`)以及 repeated-node `mla.signal`。
+  保护集本身超预算时置 `reduction.budgetUnsatisfied: true`,文档照常输出、退出码仍为 0;
+- `details.taskTimelines` 被删后,存档报告上的 `timeline` 命令没有行可打印;被删记录的
+  evidence ID 不再解析,`reduction.steps` 说明删了什么;
+- `--format manifest` 拒绝该选项(清单不是报告,没有可缩减的文档)。
+
 ## 查询命令语义
 
 `view --evidence-id` 支持 JSON 和 text;`window` 默认保持 JSON,也支持 `--format text`。

@@ -26,6 +26,7 @@ const VALUE_OPTIONS = new Set([
   "--limit",
   "--max-characters",
   "--max-lines",
+  "--max-report-bytes",
   "--message",
   "--node",
   "--out",

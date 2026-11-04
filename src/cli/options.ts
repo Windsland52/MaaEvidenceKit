@@ -43,6 +43,7 @@ const SOLE_COMMAND_OPTIONS: Record<string, string> = {
   "--keyword": "mla inspect",
   "--kind": "search",
   "--kinds": "search",
+  "--max-report-bytes": "mla inspect or inspect",
   "--message": "feedback",
   "--out": "feedback",
   "--preview": "feedback",
@@ -106,7 +107,14 @@ const MSE_OPTIONS = [
  * positional words, which is also what makes `mse inspect` and `mse resolve` distinct.
  */
 export const COMMAND_OPTIONS: Record<string, readonly string[]> = {
-  "mla inspect": ["--all-signals", "--fields", "--keyword", "--summary", ...TIME_RANGE],
+  "mla inspect": [
+    "--all-signals",
+    "--fields",
+    "--keyword",
+    "--max-report-bytes",
+    "--summary",
+    ...TIME_RANGE,
+  ],
   // --git-ref is inspect-only: resolveMse has its own path and does not read it.
   "mse inspect": [...MSE_OPTIONS, "--fields", "--git-ref", "--summary"],
   "mse resolve": [...MSE_OPTIONS, "--fields", "--summary"],
@@ -114,6 +122,7 @@ export const COMMAND_OPTIONS: Record<string, readonly string[]> = {
   inspect: [
     ...MSE_OPTIONS,
     "--fields",
+    "--max-report-bytes",
     "--no-mla",
     "--no-mse",
     "--referencers",

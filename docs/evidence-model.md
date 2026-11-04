@@ -79,6 +79,23 @@ MLA 默认输出其优先级为 `high` 的信号和每个任务的高亮信号,�
 warning(`mla_signals_focused`、`mla_action_details_truncated`、`mla_pipeline_overrides_truncated`)
 保持不变。
 
+## 报告体积缩减(`reduction`)
+
+`--max-report-bytes` 只在 `mla inspect` / `inspect` 超出预算时生效;未超出时报告**逐字节不变**,
+`reduction` 字段不存在。发生缩减时顶层出现可选 `reduction`:
+
+- `maxBytes`:请求的预算(2 空格 JSON 的 UTF-8 字节);
+- `actualBytes`:写出的文档实测大小;
+- `budgetUnsatisfied`:保护集本身超预算时为 true,文档仍完整输出、退出码仍为 0;
+- `steps[]`:按固定阶梯记录每一步删了什么(`details.*` 块或 `evidence:<kind>`)、删了多少条、多少字节;
+- `dropped {items, bytes}`:所有步骤的合计。
+
+缩减**只整条删除**,从不改写记录内容;保留记录的 ID 与内容与全量报告完全一致,因此仍然可追溯。
+`statistics` 保持"全量 inspection"的语义不变(只有 `statistics.evidence` 表示本文档里的记录数)。
+保护集(`--summary` 的 `notableEvidence` 引用的 kind 以及 repeated-node `mla.signal`)永不删除;
+`details.taskTimelines` 被删时存档报告的 `timeline` 无行可打印。该块**不参与**
+`completeness.anyDowngraded`。
+
 ## 仅会话边界的材料
 
 若材料只包含 MAA 进程启动与版本等头部行,MLA 仍能提取会话边界(`mla.session`、

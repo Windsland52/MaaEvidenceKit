@@ -218,6 +218,13 @@ instead of merged by position. `window` and `view` bound their text output (`--m
 `--max-characters`) and mark truncation explicitly; `--output FILE` always receives the complete
 rendering. Every command answers `--help` with its own usage, defaults, and limits.
 
+When a complete report must still be small, `--max-report-bytes N` (CLI only, `mla inspect` /
+`inspect`) removes whole entries in a fixed ladder and records it in the top-level `reduction`
+block: check `reduction` before citing an ID (a missing ID was dropped, as `reduction.steps`
+states), and if `reduction.budgetUnsatisfied` is true even the protected set did not fit. JSON and
+`--output` receive the reduced document; `--summary` is computed from the full inspection and is
+unaffected, and `timeline` has no rows when `details.taskTimelines` was removed.
+
 ## When the CLI cannot run
 
 If the host shell sandbox refuses to execute external commands, read the saved report from an

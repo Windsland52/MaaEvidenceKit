@@ -25,12 +25,12 @@ type CommandHelp = {
 export const TOP_LEVEL_HELP = `MaaEvidenceKit — deterministic MaaFramework evidence extraction
 
 Usage:
-  maa-evidence mla inspect <path> [--from ISO] [--to ISO] [--keyword TEXT] [--all-signals] [--summary] [--format json|text|mermaid]
+  maa-evidence mla inspect <path> [--from ISO] [--to ISO] [--keyword TEXT] [--all-signals] [--max-report-bytes N] [--summary] [--format json|text|mermaid]
   maa-evidence mla inspect <path> --format manifest|manifest-compact
   maa-evidence mse inspect <path> [--task NAME] [--depth N] [--controller NAME] [--resource NAME] [--no-referencers] [--syntax-mode maafw|maa] [--git-ref REF] [--summary] [--format json|text|mermaid]
   maa-evidence mse resolve <path> --task NAME [--depth N] [--controller NAME] [--resource NAME] [--no-referencers] [--syntax-mode maafw|maa] [--summary] [--format json|text|mermaid]
   maa-evidence repo-docs <checkout> [--summary] [--format json|text]
-  maa-evidence inspect <path> [--from ISO] [--to ISO] [--task NAME] [--controller NAME] [--resource NAME] [--referencers|--no-referencers] [--no-mla] [--no-mse] [--summary]
+  maa-evidence inspect <path> [--from ISO] [--to ISO] [--task NAME] [--controller NAME] [--resource NAME] [--referencers|--no-referencers] [--no-mla] [--no-mse] [--max-report-bytes N] [--summary]
   maa-evidence window --input result.json (--evidence-id ID | --artifact-id ID) [--line N] [--before N] [--after N] [--max-lines N] [--max-characters N]
   maa-evidence view --input result.json [--evidence-id ID] [--fields PATH,...] --format json|text|mermaid
   maa-evidence view --input result.json --format manifest|manifest-compact
@@ -61,7 +61,8 @@ const COMMANDS: Record<string, CommandHelp> = {
     summary: "Extract deterministic MaaFramework runtime facts from extracted logs (MLA).",
     usage: [
       "maa-evidence mla inspect <path> [--from ISO] [--to ISO] [--keyword TEXT] [--all-signals]",
-      "                           [--summary] [--format json|text|mermaid] [--output FILE]",
+      "                           [--max-report-bytes N] [--summary] [--format json|text|mermaid]",
+      "                           [--output FILE]",
       "maa-evidence mla inspect <path> --format manifest|manifest-compact [--from ISO] [--to ISO]",
       "                           [--output FILE]",
     ],
@@ -69,6 +70,7 @@ const COMMANDS: Record<string, CommandHelp> = {
       ["--from, --to", "Narrow the evidence set to a time window. MLA first narrows which log files load, then MEK filters facts; a matched file may still be read in full, and that limit is reported."],
       ["--keyword TEXT", "Loading focus, not an evidence filter. Repeatable; a log bundle that contains none of the keywords is skipped whole. Evidence from a loaded bundle is never filtered by keyword."],
       ["--all-signals", "Export every runtime signal instead of the focused selection (per-task highlights plus high-priority signals). Large; statistics always carry the complete totals either way."],
+      ["--max-report-bytes N", "Bound the saved JSON document: 4096 through 268435456 UTF-8 bytes of the 2-space rendering. A report that is already within the budget is written byte-identically; an oversized one loses whole entries in a fixed ladder (details blocks first, then large evidence kinds) and records them in a top-level reduction block, while the exit code stays 0. The protected set (the evidence --summary cites) is never removed; if it alone exceeds the budget, reduction.budgetUnsatisfied is set. Refuses --fields. If details.taskTimelines is removed, timeline on the saved report has no rows."],
       ["--summary", "Print artifacts, missing evidence, warnings, statistics, and evidence kinds instead of the full ledger."],
     ],
     notes: [
@@ -153,7 +155,8 @@ const COMMANDS: Record<string, CommandHelp> = {
     usage: [
       "maa-evidence inspect <path> [--from ISO] [--to ISO] [--task NAME] [--controller NAME]",
       "                       [--resource NAME] [--referencers|--no-referencers] [--no-mla]",
-      "                       [--no-mse] [--summary] [--format json|text|mermaid] [--output FILE]",
+      "                       [--no-mse] [--max-report-bytes N] [--summary] [--format json|text|mermaid]",
+      "                       [--output FILE]",
     ],
     options: [
       ["--from, --to", "Time window applied to the MLA half of the inspection."],
@@ -165,6 +168,7 @@ const COMMANDS: Record<string, CommandHelp> = {
       ["--no-mla", "Skip the runtime half and run MSE only."],
       ["--no-mse", "Skip the static half and run MLA only."],
       ["--syntax-mode maafw|maa", "Select the pipeline syntax dialect for the MSE half. Defaults to maafw."],
+      ["--max-report-bytes N", "Bound the saved JSON document (4096 through 268435456 UTF-8 bytes of the 2-space rendering). The fixed ladder removes whole entries, details first and then large MLA evidence kinds, and records them in a top-level reduction block; the exit code stays 0 and a report already within budget is byte-identical. Applies to the MLA half of the combined inspection; the MSE half is never reduced. Refuses --fields."],
       ["--summary", "Print artifacts, missing evidence, warnings, statistics, and evidence kinds instead of the full ledger."],
     ],
     notes: [

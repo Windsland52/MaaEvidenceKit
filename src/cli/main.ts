@@ -139,6 +139,26 @@ function requestedFields(sdk: Sdk, parsed: ParsedArguments): string[] {
 }
 
 /**
+ * Read and validate `--max-report-bytes`.
+ *
+ * The budget is a document byte count, not a view budget: it is measured after the whole inspection
+ * is built and only lowers the saved document. The lower bound keeps the protected set (the evidence
+ * the summary cites) from being dropped wholesale by a typo, and the upper bound is the largest
+ * budget the ladder can meaningfully accept.
+ */
+function maxReportBytesOption(sdk: Sdk, parsed: ParsedArguments): number | undefined {
+  const value = integerOption(parsed, "--max-report-bytes");
+  if (value === undefined) return undefined;
+  if (value < sdk.MIN_REPORT_BYTES || value > sdk.MAX_REPORT_BYTES) {
+    throw new UsageError(
+      `--max-report-bytes must be an integer from ${sdk.MIN_REPORT_BYTES} through `
+      + `${sdk.MAX_REPORT_BYTES}, received ${value}.`,
+    );
+  }
+  return value;
+}
+
+/**
  * Emit a projected JSON document when `--fields` is present, and report whether it did.
  *
  * JSON is never truncated, so a projection is the bounded alternative to a text budget: it keeps the
@@ -162,6 +182,17 @@ async function emitSelection(
 async function emitInspection(sdk: Sdk, result: InspectionResult, parsed: ParsedArguments): Promise<void> {
   const format = outputFormat(parsed);
   const output = option(parsed, "--output");
+  const maxReportBytes = maxReportBytesOption(sdk, parsed);
+  if (maxReportBytes !== undefined && requestedFields(sdk, parsed).length > 0) {
+    throw new UsageError(
+      "--max-report-bytes bounds the whole document; --fields projects it, so use one of them.",
+    );
+  }
+  // The summary is computed from the unreduced inspection: it is already bounded, and its
+  // completeness block describes what extraction kept, not how much of the document was written.
+  const document = maxReportBytes === undefined
+    ? result
+    : sdk.boundInspection(result, maxReportBytes).result;
   if (flag(parsed, "--summary")) {
     if (format === "mermaid") throw new UsageError("--summary supports --format json or text.");
     if (requestedFields(sdk, parsed).length > 0) {
@@ -174,13 +205,13 @@ async function emitInspection(sdk: Sdk, result: InspectionResult, parsed: Parsed
     }
     // A saved report must stay consumable by view/search/window, so --output always
     // receives the full document; --summary only decides what stdout shows.
-    const rendered = profileStageSync("render", () => sdk.view(result, { format }));
+    const rendered = profileStageSync("render", () => sdk.view(document, { format }));
     await emit(rendered, output);
     await emit(summary);
     return;
   }
-  if (await emitSelection(sdk, result, parsed, format)) return;
-  const rendered = profileStageSync("render", () => sdk.view(result, { format }));
+  if (await emitSelection(sdk, document, parsed, format)) return;
+  const rendered = profileStageSync("render", () => sdk.view(document, { format }));
   if (output === undefined && format === "json" && rendered.length > sdk.VIEW_DEFAULT_MAX_CHARACTERS) {
     process.stderr.write(
       `JSON inspection is ${rendered.length} characters on stdout and is never truncated. `
@@ -223,6 +254,7 @@ async function runMlaManifest(
     ["--summary", "the manifest is already a bounded projection of the artifact list"],
     ["--all-signals", "a manifest does not extract runtime signals"],
     ["--keyword", "a manifest selects and loads no log target"],
+    ["--max-report-bytes", "a manifest is not an inspection report and has no document to reduce"],
   ] as const).filter(([name]) => flag(parsed, name) || options(parsed, name).length > 0);
   if (extractionOnly.length > 0) {
     throw new UsageError(

@@ -87,6 +87,12 @@ const answers = await queryEvidenceBatch(runtime, [
   按下标合并会把值贴到别的元素上),调用方需要分开投影;`parseFields` 负责把重复、逗号分隔的 `--fields` 取值解析成去重后的路径列表。harness
   用它替代"整份文档丢给 `JSON.parse` 再手写取字段"的写法,也不会把拼错字段静默变成 `undefined`。
 
+## 报告体积上限
+
+`--max-report-bytes` 是 **CLI-only** 的体积上限:它约束写出的 JSON 文档,需要在生成之后按预算
+整条删除记录并写入 `reduction` 块,属于输出策略而不是 SDK 的抽取结果。SDK 调用始终返回完整
+inspection;需要小文档时通过 CLI 使用该选项(见 [CLI 参考](cli.md))。
+
 ## 输出模型
 
 SDK 返回与 CLI 输出相同的 `maa-evidence/v1` 结构;各 evidence 种类、统计字段和截断语义见

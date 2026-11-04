@@ -56,6 +56,14 @@ export {
   type ManifestViewOptions,
 } from "./manifest.js";
 export { parseFields, selectFields } from "./select.js";
+export {
+  MAX_REPORT_BYTES,
+  MIN_REPORT_BYTES,
+  boundInspection,
+  evidenceRecordContribution,
+  measureReportBytes,
+  type BoundInspection,
+} from "./reduction.js";
 export { renderMermaid } from "./mermaid.js";
 export { renderEvidenceSearch, type EvidenceSearchFormat } from "./search.js";
 export {

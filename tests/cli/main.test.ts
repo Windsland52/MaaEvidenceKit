@@ -666,3 +666,115 @@ test("skill --file names an unknown document instead of printing nothing", async
   expect(errorOutput).toContain("Unknown Skill file: references/missing.md");
   expect(errorOutput).toContain("references/full-guide.md");
 });
+
+/**
+ * A report large enough to exceed the smallest accepted budget: 40 tasks with start/success pairs.
+ */
+async function largeMlaFixture(): Promise<string> {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-cli-large-"));
+  temporaryRoots.push(root);
+  const event = (timestamp: string, message: string, details: Record<string, unknown>): string =>
+    `[${timestamp}][INF][Px1][Tx2][test] !!!OnEventNotify!!! [handle=1] [msg=${message}] [details=${JSON.stringify(details)}]`;
+  const lines: string[] = [];
+  for (let index = 0; index < 40; index += 1) {
+    lines.push(event(`2026-07-19 10:${String(index).padStart(2, "0")}:00.000`, "Tasker.Task.Starting", {
+      task_id: index + 1, entry: `Task${index}`, hash: `h${index}`, uuid: `u${index}`,
+    }));
+    lines.push(event(`2026-07-19 10:${String(index).padStart(2, "0")}:01.000`, "Tasker.Task.Succeeded", {
+      task_id: index + 1, entry: `Task${index}`, hash: `h${index}`, uuid: `u${index}`,
+    }));
+  }
+  await writeFile(path.join(root, "maafw.log"), lines.join("\n"), "utf8");
+  return root;
+}
+
+test("reduces an oversized saved report to --max-report-bytes and still exits 0", async () => {
+  const root = await largeMlaFixture();
+  const reportPath = path.join(root, "reduced.json");
+  vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+  await expect(main([
+    "mla", "inspect", root, "--max-report-bytes", "4096", "--format", "json", "--output", reportPath,
+  ])).resolves.toBe(0);
+
+  const saved = JSON.parse(await readFile(reportPath, "utf8")) as {
+    reduction?: {
+      actualBytes: number;
+      budgetUnsatisfied?: boolean;
+      dropped: { items: number };
+      steps: Array<{ id: string }>;
+    };
+    evidence: Array<{ kind: string; id: string }>;
+    schemaVersion: string;
+  };
+  expect(saved.schemaVersion).toBe("maa-evidence/v1");
+  expect(saved.reduction).toBeDefined();
+  expect(saved.reduction?.dropped.items).toBeGreaterThan(0);
+  expect(saved.reduction?.steps.some((step) => step.id === "details.taskTimelines")).toBe(true);
+  // This fixture's evidence is mostly protected task/outcome records, so the protected set alone
+  // exceeds the 4 KiB budget: that is reported, not silently dropped.
+  expect(saved.reduction?.budgetUnsatisfied).toBe(true);
+  expect(saved.reduction?.actualBytes).toBeGreaterThan(4096);
+  // Protected evidence kinds stay: the summary cites them, so a saved report keeps them resolvable.
+  expect(saved.evidence.some((item) => item.kind === "mla.session")).toBe(true);
+  expect(saved.evidence.some((item) => item.kind === "mla.task")).toBe(true);
+});
+
+test("a run without --max-report-bytes has no reduction key", async () => {
+  const root = await largeMlaFixture();
+  const reportPath = path.join(root, "full.json");
+  vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+  await expect(main(["mla", "inspect", root, "--format", "json", "--output", reportPath])).resolves.toBe(0);
+
+  const saved = JSON.parse(await readFile(reportPath, "utf8")) as Record<string, unknown>;
+  expect(saved).not.toHaveProperty("reduction");
+  expect(Array.isArray(saved["evidence"])).toBe(true);
+});
+
+test("rejects --max-report-bytes outside its documented range or with --fields", async () => {
+  const root = await largeMlaFixture();
+  let errorOutput = "";
+  vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    errorOutput += String(chunk);
+    return true;
+  });
+  vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+  for (const value of ["1024", "300000000"]) {
+    errorOutput = "";
+    await expect(main(["mla", "inspect", root, "--max-report-bytes", value])).resolves.toBe(1);
+    expect(errorOutput).toContain(
+      "--max-report-bytes must be an integer from 4096 through 268435456",
+    );
+  }
+
+  errorOutput = "";
+  await expect(main(["mla", "inspect", root, "--max-report-bytes", "abc"])).resolves.toBe(1);
+  expect(errorOutput).toContain("--max-report-bytes requires an integer");
+
+  errorOutput = "";
+  await expect(main([
+    "mla", "inspect", root, "--max-report-bytes", "4096", "--fields", "statistics",
+  ])).resolves.toBe(1);
+  expect(errorOutput).toContain("--max-report-bytes bounds the whole document; --fields projects it");
+});
+
+test("--max-report-bytes belongs to the extraction commands only", async () => {
+  let errorOutput = "";
+  vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    errorOutput += String(chunk);
+    return true;
+  });
+
+  await expect(main(["view", "--max-report-bytes", "4096"])).resolves.toBe(1);
+  expect(errorOutput).toContain("this option belongs to mla inspect or inspect");
+
+  const root = await largeMlaFixture();
+  errorOutput = "";
+  await expect(main([
+    "mla", "inspect", root, "--format", "manifest", "--max-report-bytes", "4096",
+  ])).resolves.toBe(1);
+  expect(errorOutput).toContain("--max-report-bytes would have no effect");
+  expect(errorOutput).toContain("no document to reduce");
+});

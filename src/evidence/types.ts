@@ -161,6 +161,32 @@ export type MissingEvidence = {
   path?: string;
 };
 
+export type ReportReductionStep = {
+  /** Ladder step: a `details.*` block id or `evidence:<kind>`. */
+  id: string;
+  /** Entries removed by this step: evidence records, or elements of a details array. */
+  removedItems: number;
+  /** UTF-8 bytes this step removed from the rendered (2-space) JSON document. */
+  removedBytes: number;
+};
+
+/**
+ * Present only when an inspection was reduced to fit `--max-report-bytes`; an unreduced report has
+ * no `reduction` key at all, so adding the budget feature never changes an unrequested report's
+ * bytes. Reduction removes whole entries in a fixed ladder and never rewrites a record, so every ID
+ * that remains still resolves to the same content.
+ */
+export type ReportReduction = {
+  /** Budget the caller requested, in UTF-8 bytes of the 2-space JSON document. */
+  maxBytes: number;
+  /** Measured size of the reduced document that was written. */
+  actualBytes: number;
+  /** True when the never-removable protected set alone exceeds the budget; the document is emitted. */
+  budgetUnsatisfied?: boolean;
+  steps: ReportReductionStep[];
+  dropped: { items: number; bytes: number };
+};
+
 export type InspectionWarning = {
   code: string;
   message: string;
@@ -194,6 +220,11 @@ export type InspectionResult<TDetails = unknown> = {
    * evidence was sampled must read it instead of inferring from the counts.
    */
   completeness?: Completeness;
+  /**
+   * Present only when the report was reduced to a requested byte budget. Absent on every report
+   * produced without `--max-report-bytes`, which keeps those documents byte-identical.
+   */
+  reduction?: ReportReduction;
   details: TDetails;
 };
 

@@ -36,6 +36,8 @@ export {
   type InspectionWarning,
   type MissingEvidence,
   type PipelineOverridesCompleteness,
+  type ReportReduction,
+  type ReportReductionStep,
   type SignalsCompleteness,
   type TimeRange,
 } from "./types.js";

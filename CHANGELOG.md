@@ -9,6 +9,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`--max-report-bytes` bounds the saved report without losing traceability.** `mla inspect` and
+  `inspect` accept a UTF-8 byte budget (4096 through 268435456) for the 2-space JSON document. A
+  report already within the budget is written byte-identically; an oversized one loses whole entries
+  in a fixed ladder (details blocks first, then large MLA evidence kinds), never record content, and
+  records every step in a top-level `reduction` block while the exit code stays 0. The protected set
+  the summary cites is never removed; if it alone exceeds the budget,
+  `reduction.budgetUnsatisfied` is set instead of dropping it. `--summary` is computed from the full
+  inspection, `--fields` and `--format manifest` refuse the flag, and the SDK still returns complete
+  inspections (CLI-only bound).
 - **Reports carry a top-level `completeness` block, and `--summary` keeps it.** An MLA inspection now
   states, per dimension (`signals` / `actionDetails` / `pipelineOverrides`), how many records were
   kept out of how many and which strategy selected them (`complete` / `focused` / `sampled` /

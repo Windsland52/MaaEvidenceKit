@@ -97,6 +97,9 @@ maa-evidence mla inspect C:\path\to\materials --format manifest
 # 先读摘要:artifacts / warnings / statistics 和各 evidence kind 的数量
 maa-evidence mla inspect C:\path\to\materials --summary --format text
 
+# 要完整 JSON 又不想几 MB:按预算整条删,并在 reduction 里记录删了什么
+maa-evidence mla inspect C:\path\to\materials --max-report-bytes 4194304 --output inspection.json
+
 # 只检查指定项目任务
 maa-evidence mse inspect C:\path\to\project --task StartUp --format text
 
