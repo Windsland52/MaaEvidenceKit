@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-11-06
+
 ### Changed
 
 - **The Skill's Sentry reference drops the remaining `sentry` CLI caveats.** `sentry` 0.48.0
@@ -849,7 +851,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Whitelist-only operational telemetry, disabled default PII, and mandatory preview/confirmation for
   feedback attachments.
 
-[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.9.1...v0.10.0
