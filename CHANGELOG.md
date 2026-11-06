@@ -18,6 +18,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   against 0.48.0: every per-group `issue list --query` count sums to the scalar `count()` for the
   same filter and window (checked with a `release:` filter and `level:fatal`), and `explore --sort`
   orders `errors` and `logs` rows. Documentation only; no command, schema, or evidence fact changes.
+- **The Skill's Sentry reference uses the dedicated release-health and attachment paths.** The raw
+  `<org>/sessions/` API call that supplied a per-release denominator is replaced by
+  `sentry release list <org>/<project> --period 14d --sort sessions`, whose per-project
+  `healthData` carries `totalSessions`, `crashFreeSessions`, and `sessionsAdoption`. The attachment
+  download note no longer claims PowerShell's `>` corrupts the file: PowerShell 7 preserves native
+  stdout bytes (re-checked byte-for-byte on this machine) and `sentry api --help` documents the
+  redirect, while the written size and magic-byte check stays. The discovery example also drops its
+  "when the installed Sentry surface supports these commands and fields" hedge.
 
 ## [0.12.0] - 2026-11-04
 

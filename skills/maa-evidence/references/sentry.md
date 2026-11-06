@@ -17,7 +17,7 @@ MEK SDK and CLI neither receive Sentry credentials nor query application project
 Prefer aggregate Sentry facts for questions such as "Is this widespread?" and "Which releases are
 affected?". Issue attachments and MEK evidence normally contain more detail for one execution.
 
-Example CLI discovery, when the installed Sentry surface supports these commands and fields:
+Example CLI discovery:
 
 ```powershell
 sentry project list <org>/ --fresh --json
@@ -55,16 +55,17 @@ sentry issue list <org>/<project> --period 30d `
 - One application version can appear under several release strings when the release identifier
   embeds a separate GUI or shell version. Enumerate every release string containing the version
   before summing, and do not add per-release unique-user counts together.
-- Counts are absolute, not rates. Obtain a denominator before comparing releases: release health
-  reports sessions per release, which normalizes different adoption levels.
+- Counts are absolute, not rates. Obtain a denominator before comparing releases: `release list`
+  reports sessions per release and project, which normalizes different adoption levels.
 
   ```powershell
-  sentry api "/organizations/<org>/sessions/?field=sum(session)&groupBy=release&statsPeriod=14d&project=<id>" --json
+  sentry release list <org>/<project> --period 14d --sort sessions --json --fields version,projects
   ```
 
-  Report events per 1000 sessions next to the raw counts, and state the observation window. A newer
-  release has been available for fewer days, so equal counts are not equal rates. Without a
-  denominator, report counts and windows rather than an occurrence rate.
+  Read each project's `healthData.totalSessions` as the denominator, with `crashFreeSessions` and
+  `sessionsAdoption` beside it. Report events per 1000 sessions next to the raw counts, and state
+  the observation window. A newer release has been available for fewer days, so equal counts are
+  not equal rates. Without a denominator, report counts and windows rather than an occurrence rate.
 
 ## Separate telemetry-schema changes from real regressions
 
@@ -141,9 +142,8 @@ event types the project actually ingests.
   permissions, or upload failure only when project evidence establishes that cause.
 - Attachments are not listed by the aggregate views. Enumerate them per event with
   `sentry api "/projects/<org>/<project>/events/<event-id>/attachments/"`, then fetch one with the
-  same path plus `?download=1`. Redirect through a byte-safe shell: PowerShell's `>` re-encodes the
-  stream and corrupts the file, while `cmd /c ... > file` preserves it. Verify the written size and
-  magic bytes against the API-reported size before treating the file as evidence.
+  same path plus `?download=1` and redirect stdout to a file (`> screenshot.png`). Verify the
+  written size and magic bytes against the API-reported size before treating the file as evidence.
 - Do not infer raw OCR candidates from a summary message. When MEK exported
   `mla.recognition_detail`, first use `data.candidateStages.all/filtered/best`: they preserve bounded
   candidate text, score, box, stage distributions, truncation, and source locators when the upstream
