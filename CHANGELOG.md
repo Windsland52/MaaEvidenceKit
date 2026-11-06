@@ -7,6 +7,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The Skill's Sentry reference drops the remaining `sentry` CLI caveats.** `sentry` 0.48.0
+  (released 2026-11-05, now published from `getsentry/toolkit`) scopes `issue list` counts to the
+  active query and sorts every Events dataset through one resolver, so the release-scoped count
+  re-check and the "confirm the ordering was applied" rule no longer guard a real failure. A
+  `--fields` value split into separate arguments now fails with an explicit `Too many arguments`
+  error instead of returning empty objects, so the PowerShell comma caveat is gone too. Re-checked
+  against 0.48.0: every per-group `issue list --query` count sums to the scalar `count()` for the
+  same filter and window (checked with a `release:` filter and `level:fatal`), and `explore --sort`
+  orders `errors` and `logs` rows. Documentation only; no command, schema, or evidence fact changes.
+
 ## [0.12.0] - 2026-11-04
 
 ### Added

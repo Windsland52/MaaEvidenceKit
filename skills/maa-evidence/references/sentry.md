@@ -36,17 +36,6 @@ sentry explore <org>/<project> `
 With Sentry MCP, use the equivalent structured project, issue-search, aggregate, and event-detail
 tools. Use only fields actually present in the project.
 
-Verify an aggregate before you rank or quantify with it:
-
-- `issue list --query 'release:"X"'` selects which groups are returned, but `count`/`userCount` can
-  still be period-wide totals across every release. Confirm any release-scoped number with a scalar
-  `count()` query carrying the same filter before reporting it.
-- Before treating an `explore` result as a top N, confirm the ordering was actually applied: some
-  datasets reject `--sort`, and an unordered result is an arbitrary N rows. When in doubt, pull the
-  full set and rank locally.
-- In PowerShell, quote any argument containing a comma (`--fields 'id,shortId'`); unquoted, the array
-  reaches the CLI as separate arguments and it returns empty objects instead of an error.
-
 ## Release-scoped triage
 
 When the question is "what is broken in release X", scope by release when supported and rank by
