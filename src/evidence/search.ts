@@ -67,6 +67,27 @@ function parsedTimeRange(range: TimeRange | undefined): { from?: number; to?: nu
   };
 }
 
+/**
+ * Task names an evidence record belongs to.
+ *
+ * A task-scoped record carries the name on `source.task`. An aggregate deliberately spans several
+ * `(process_id, task_id, start_time)` instances, so it carries no single source task; its
+ * `data.taskRefs` is the authoritative list, and a `--task` search must still find it.
+ */
+function taskNamesOf(evidence: Evidence): string[] {
+  const names = evidence.source.task === undefined ? [] : [evidence.source.task];
+  const data = evidence.data;
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return names;
+  const taskRefs = (data as { taskRefs?: unknown }).taskRefs;
+  if (!Array.isArray(taskRefs)) return names;
+  for (const ref of taskRefs) {
+    if (typeof ref !== "object" || ref === null || Array.isArray(ref)) continue;
+    const taskName = (ref as { task_name?: unknown }).task_name;
+    if (typeof taskName === "string") names.push(taskName);
+  }
+  return names;
+}
+
 function withinTimeRange(timestamp: string | undefined, range: { from?: number; to?: number } | undefined): boolean {
   if (range === undefined) return true;
   if (timestamp === undefined) return false;
@@ -166,7 +187,7 @@ export function searchEvidence(
     if (kinds.length > 0 && !kinds.includes(evidence.kind)) return [];
     const nodeMatches = exactNodeMatches(evidence, nodes);
     if (nodes.length > 0 && nodeMatches.length === 0) return [];
-    if (tasks.length > 0 && (evidence.source.task === undefined || !tasks.includes(evidence.source.task))) return [];
+    if (tasks.length > 0 && !taskNamesOf(evidence).some((name) => tasks.includes(name))) return [];
     if (!withinTimeRange(evidence.source.timestamp, range)) return [];
     if (loweredText.length > 0) {
       const haystack = searchableText(evidence);

@@ -217,8 +217,11 @@ MEK 只保证它知道**哪些文件存在、多大、何时修改**。`modified
 
 ## `mla.recognition_detail` 聚合规则
 
-MLA 会按 `node + algorithm + status + task` 把识别事件聚合为 `mla.recognition_detail` evidence,
-其中 task 优先由事件的 `(process_id, task_id)` 定位到内核任务,同一进程复用 `task_id` 时再用时间戳
+MLA 会按 `node + algorithm + status` 把识别事件聚合为 `mla.recognition_detail` evidence。task 不参与
+聚合键:同一行为跨任务只保留一条记录,任务实例有界保留在 `data.taskRefs`(`process_id` / `task_id` /
+`start_time` / `task_name`),超过 8 条时 `taskRefsOmitted` 给出差额。`taskName` 与 `source.task` 只在
+全部实例唯一同名时给值,否则为空;`search --task` 会匹配 `taskRefs` 中的名字,聚合记录仍可按任务检索。
+task 归属仍优先由事件的 `(process_id, task_id)` 定位到内核任务,同一进程复用 `task_id` 时再用时间戳
 收窄到唯一那次执行。`task_id` 只在进程内唯一,所以进程维度先于时间维度;事件没有 `process_id` 时
 才退回纯时间区间判断。只有日志自己观察到 `Tasker.Task.Starting` 的任务参与——没有 Starting 的隐式
 补建任务不参与(投影器用节点名或 scope 名填 `entry`,那不是任务名);`entry_source` 不是 `field` 的
@@ -226,8 +229,11 @@ MLA 会按 `node + algorithm + status + task` 把识别事件聚合为 `mla.reco
 缺 `end_time` 的开口区间在同 `task_id` 的下一次 Starting 处闭合(不含该时刻),时间戳按定长零填充
 字典序比较。按进程与区间收窄后仍有零个或多个候选时该槽为空,不把复用过的 `task_id` 猜成某个任务。
 上一个任务的 `end_time` 与下一个同 id 任务的 `start_time` 落在同一毫秒时,该时刻会命中两个区间,同样留空。
-同一节点在不同任务中会分成多条记录,能唯一归属时 `source.task` 与 `data.taskName` 带上该名字,
-因此 `search --task` 可以命中识别记录。每条识别记录仍对应一条
+同一节点在不同任务中只保留一条行为记录,能唯一归属时 `source.task` 与 `data.taskName` 带上该名字。
+每条记录同时给计数口径:`occurrenceCount` 是跨进程镜像去重后的可用通知数,`rawLineCount` 是去重前命名
+该行为的原始 `!!!OnEventNotify!!!` 行数(含镜像,以及提取器因载荷不可用而跳过的行),`dedupeRule` 说明
+规则(identity = `(message, details)`,仅跨不同 `Px/Tx` 来源、±1000 ms 生效;同来源重复不去重)。
+`preferredArtifactId` 指向代表样本所在 artifact。每条识别记录仍对应一条
 `combined.recognition_pipeline_reference`。按 detail 的真实 shape 通用提取,而不是按算法硬编码。顶层 `score` / `textCounts` 每次识别
 只统计一个代表候选(优先 `best`,再取 `filtered` / `all` 首项),不会因同一候选同时出现在
 三个上游数组中而重复计数。`candidateStages.all` / `filtered` / `best` 分别保留各阶段的候选总数、
@@ -245,9 +251,11 @@ ColorMatch 的 count 等候选字段统一抽取;`detail` 为空的 DirectHit �
 
 ## `mla.action_detail` 聚合规则
 
-`Node.Action.Succeeded` / `Node.Action.Failed` 会按节点、action 类型和状态聚合为
-`mla.action_detail`,并按 MaaFramework task ID 区分 action 子任务;有界保留 first/last
-representative 的 box、detail 和独立 source locator。它只说明 MaaFramework 动作层报告的结果;
+`Node.Action.Succeeded` / `Node.Action.Failed` 会按 `node + action + status` 聚合为
+`mla.action_detail`;MaaFramework task ID 不再是聚合键,而是 `data.taskRefs` 里的属性(有界,超出给
+`taskRefsOmitted`),`taskId` 只在全部实例唯一时给值。每条记录同样给 `occurrenceCount` /
+`rawLineCount` / `dedupeRule` 与 `preferredArtifactId`;有界保留 first/last representative 的 box、
+detail 和独立 source locator。它只说明 MaaFramework 动作层报告的结果;
 Click succeeded 不证明目标界面已发生业务变化,harness 仍应与后续识别、任务结果或截图对照。
 action-detail 组超过 500 时会按时间轴均匀取样,并输出 `mla_action_details_truncated`;
 完整事件数仍保留在 `statistics.actionOccurrences` / `actionDetailsTotal`。

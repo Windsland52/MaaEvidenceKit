@@ -793,7 +793,7 @@ test("extracts aggregated OCR text and TemplateMatch score recognition details",
   expect((ocr?.data as { taskName?: string | null } | undefined)?.taskName).toBeNull();
 });
 
-test("groups recognition details by resolved task name so search --task can match them", async () => {
+test("aggregates recognition by behavior across tasks and keeps task refs searchable", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-recognition-task-"));
   temporaryRoots.push(root);
   const log = path.join(root, "maafw.log");
@@ -829,31 +829,126 @@ test("groups recognition details by resolved task name so search --task can matc
 
   const result = await inspectMla(log);
   const details = result.evidence.filter((item) => item.kind === "mla.recognition_detail");
-  expect(details).toHaveLength(2);
-  const combat = details.find((item) => item.source.task === "Combat");
-  const collect = details.find((item) => item.source.task === "Collect");
-  expect(combat?.data).toMatchObject({
+  expect(details).toHaveLength(1);
+  const aggregate = details[0];
+  expect(aggregate?.source.task).toBeUndefined();
+  expect(aggregate?.data).toMatchObject({
     node: "Eat",
     status: "failed",
-    taskName: "Combat",
-    occurrenceCount: 2,
+    taskName: null,
+    occurrenceCount: 3,
+    rawLineCount: 3,
+    taskRefsOmitted: 0,
+    taskRefs: [
+      { process_id: "Px1", task_id: 1, start_time: "2026-07-19 10:01:00.000", task_name: "Combat" },
+      { process_id: "Px1", task_id: 2, start_time: "2026-07-19 10:02:00.000", task_name: "Collect" },
+    ],
   });
-  expect(collect?.data).toMatchObject({
-    node: "Eat",
-    status: "failed",
-    taskName: "Collect",
-    occurrenceCount: 1,
-  });
-  expect(combat?.id).not.toBe(collect?.id);
-  expect(combat?.summary).toContain("task=Combat");
+  expect((aggregate?.data as { textCounts?: Array<{ text?: string; count?: number }> } | undefined)?.textCounts)
+    .toEqual([{ text: "eat", count: 3 }]);
+  expect(aggregate?.summary).toContain("tasks=2");
+  expect((aggregate?.data as { dedupeRule?: string } | undefined)?.dedupeRule).toContain("occurrenceCount");
   expect(searchEvidence(result, { kinds: ["mla.recognition_detail"], tasks: ["Combat"] })).toMatchObject({
     totalMatches: 1,
-    evidence: [{ id: combat?.id }],
+    evidence: [{ id: aggregate?.id }],
   });
-  expect(searchEvidence(result, { kinds: ["mla.recognition_detail"] }).totalMatches).toBe(2);
+  expect(searchEvidence(result, { kinds: ["mla.recognition_detail"], tasks: ["Collect"] }).totalMatches).toBe(1);
 });
 
-test("names a recognition by process when two processes reuse one task_id with overlapping runs", async () => {
+test("separates raw mirrored lines from deduplicated occurrences", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-mirror-counts-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  const recognition = (time: string, process: string): string => event(
+    time,
+    "Node.Recognition.Failed",
+    {
+      name: "Eat",
+      task_id: 1,
+      reco_details: {
+        algorithm: "OCR",
+        name: "Eat",
+        reco_id: 10,
+        detail: { all: [{ box: [0, 0, 10, 10], score: 0.2, text: "eat" }] },
+      },
+    },
+    process,
+  );
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    "[2026-07-19 10:00:00.500][DBG][Px2][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.501][DBG][Px2][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "Combat", hash: "h1", uuid: "u1",
+    }),
+    // Identical (message, details) from a different process within the mirror window: the kernel
+    // keeps one notification, while both raw lines named the behavior.
+    recognition("2026-07-19 10:01:01.000", "Px1"),
+    recognition("2026-07-19 10:01:01.100", "Px2"),
+    // The same source repeating is not mirror dedupe, so both lines count as occurrences.
+    recognition("2026-07-19 10:01:02.000", "Px1"),
+    recognition("2026-07-19 10:01:02.050", "Px1"),
+    event("2026-07-19 10:01:03.000", "Tasker.Task.Succeeded", {
+      task_id: 1, entry: "Combat", hash: "h1", uuid: "u1",
+    }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const detail = result.evidence.find((item) => item.kind === "mla.recognition_detail");
+  expect(detail?.data).toMatchObject({
+    occurrenceCount: 3,
+    rawLineCount: 4,
+    taskRefsOmitted: 0,
+  });
+  expect((detail?.data as { preferredArtifactId?: string } | undefined)?.preferredArtifactId)
+    .toBe(detail?.source.artifactId);
+  expect(detail?.summary).toContain("4 raw lines");
+});
+
+test("bounds aggregated task refs while keeping the occurrence count", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-task-ref-bound-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  const lines: string[] = [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+  ];
+  for (let index = 0; index < 10; index += 1) {
+    const taskId = index + 1;
+    const minute = String(index).padStart(2, "0");
+    lines.push(
+      event(`2026-07-19 10:${minute}:00.000`, "Tasker.Task.Starting", {
+        task_id: taskId, entry: `Task${taskId}`, hash: `h${taskId}`, uuid: `u${taskId}`,
+      }),
+      event(`2026-07-19 10:${minute}:01.000`, "Node.Recognition.Failed", {
+        name: "Eat",
+        task_id: taskId,
+        reco_details: {
+          algorithm: "OCR",
+          name: "Eat",
+          reco_id: taskId * 10,
+          detail: { all: [{ box: [0, 0, 10, 10], score: 0.2, text: "eat" }] },
+        },
+      }),
+      event(`2026-07-19 10:${minute}:02.000`, "Tasker.Task.Succeeded", {
+        task_id: taskId, entry: `Task${taskId}`, hash: `h${taskId}`, uuid: `u${taskId}`,
+      }),
+    );
+  }
+  await writeFile(log, lines.join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const detail = result.evidence.find((item) => item.kind === "mla.recognition_detail");
+  expect(detail?.data).toMatchObject({
+    occurrenceCount: 10,
+    rawLineCount: 10,
+    taskRefsOmitted: 2,
+  });
+  expect((detail?.data as { taskRefs?: unknown[] } | undefined)?.taskRefs).toHaveLength(8);
+});
+
+test("keeps per-process task refs when two processes reuse one task_id with overlapping runs", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-recognition-process-"));
   temporaryRoots.push(root);
   const log = path.join(root, "maafw.log");
@@ -893,18 +988,19 @@ test("names a recognition by process when two processes reuse one task_id with o
 
   const result = await inspectMla(log);
   const details = result.evidence.filter((item) => item.kind === "mla.recognition_detail");
-  const tasks = details.map((item) => item.source.task).sort();
-
-  expect(tasks).toEqual(["Alpha", "Beta"]);
-  const alpha = details.find((item) => item.source.task === "Alpha");
-  const beta = details.find((item) => item.source.task === "Beta");
-  expect((alpha?.data as { textCounts?: Array<{ text?: string }> } | undefined)?.textCounts)
-    .toEqual([{ text: "alpha", count: 1 }]);
-  expect((beta?.data as { textCounts?: Array<{ text?: string }> } | undefined)?.textCounts)
-    .toEqual([{ text: "beta", count: 1 }]);
+  expect(details).toHaveLength(1);
+  expect(details[0]?.data).toMatchObject({
+    taskName: null,
+    taskRefs: [
+      { process_id: "Px1", task_id: 1, task_name: "Alpha" },
+      { process_id: "Px2", task_id: 1, task_name: "Beta" },
+    ],
+  });
+  expect((details[0]?.data as { textCounts?: Array<{ text?: string; count?: number }> } | undefined)?.textCounts)
+    .toEqual([{ text: "alpha", count: 1 }, { text: "beta", count: 1 }]);
 });
 
-test("attributes reused task_id recognitions by kernel interval instead of the last start", async () => {
+test("binds task refs by kernel interval when a task_id is reused", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-recognition-reuse-"));
   temporaryRoots.push(root);
   const log = path.join(root, "maafw.log");
@@ -941,18 +1037,20 @@ test("attributes reused task_id recognitions by kernel interval instead of the l
 
   const result = await inspectMla(log);
   const details = result.evidence.filter((item) => item.kind === "mla.recognition_detail");
-  const alpha = details.find((item) => item.source.task === "Alpha");
-  const beta = details.find((item) => item.source.task === "Beta");
-  expect(details.map((item) => item.source.task).sort()).toEqual(["Alpha", "Beta"]);
-  expect(alpha?.data).toMatchObject({ taskName: "Alpha", occurrenceCount: 1 });
-  expect(beta?.data).toMatchObject({ taskName: "Beta", occurrenceCount: 1 });
-  expect((alpha?.data as { textCounts?: Array<{ text?: string }> } | undefined)?.textCounts)
-    .toEqual([{ text: "alpha", count: 1 }]);
-  expect((beta?.data as { textCounts?: Array<{ text?: string }> } | undefined)?.textCounts)
-    .toEqual([{ text: "beta", count: 1 }]);
+  expect(details).toHaveLength(1);
+  expect(details[0]?.data).toMatchObject({
+    taskName: null,
+    occurrenceCount: 2,
+    taskRefs: [
+      { task_id: 1, start_time: "2026-07-19 10:01:00.000", task_name: "Alpha" },
+      { task_id: 1, start_time: "2026-07-19 11:01:00.000", task_name: "Beta" },
+    ],
+  });
+  expect((details[0]?.data as { textCounts?: Array<{ text?: string; count?: number }> } | undefined)?.textCounts)
+    .toEqual([{ text: "alpha", count: 1 }, { text: "beta", count: 1 }]);
 });
 
-test("closes an open kernel interval at the next same-id start so a later session still names", async () => {
+test("keeps later-session task refs when an open interval closes at the next same-id start", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-recognition-open-end-"));
   temporaryRoots.push(root);
   const log = path.join(root, "maafw.log");
@@ -986,16 +1084,16 @@ test("closes an open kernel interval at the next same-id start so a later sessio
 
   const result = await inspectMla(log);
   const details = result.evidence.filter((item) => item.kind === "mla.recognition_detail");
-  const byText = new Map(
-    details.map((item) => [
-      (item.data as { textCounts?: Array<{ text?: string }> } | undefined)?.textCounts?.[0]?.text,
-      item,
-    ]),
-  );
-  expect(byText.get("alpha")?.source.task).toBe("Alpha");
-  expect((byText.get("alpha")?.data as { taskName?: string | null } | undefined)?.taskName).toBe("Alpha");
-  expect(byText.get("beta")?.source.task).toBe("Beta");
-  expect((byText.get("beta")?.data as { taskName?: string | null } | undefined)?.taskName).toBe("Beta");
+  expect(details).toHaveLength(1);
+  expect(details[0]?.data).toMatchObject({
+    taskName: null,
+    taskRefs: [
+      { task_id: 1, start_time: "2026-07-19 10:01:00.000", task_name: "Alpha" },
+      { task_id: 1, start_time: "2026-07-19 11:01:00.000", task_name: "Beta" },
+    ],
+  });
+  expect((details[0]?.data as { textCounts?: Array<{ text?: string; count?: number }> } | undefined)?.textCounts)
+    .toEqual([{ text: "alpha", count: 1 }, { text: "beta", count: 1 }]);
 });
 
 test("does not treat an implicit kernel task's node name as recognition taskName", async () => {
@@ -1114,12 +1212,18 @@ test("extracts bounded action outcomes with source-backed representatives", asyn
     node: "ClickMenu",
     status: "succeeded",
     occurrenceCount: 2,
+    rawLineCount: 2,
     taskId: 9,
+    taskRefs: [{ process_id: "Px1", task_id: 9, start_time: null, task_name: null }],
+    taskRefsOmitted: 0,
     representatives: {
       first: { detail: { point: [20, 30] }, source: { path: "maafw.log", line: 3 } },
       last: { detail: { point: [21, 31] }, source: { path: "maafw.log", line: 4 } },
     },
   });
+  expect((succeeded?.data as { dedupeRule?: string } | undefined)?.dedupeRule).toContain("occurrenceCount");
+  expect((succeeded?.data as { preferredArtifactId?: string } | undefined)?.preferredArtifactId)
+    .toBe(succeeded?.source.artifactId);
   expect(result.statistics.actionOccurrences).toBe(3);
 });
 
@@ -1136,7 +1240,7 @@ test("reports action-detail truncation while preserving complete occurrence coun
         action: "Click",
         box: [0, 0, 10, 10],
         detail: { point: [index, 0] },
-        name: "RepeatedClick",
+        name: `RepeatedClick${index}`,
         success: true,
       },
     },

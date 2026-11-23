@@ -19,6 +19,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   evidence still name the file and file-local line that produced each fact. Keyword and time-window
   narrowing still merge the matching files into one source because the filter must read their
   content first; that combination keeps the upstream single-string limit.
+- **Recognition and action aggregates now span tasks and state their counting rule.** Both kinds
+  are keyed by behavior (`node + algorithm + status` for recognition, `node + action + status` for
+  actions), so a behavior observed under several tasks is one row instead of one row per task.
+  Task instances are bounded in `taskRefs` (`process_id`, `task_id`, `start_time`, `task_name`;
+  `taskRefsOmitted` names the overflow), and `taskId` / `taskName` / `source.task` are set only
+  when every instance shares one value. Every row carries `occurrenceCount` (usable notifications
+  after cross-source mirror dedupe), `rawLineCount` (raw `!!!OnEventNotify!!!` lines naming the
+  behavior before that dedupe), `dedupeRule` (the exact identity and 1000 ms window), and
+  `preferredArtifactId`. `search --task` also matches names in `taskRefs`, so aggregated rows stay
+  reachable by task.
 - **The pinned `@windsland52/maa-log-tools` moves to 2.3.0**, which exposes
   `loadNodeLogSources`, `analyzeLogSources`, and post-parse source segments through the exact
   kernel 1.2.0 / parser 2.2.0 / runtime 1.2.0 / adapter 1.2.0 pins, and whose

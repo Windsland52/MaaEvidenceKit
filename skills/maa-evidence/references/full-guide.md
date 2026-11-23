@@ -359,15 +359,19 @@ Each `mla.failure` carries two fields that separate a node result from a task re
   `statistics.failuresInSucceededTasks`, before reporting breakage. When such records exist,
   `mla_failures_in_succeeded_tasks` says so; the records are deliberately kept and not down-ranked.
 
-`mla.recognition_detail` aggregates recognition events by node/algorithm/status/task and extracts
-the detail generically by shape. The task slot is the entry of the unique kernel task that
-observed `Tasker.Task.Starting` and whose interval contains the event's `task_id` and timestamp.
-Implicit projector tasks (entry filled from a node or scope name) do not participate. An interval
-with no `end_time` closes exclusively at the next same-id start. Zero or two-plus matching
-intervals leave the slot empty rather than guessing a later session's reused id, including when one
-task's `end_time` equals the next same-id `start_time` on the same millisecond. A node reused
-across tasks is several records, `source.task` / `data.taskName` carry the name when unique, and
-`search --task` can match those records. Each detail still produces one
+`mla.recognition_detail` aggregates recognition events by node/algorithm/status; the task is not
+part of the key. Task instances are bounded in `data.taskRefs` (`process_id`, `task_id`,
+`start_time`, `task_name`; `taskRefsOmitted` names the overflow). Each entry is the unique kernel
+task that observed `Tasker.Task.Starting` and whose interval contains the event's `task_id` and
+timestamp. Implicit projector tasks (entry filled from a node or scope name) do not participate.
+An interval with no `end_time` closes exclusively at the next same-id start. Zero or two-plus
+matching intervals leave the ref unnamed rather than guessing a later session's reused id,
+including when one task's `end_time` equals the next same-id `start_time` on the same millisecond.
+`source.task` / `data.taskName` are set only when every instance shares one name; `search --task`
+matches names in `taskRefs`. Every row carries the count trio: `occurrenceCount` (usable
+notifications after cross-source mirror dedupe), `rawLineCount` (raw `!!!OnEventNotify!!!` lines
+naming the behavior before that dedupe), and `dedupeRule`; `preferredArtifactId` names the artifact
+of the representative sample. Each detail still produces one
 `combined.recognition_pipeline_reference`. Top-level `score` and `textCounts` select one representative per
 recognition occurrence (`best`, then the first `filtered`/`all` candidate), so an upstream candidate
 repeated across all three arrays is not counted three times. Use `candidateStages.all`, `.filtered`,
@@ -386,8 +390,11 @@ is skipped. Aggregated recognition records also attach a `source` locator to rep
 samples; use that locator when a follow-up asks about one occurrence rather than the aggregate's main
 source.
 `mla.action_detail` aggregates `Node.Action.Succeeded` and `Node.Action.Failed` by node, action
-type, status, and MaaFramework task ID. Its first/last representatives retain bounded action details
-and source locators.
+type, and status; MaaFramework task IDs are attributes in bounded `data.taskRefs` rather than part
+of the key, and `taskId` is set only when every instance shares one id. Each row carries the same
+`occurrenceCount` / `rawLineCount` / `dedupeRule` / `preferredArtifactId` fields as
+`mla.recognition_detail`. Its first/last representatives retain bounded action details and source
+locators.
 Treat action success as a framework-layer fact only; compare it with subsequent recognition and
 task evidence before claiming the target UI changed.
 Action-detail evidence is capped at 500 evenly spaced chronological groups per MLA target. Check

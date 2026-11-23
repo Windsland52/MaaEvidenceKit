@@ -39,6 +39,13 @@ import {
 import { profileStage, profileStageSync } from "../profiling.js";
 import { applyDigestResults, digestArtifacts } from "./content-digest.js";
 import {
+  EVENT_COUNT_RULE,
+  actionBehaviorKey,
+  createRawEventCounter,
+  recognitionBehaviorKey,
+  type RawEventCounts,
+} from "./event-counts.js";
+import {
   MAX_DIRECTORY_ENTRIES,
   discoverArtifacts,
   measureDirectoryEntries,
@@ -146,6 +153,20 @@ export type MlaRecognitionCandidateStage = {
   samplesTruncated: boolean;
 };
 
+/**
+ * One task instance a behavior was observed under.
+ *
+ * `task_id` alone is not an identity: it is reused across processes and sessions. `start_time` is
+ * the binder, and `process_id` narrows the creator when the log names it. This is a reference, not
+ * the aggregate key; the aggregate deliberately spans tasks.
+ */
+export type MlaTaskRef = {
+  process_id: string | null;
+  task_id: number;
+  start_time: string | null;
+  task_name: string | null;
+};
+
 export type MlaRecognitionDetail = {
   algorithm: string;
   node: string;
@@ -157,8 +178,19 @@ export type MlaRecognitionDetail = {
    * closes exclusively at the next same-id start. Null when the id is missing, matches nothing,
    * or still matches more than one run.
    */
+  /** The unique task name across `taskRefs`; null when the aggregate spans zero or several tasks. */
   taskName: string | null;
+  /** Bounded task instances this behavior was observed under. */
+  taskRefs: MlaTaskRef[];
+  taskRefsOmitted: number;
+  /** Usable, deduplicated notifications behind this aggregate (`task_id` is not part of the key). */
   occurrenceCount: number;
+  /** Raw `!!!OnEventNotify!!!` lines naming this behavior, before mirror dedupe. */
+  rawLineCount: number;
+  /** What the two counts mean; see `EVENT_COUNT_RULE`. */
+  dedupeRule: string;
+  /** Artifact carrying the representative sample; null when no source position resolved. */
+  preferredArtifactId: string | null;
   textCounts: Array<{ text: string; count: number }>;
   textCountSummary: MlaRecognitionTextCountSummary;
   score: RecognitionScoreDistribution | null;
@@ -214,8 +246,18 @@ export type MlaActionDetail = {
   action: string;
   node: string;
   status: "succeeded" | "failed";
+  /** Usable, deduplicated notifications behind this aggregate (`task_id` is not part of the key). */
   occurrenceCount: number;
+  /** Raw `!!!OnEventNotify!!!` lines naming this behavior, before mirror dedupe. */
+  rawLineCount: number;
+  /** What the two counts mean; see `EVENT_COUNT_RULE`. */
+  dedupeRule: string;
+  /** The unique task id across `taskRefs`; null when the aggregate spans zero or several tasks. */
   taskId: number | null;
+  taskRefs: MlaTaskRef[];
+  taskRefsOmitted: number;
+  /** Artifact carrying the first sample; null when no source position resolved. */
+  preferredArtifactId: string | null;
   representatives: {
     first: MlaActionDetailSample;
     last: MlaActionDetailSample;
@@ -1162,8 +1204,12 @@ function addRecognitionDetailEvidence(
   const childSummary = detail.childRecognition.length > 0
     ? ` children=${detail.childRecognitionTotal}${detail.childRecognitionTruncated ? " (truncated)" : ""}`
     : "";
-  const taskSummary = detail.taskName === null ? "" : ` task=${detail.taskName}`;
-  const summary = `Recognition ${detail.node} ${detail.status} (${detail.algorithm}) x${detail.occurrenceCount}${taskSummary}${textSummary}${scoreSummary}${filteredSummary}${bestSummary}${childSummary}`;
+  const taskSummary = detail.taskName !== null
+    ? ` task=${detail.taskName}`
+    : detail.taskRefs.length > 0 ? ` tasks=${detail.taskRefs.length}` : "";
+  const summary = `Recognition ${detail.node} ${detail.status} (${detail.algorithm}) x${detail.occurrenceCount}`
+    + `${detail.rawLineCount === detail.occurrenceCount ? "" : ` (${detail.rawLineCount} raw lines)`}`
+    + `${taskSummary}${textSummary}${scoreSummary}${filteredSummary}${bestSummary}${childSummary}`;
   const representative = detail.representatives.worst ?? detail.representatives.first;
   const sourceScope = {
     node: detail.node,
@@ -1211,6 +1257,7 @@ function addRecognitionDetailEvidence(
         },
       },
   };
+  const preferredArtifactId = detailWithSources.representatives.first.source?.artifactId;
   ledger.add(
     "mla.recognition_detail",
     summary,
@@ -1220,7 +1267,7 @@ function addRecognitionDetailEvidence(
       positionForMergedLine(sourceSegments, representative.timestamp, representative.mergedLine),
       sourceScope,
     ),
-    detailWithSources,
+    { ...detailWithSources, preferredArtifactId: preferredArtifactId ?? null },
   );
 }
 
@@ -1247,10 +1294,15 @@ function addActionDetailEvidence(
     ...detail,
     representatives: { first, last },
   };
+  const taskSummary = detail.taskId !== null
+    ? ` task=${detail.taskId}`
+    : detail.taskRefs.length > 0 ? ` tasks=${detail.taskRefs.length}` : "";
+  const preferredArtifactId = first.source?.artifactId;
   ledger.add(
     "mla.action_detail",
     `Action ${detail.node} ${detail.status} (${detail.action}) x${detail.occurrenceCount}`
-      + `${detail.taskId === null ? "" : ` task=${detail.taskId}`}.`,
+      + `${detail.rawLineCount === detail.occurrenceCount ? "" : ` (${detail.rawLineCount} raw lines)`}`
+      + `${taskSummary}.`,
     evidenceSource(
       artifacts,
       inputPath,
@@ -1261,7 +1313,7 @@ function addActionDetailEvidence(
       ),
       { node: detail.node },
     ),
-    detailWithSources,
+    { ...detailWithSources, preferredArtifactId: preferredArtifactId ?? null },
   );
 }
 
@@ -1840,12 +1892,14 @@ function extractActionDetails(
   analyzed: Awaited<ReturnType<typeof analyzeLogContent>>,
   timeRange: TimeRange | undefined,
   sourceSegments: readonly SourceSegment[],
+  intervals: readonly KernelTaskInterval[],
+  rawCounts: RawEventCounts,
 ): MlaActionDetail[] {
   const groups = new Map<string, {
     action: string;
     node: string;
     status: "succeeded" | "failed";
-    taskId: number | null;
+    taskRefs: Map<string, MlaTaskRef>;
     samples: MlaActionDetailSample[];
   }>();
   for (const event of analyzed.events) {
@@ -1864,14 +1918,17 @@ function extractActionDetails(
     if (node === null) continue;
     const status = event.message === "Node.Action.Succeeded" ? "succeeded" : "failed";
     const taskId = typeof event.details["task_id"] === "number" ? event.details["task_id"] : null;
-    const key = JSON.stringify([node, action, status, taskId]);
+    const processId = typeof event.process_id === "string" ? event.process_id : null;
+    const key = actionBehaviorKey(node, action, status);
     const group = groups.get(key) ?? {
       action,
       node,
       status,
-      taskId,
+      taskRefs: new Map<string, MlaTaskRef>(),
       samples: [],
     };
+    const taskRef = taskRefForEvent(intervals, taskId, processId, event.timestamp);
+    if (taskRef !== null) group.taskRefs.set(taskRefKey(taskRef), taskRef);
     group.samples.push({
       box: candidateBox(actionDetails["box"]),
       detail: actionDetails["detail"] ?? null,
@@ -1884,20 +1941,32 @@ function extractActionDetails(
   return [...groups.values()].sort((left, right) =>
     (left.samples[0]?.timestamp ?? "").localeCompare(right.samples[0]?.timestamp ?? "")
     || (left.samples[0]?.mergedLine ?? 0) - (right.samples[0]?.mergedLine ?? 0)
-    || [left.node, left.action, left.status, left.taskId ?? ""].join("|").localeCompare(
-      [right.node, right.action, right.status, right.taskId ?? ""].join("|"),
+    || [left.node, left.action, left.status].join("|").localeCompare(
+      [right.node, right.action, right.status].join("|"),
     )
-  ).map((group) => ({
-    action: group.action,
-    node: group.node,
-    status: group.status,
-    occurrenceCount: group.samples.length,
-    taskId: group.taskId,
-    representatives: {
-      first: group.samples[0] as MlaActionDetailSample,
-      last: group.samples[group.samples.length - 1] as MlaActionDetailSample,
-    },
-  }));
+  ).map((group) => {
+    const allTaskRefs = [...group.taskRefs.values()];
+    const taskRefs = boundedTaskRefs(group.taskRefs);
+    const taskIds = [...new Set(allTaskRefs.map((ref) => ref.task_id))];
+    return {
+      action: group.action,
+      node: group.node,
+      status: group.status,
+      occurrenceCount: group.samples.length,
+      rawLineCount: rawCounts.action.get(
+        actionBehaviorKey(group.node, group.action, group.status),
+      ) ?? 0,
+      dedupeRule: EVENT_COUNT_RULE,
+      taskId: taskIds.length === 1 ? (taskIds[0] ?? null) : null,
+      taskRefs: taskRefs.taskRefs,
+      taskRefsOmitted: taskRefs.taskRefsOmitted,
+      preferredArtifactId: null,
+      representatives: {
+        first: group.samples[0] as MlaActionDetailSample,
+        last: group.samples[group.samples.length - 1] as MlaActionDetailSample,
+      },
+    };
+  });
 }
 
 function boundedActionDetails(details: readonly MlaActionDetail[]): MlaActionDetail[] {
@@ -2212,12 +2281,12 @@ function usableTaskEntry(interval: KernelTaskInterval | undefined): string | nul
  * guessing, and a task whose entry the log never wrote (`entry_source !== "field"`) never
  * becomes evidence.
  */
-function taskNameForRecognition(
+function taskIntervalForRecognition(
   intervals: readonly KernelTaskInterval[],
   taskId: number | null,
   processId: string | null,
   timestamp: string,
-): string | null {
+): KernelTaskInterval | null {
   if (taskId === null) return null;
   const sameId = intervals.filter((task) => task.taskId === taskId);
   if (sameId.length === 0) return null;
@@ -2225,9 +2294,56 @@ function taskNameForRecognition(
     ? sameId
     : sameId.filter((task) => task.processId === processId);
   const scoped = byProcess.length > 0 ? byProcess : sameId;
-  if (scoped.length === 1) return usableTaskEntry(scoped[0]);
+  if (scoped.length === 1) return scoped[0] ?? null;
   const byTime = scoped.filter((task) => timestampInKernelTask(timestamp, task));
-  return byTime.length === 1 ? usableTaskEntry(byTime[0]) : null;
+  return byTime.length === 1 ? byTime[0] ?? null : null;
+}
+
+function taskNameForRecognition(
+  intervals: readonly KernelTaskInterval[],
+  taskId: number | null,
+  processId: string | null,
+  timestamp: string,
+): string | null {
+  return usableTaskEntry(taskIntervalForRecognition(intervals, taskId, processId, timestamp) ?? undefined);
+}
+
+const MAX_TASK_REFS = 8;
+
+function taskRefForEvent(
+  intervals: readonly KernelTaskInterval[],
+  taskId: number | null,
+  processId: string | null,
+  timestamp: string,
+): MlaTaskRef | null {
+  if (taskId === null) return null;
+  const interval = taskIntervalForRecognition(intervals, taskId, processId, timestamp);
+  return {
+    process_id: interval?.processId ?? processId,
+    task_id: taskId,
+    start_time: interval?.start ?? null,
+    task_name: usableTaskEntry(interval ?? undefined),
+  };
+}
+
+function taskRefKey(ref: MlaTaskRef): string {
+  return `${ref.process_id ?? ""}\u0000${ref.task_id}\u0000${ref.start_time ?? ""}`;
+}
+
+function boundedTaskRefs(refs: ReadonlyMap<string, MlaTaskRef>): {
+  taskRefs: MlaTaskRef[];
+  taskRefsOmitted: number;
+} {
+  const all = [...refs.values()];
+  return {
+    taskRefs: all.slice(0, MAX_TASK_REFS),
+    taskRefsOmitted: Math.max(0, all.length - MAX_TASK_REFS),
+  };
+}
+
+function uniqueTaskName(refs: readonly MlaTaskRef[]): string | null {
+  const names = [...new Set(refs.flatMap((ref) => (ref.task_name === null ? [] : [ref.task_name])))];
+  return names.length === 1 ? (names[0] ?? null) : null;
 }
 
 /**
@@ -2260,12 +2376,13 @@ function extractRecognitionDetails(
   timeRange: TimeRange | undefined,
   intervals: readonly KernelTaskInterval[],
   sourceSegments: readonly SourceSegment[],
+  rawCounts: RawEventCounts,
 ): MlaRecognitionDetail[] {
   const groups = new Map<string, {
     algorithm: string;
     node: string;
     status: "succeeded" | "failed";
-    taskName: string | null;
+    taskRefs: Map<string, MlaTaskRef>;
     count: number;
     detailShapes: Set<string>;
     texts: Map<string, number>;
@@ -2315,13 +2432,12 @@ function extractRecognitionDetails(
     const status = event.message === "Node.Recognition.Succeeded" ? "succeeded" : "failed";
     const taskId = typeof payload["task_id"] === "number" ? payload["task_id"] : null;
     const processId = typeof event.process_id === "string" ? event.process_id : null;
-    const taskName = taskNameForRecognition(intervals, taskId, processId, event.timestamp);
-    const key = `${node}|${algorithm}|${status}|${taskName ?? ""}`;
+    const key = recognitionBehaviorKey(node, algorithm, status);
     const group = groups.get(key) ?? {
       algorithm,
       node,
       status,
-      taskName,
+      taskRefs: new Map<string, MlaTaskRef>(),
       count: 0,
       detailShapes: new Set<string>(),
       texts: new Map<string, number>(),
@@ -2355,6 +2471,8 @@ function extractRecognitionDetails(
       descendantRecognitionTruncated: false,
     };
     group.count += 1;
+    const taskRef = taskRefForEvent(intervals, taskId, processId, event.timestamp);
+    if (taskRef !== null) group.taskRefs.set(taskRefKey(taskRef), taskRef);
     group.detailShapes.add(shape.kind);
     if (shape.kind === "candidate_list") {
       group.allLengths.push(shape.all.length);
@@ -2431,8 +2549,8 @@ function extractRecognitionDetails(
     groups.set(key, group);
   }
   return [...groups.values()].sort((left, right) =>
-    [left.node, left.algorithm, left.status, left.taskName ?? ""].join("|").localeCompare(
-      [right.node, right.algorithm, right.status, right.taskName ?? ""].join("|"),
+    [left.node, left.algorithm, left.status].join("|").localeCompare(
+      [right.node, right.algorithm, right.status].join("|"),
     ),
   ).map((group) => {
     const score = scoreDistribution(group.scores);
@@ -2462,12 +2580,21 @@ function extractRecognitionDetails(
       };
     });
     const texts = summarizeTextCounts(group.texts);
+    const allTaskRefs = [...group.taskRefs.values()];
+    const taskRefs = boundedTaskRefs(group.taskRefs);
     return {
       algorithm: group.algorithm,
       node: group.node,
       status: group.status,
-      taskName: group.taskName,
+      taskName: uniqueTaskName(allTaskRefs),
+      taskRefs: taskRefs.taskRefs,
+      taskRefsOmitted: taskRefs.taskRefsOmitted,
       occurrenceCount: group.count,
+      rawLineCount: rawCounts.recognition.get(
+        recognitionBehaviorKey(group.node, group.algorithm, group.status),
+      ) ?? 0,
+      dedupeRule: EVENT_COUNT_RULE,
+      preferredArtifactId: null,
       ...texts,
       score,
       representatives: { first, worst },
@@ -2693,6 +2820,7 @@ async function loadMlaTarget(
   let analyzed;
   let legacyEventMarkers: number;
   let pipelineOverrideExtraction: MlaPipelineOverrideExtraction;
+  const rawEventCounter = createRawEventCounter(timeRange);
   if (target.kind === "directory") {
     // One lazy source per file: a 2GB+ directory cannot be merged into one string (V8 tops out
     // around 512MB), and this path never asks the loader for that string.
@@ -2711,6 +2839,7 @@ async function loadMlaTarget(
         const content = await source.loadContent();
         markers += countLegacyEventMarkers(content);
         overrideScanner.scan(content, source.sourceKey);
+        rawEventCounter.scan(content);
         if (focus === undefined) {
           frameworkExtractions.push(extractFrameworkSessions([{
             path: source.sourcePath,
@@ -2760,6 +2889,7 @@ async function loadMlaTarget(
       lineCount: (content.match(/\n/g) ?? []).length + 1,
     }];
     analyzed = await analyzeLogContent({ content, ...imageMaps });
+    rawEventCounter.scan(content);
     legacyEventMarkers = countLegacyEventMarkers(content);
     pipelineOverrideExtraction = extractPipelineOverrides(content, timeRange);
     framework = extractFrameworkSessions([{
@@ -2784,7 +2914,14 @@ async function loadMlaTarget(
     return null;
   }
   const intervals = kernelTaskIntervals(analyzed);
-  const allActionDetails = extractActionDetails(analyzed, timeRange, sourceSegments);
+  const rawCounts = rawEventCounter.counts();
+  const allActionDetails = extractActionDetails(
+    analyzed,
+    timeRange,
+    sourceSegments,
+    intervals,
+    rawCounts,
+  );
   const pipelineOverrides = boundedPipelineOverrides(
     namedPipelineOverrides(pipelineOverrideExtraction.observations, intervals),
   );
@@ -2797,7 +2934,13 @@ async function loadMlaTarget(
     target,
     runtime: namespacedRuntime,
     taskTimelines: buildTargetTaskTimelines(analyzed, namespacedRuntime),
-    recognitionDetails: extractRecognitionDetails(analyzed, timeRange, intervals, sourceSegments),
+    recognitionDetails: extractRecognitionDetails(
+      analyzed,
+      timeRange,
+      intervals,
+      sourceSegments,
+      rawCounts,
+    ),
     actionDetails: boundedActionDetails(allActionDetails),
     actionDetailsTotal: allActionDetails.length,
     actionOccurrences: allActionDetails.reduce((total, detail) => total + detail.occurrenceCount, 0),
