@@ -233,6 +233,7 @@ async function runMla(parsed: ParsedArguments): Promise<InspectionResult> {
     ...(range === undefined ? {} : { timeRange: range }),
     keywords: options(parsed, "--keyword"),
     includeAllSignals: flag(parsed, "--all-signals"),
+    includeAllActionDetails: flag(parsed, "--all-action-details"),
   });
   await emitInspection(sdk, result, parsed);
   return result;

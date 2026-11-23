@@ -108,6 +108,7 @@ const MSE_OPTIONS = [
  */
 export const COMMAND_OPTIONS: Record<string, readonly string[]> = {
   "mla inspect": [
+    "--all-action-details",
     "--all-signals",
     "--fields",
     "--keyword",

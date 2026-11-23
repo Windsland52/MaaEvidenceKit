@@ -1227,6 +1227,56 @@ test("extracts bounded action outcomes with source-backed representatives", asyn
   expect(result.statistics.actionOccurrences).toBe(3);
 });
 
+test("keeps actions adjacent to a runtime failure when the cap would drop them", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-action-adjacent-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  const fillers = Array.from({ length: 1_000 }, (_, index) => event(
+    "2026-07-19 09:00:00.000",
+    "Node.Action.Succeeded",
+    {
+      task_id: index + 1,
+      action_details: {
+        action: "Click",
+        box: [0, 0, 10, 10],
+        detail: { point: [index, 0] },
+        name: `Filler${index}`,
+        success: true,
+      },
+    },
+  ));
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    ...fillers,
+    ...failingNodeEvents("10:01", 1, "Combat", "FailNode", 11, 21, 31),
+    event("2026-07-19 10:01:02.500", "Node.Action.Succeeded", {
+      task_id: 1,
+      action_id: 32,
+      focus: null,
+      name: "Nearby",
+      action_details: {
+        action: "Click",
+        box: [0, 0, 10, 10],
+        detail: { point: [5, 5] },
+        name: "Nearby",
+        success: true,
+      },
+    }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const nodes = result.evidence
+    .filter((item) => item.kind === "mla.action_detail")
+    .map((item) => (item.data as { node?: string }).node);
+  expect(nodes).toContain("Nearby");
+  expect(nodes).toContain("FailNode");
+  const selection = result.details.selection.actionDetails;
+  expect(selection.keptFailed).toBe(1);
+  expect(selection.keptFailureAdjacent).toBeGreaterThanOrEqual(1);
+  expect(selection.omissions.some((item) => item.node === "Nearby")).toBe(false);
+});
+
 test("reports action-detail truncation while preserving complete occurrence counts", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-action-bounded-"));
   temporaryRoots.push(root);
@@ -1257,6 +1307,71 @@ test("reports action-detail truncation while preserving complete occurrence coun
   expect(result.statistics.actionDetailsTotal).toBe(501);
   expect(result.evidence.filter((item) => item.kind === "mla.action_detail")).toHaveLength(500);
   expect(result.warnings.some((item) => item.code === "mla_action_details_truncated")).toBe(true);
+});
+
+test("keeps failed action groups and enumerates sampled-out omissions", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-action-keep-"));
+  temporaryRoots.push(root);
+  const log = path.join(root, "maafw.log");
+  const actions = Array.from({ length: 1001 }, (_, index) => {
+    const failed = index === 251;
+    return event(
+      "2026-07-19 10:01:00.000",
+      failed ? "Node.Action.Failed" : "Node.Action.Succeeded",
+      {
+        task_id: index + 1,
+        action_details: {
+          action: "Click",
+          box: [0, 0, 10, 10],
+          detail: { point: [index, 0] },
+          name: failed ? "CriticalFail" : `Click${index}`,
+          success: !failed,
+        },
+      },
+    );
+  });
+  await writeFile(log, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    ...actions,
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(log);
+  const details = result.evidence.filter((item) => item.kind === "mla.action_detail");
+  expect(details).toHaveLength(500);
+  expect(details.some((item) => (item.data as { node?: string }).node === "CriticalFail")).toBe(true);
+  const selection = result.details.selection.actionDetails;
+  expect(selection).toMatchObject({
+    max: 500,
+    total: 1001,
+    selected: 500,
+    keptFailed: 1,
+    omissionsTotal: 501,
+  });
+  expect(selection.omissions).toHaveLength(501);
+  expect(selection.omissions.every((item) => item.node !== "CriticalFail")).toBe(true);
+  const omitted = selection.omissions[0];
+  expect(omitted).toMatchObject({
+    target: "maafw.log",
+    reason: "sampled-out",
+    occurrenceCount: 1,
+    rawLineCount: 1,
+  });
+  expect(result.warnings.some((item) => item.code === "mla_action_details_truncated")).toBe(true);
+
+  // The omission id names a group a later pass can request again; --all-action-details disables the
+  // bounded selection and returns every group, including the one that was omitted here.
+  const full = await inspectMla(log, { includeAllActionDetails: true });
+  const fullDetails = full.evidence.filter((item) => item.kind === "mla.action_detail");
+  expect(fullDetails).toHaveLength(1001);
+  expect(fullDetails.some((item) => (item.data as { node?: string }).node === omitted?.node)).toBe(true);
+  expect(full.details.selection.actionDetails).toMatchObject({
+    selected: 1001,
+    total: 1001,
+    omissionsTotal: 0,
+    omissionsTruncated: false,
+  });
+  expect(full.warnings.some((item) => item.code === "mla_action_details_truncated")).toBe(false);
 });
 
 test("maps recognition details to rotated source files and applies time ranges", async () => {

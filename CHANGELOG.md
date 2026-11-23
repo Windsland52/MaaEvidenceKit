@@ -29,6 +29,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   behavior before that dedupe), `dedupeRule` (the exact identity and 1000 ms window), and
   `preferredArtifactId`. `search --task` also matches names in `taskRefs`, so aggregated rows stay
   reachable by task.
+- **Action-detail truncation keeps failure-adjacent groups and names what it dropped.** The
+  500-group cap now retains every failed group and every group on (or within two seconds of) a
+  failure node, then ranks the remaining slots by failure-task association, a retained box/detail
+  payload, and recency. Dropped groups are listed in `details.selection.actionDetails.omissions`
+  with a stable id, target, node, action, status, and both counts;
+  `mla inspect --all-action-details` disables the cap for a resolve pass over a saved report.
+  This replaces the previous evenly spaced chronological sample, which could drop the click that
+  immediately preceded a failure.
 - **The pinned `@windsland52/maa-log-tools` moves to 2.3.0**, which exposes
   `loadNodeLogSources`, `analyzeLogSources`, and post-parse source segments through the exact
   kernel 1.2.0 / parser 2.2.0 / runtime 1.2.0 / adapter 1.2.0 pins, and whose

@@ -257,8 +257,12 @@ ColorMatch 的 count 等候选字段统一抽取;`detail` 为空的 DirectHit �
 `rawLineCount` / `dedupeRule` 与 `preferredArtifactId`;有界保留 first/last representative 的 box、
 detail 和独立 source locator。它只说明 MaaFramework 动作层报告的结果;
 Click succeeded 不证明目标界面已发生业务变化,harness 仍应与后续识别、任务结果或截图对照。
-action-detail 组超过 500 时会按时间轴均匀取样,并输出 `mla_action_details_truncated`;
-完整事件数仍保留在 `statistics.actionOccurrences` / `actionDetailsTotal`。
+action-detail 组超过 500 时不再按时间轴均匀取样:失败组与失败相邻组(同节点,或时间落在失败起止
+±2 秒内)必留,其余按“关联失败任务 → 带 box/detail → 较新”排序取满 500。被丢组连同稳定 id、
+target、node、action、status、`occurrenceCount`、`rawLineCount` 和时间范围写在
+`details.selection.actionDetails.omissions`(`omissionsTotal` / `omissionsTruncated` 说明是否还有
+更多);需要取回时用 `mla inspect --all-action-details` 重跑。`mla_action_details_truncated` 仍会
+在发生截断时给出;完整事件数仍保留在 `statistics.actionOccurrences` / `actionDetailsTotal`。
 
 ## `mla.pipeline_override`
 

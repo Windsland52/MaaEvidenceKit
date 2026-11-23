@@ -11,7 +11,7 @@
 Unknown option for mla inspect:
 - --syntax-mode: this option belongs to mse inspect, mse resolve, or inspect
 - --requests: this option belongs to batch
-mla inspect accepts: --all-signals, --fields, --format, --from, --help, --keyword, --output, --profile, --summary, --to, --version, -h.
+mla inspect accepts: --all-action-details, --all-signals, --fields, --format, --from, --help, --keyword, --output, --profile, --summary, --to, --version, -h.
 ```
 
 `--summary` 只被检查类命令接受(`mla inspect`、`mse inspect`、`mse resolve`、`repo-docs`、`inspect`)
@@ -112,6 +112,11 @@ maa-evidence mla inspect C:\path\to\materials `
   --output inspection.json `
   --profile profile.json
 ```
+
+**action 明细有界保留,但被丢的组可枚举、可重取。** 失败组与失败相邻组(同节点,或距失败起止
+±2 秒)必留;其余按“关联了失败任务 → 带 box/detail → 较新”排序取前 500。被丢组连同稳定 id、节点、
+action、状态、计数写在 `details.selection.actionDetails.omissions`;需要取回时用
+`mla inspect <path> --all-action-details` 重跑一次,即可拿到全部组(报告会变大,仅用于按需下钻)。
 
 **目录按文件逐个解析,不拼成一整段字符串。** 多文件日志目录里每个文件都是独立来源,解析完成后
 按实际读到的行数还原合并行号;因此 2 GB 级目录不再撞 V8 的单字符串上限,运行时、识别、动作与

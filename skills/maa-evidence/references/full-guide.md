@@ -397,9 +397,14 @@ of the key, and `taskId` is set only when every instance shares one id. Each row
 locators.
 Treat action success as a framework-layer fact only; compare it with subsequent recognition and
 task evidence before claiming the target UI changed.
-Action-detail evidence is capped at 500 evenly spaced chronological groups per MLA target. Check
-`mla_action_details_truncated` and the complete `statistics.actionOccurrences` / `actionDetailsTotal`
-counts before treating the returned records as exhaustive.
+Action-detail evidence is capped at 500 groups per MLA target, but not by even chronological
+sampling: every failed group and every group on (or within two seconds of) a failure node is kept,
+and the remaining slots rank by failure-task association, a retained box/detail payload, then
+recency. Dropped groups are listed in `details.selection.actionDetails.omissions` with a stable id,
+target, node, action, status, and both counts; `mla inspect --all-action-details` re-runs without
+the cap when one of them needs to be resolved. Check `mla_action_details_truncated` and the complete
+`statistics.actionOccurrences` / `actionDetailsTotal` counts before treating the returned records as
+exhaustive.
 Use filtered counts and best candidates to distinguish a failed recognition from a low-confidence
 successful match, and to compare OCR text observed at issue time with the expected pipeline text.
 

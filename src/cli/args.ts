@@ -46,6 +46,7 @@ const VALUE_OPTIONS = new Set([
 ]);
 
 const BOOLEAN_OPTIONS = new Set([
+  "--all-action-details",
   "--all-signals",
   "--help",
   "-h",

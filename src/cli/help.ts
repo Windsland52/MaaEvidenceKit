@@ -61,7 +61,8 @@ const COMMANDS: Record<string, CommandHelp> = {
     summary: "Extract deterministic MaaFramework runtime facts from extracted logs (MLA).",
     usage: [
       "maa-evidence mla inspect <path> [--from ISO] [--to ISO] [--keyword TEXT] [--all-signals]",
-      "                           [--max-report-bytes N] [--summary] [--format json|text|mermaid]",
+      "                           [--all-action-details] [--max-report-bytes N] [--summary]",
+      "                           [--format json|text|mermaid]",
       "                           [--output FILE]",
       "maa-evidence mla inspect <path> --format manifest|manifest-compact [--from ISO] [--to ISO]",
       "                           [--output FILE]",
@@ -70,6 +71,7 @@ const COMMANDS: Record<string, CommandHelp> = {
       ["--from, --to", "Narrow the evidence set to a time window. MLA first narrows which log files load, then MEK filters facts; a matched file may still be read in full, and that limit is reported."],
       ["--keyword TEXT", "Loading focus, not an evidence filter. Repeatable; a log bundle that contains none of the keywords is skipped whole. Evidence from a loaded bundle is never filtered by keyword."],
       ["--all-signals", "Export every runtime signal instead of the focused selection (per-task highlights plus high-priority signals). Large; statistics always carry the complete totals either way."],
+      ["--all-action-details", "Export every action-detail group instead of the bounded selection (failed and failure-adjacent groups are always kept; the rest are ranked, and dropped groups are listed in details.selection.actionDetails.omissions). Use this to resolve an omitted group from a saved report; it can make the report much larger."],
       ["--max-report-bytes N", "Bound the saved JSON document: 4096 through 268435456 UTF-8 bytes of the 2-space rendering. A report that is already within the budget is written byte-identically; an oversized one loses whole entries in a fixed ladder (details blocks first, then large evidence kinds) and records them in a top-level reduction block, while the exit code stays 0. The protected set (the evidence --summary cites) is never removed; if it alone exceeds the budget, reduction.budgetUnsatisfied is set. Refuses --fields. If details.taskTimelines is removed, timeline on the saved report has no rows."],
       ["--summary", "Print artifacts, missing evidence, warnings, statistics, and evidence kinds instead of the full ledger."],
     ],

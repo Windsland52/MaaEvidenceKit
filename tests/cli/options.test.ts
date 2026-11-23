@@ -35,6 +35,9 @@ describe("per-command option validation", () => {
     // --summary only changes inspection stdout, so a query command must not accept it.
     expect(() => rejectUnknownOptions(parsed(["search"], { "--summary": "true" })))
       .toThrow(/Unknown option for search:/u);
+    // --all-action-details is an extraction choice, not a query option.
+    expect(() => rejectUnknownOptions(parsed(["view"], { "--all-action-details": "true" })))
+      .toThrow(/Unknown option for view:/u);
     // --syntax-mode is an MSE-only option.
     expect(() => rejectUnknownOptions(parsed(["mla", "inspect", "path"], { "--syntax-mode": "maa" })))
       .toThrow(/Unknown option for mla inspect:/u);
@@ -45,6 +48,7 @@ describe("per-command option validation", () => {
 
   test("accepts every option the command actually reads", () => {
     expect(() => rejectUnknownOptions(parsed(["mla", "inspect", "path"], {
+      "--all-action-details": "true",
       "--all-signals": "true",
       "--from": "2026-01-01",
       "--keyword": "k",

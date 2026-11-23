@@ -242,6 +242,33 @@ export type MlaActionDetailSample = {
   source?: EvidenceSource;
 };
 
+export type MlaActionDetailOmission = {
+  /** Stable, content-derived id; `mla inspect` re-runs can request this group again. */
+  id: string;
+  /** Target label the omitted group came from, so ids and nodes stay unambiguous across bundles. */
+  target: string;
+  node: string;
+  action: string;
+  status: "succeeded" | "failed";
+  occurrenceCount: number;
+  rawLineCount: number;
+  firstTimestamp: string;
+  lastTimestamp: string;
+  reason: "sampled-out";
+};
+
+export type MlaActionDetailSampling = {
+  max: number;
+  failureWindowMs: number;
+  selected: number;
+  total: number;
+  keptFailed: number;
+  keptFailureAdjacent: number;
+  omissions: MlaActionDetailOmission[];
+  omissionsTotal: number;
+  omissionsTruncated: boolean;
+};
+
 export type MlaActionDetail = {
   action: string;
   node: string;
@@ -498,6 +525,12 @@ export type MlaInspectOptions = {
   timeRange?: TimeRange;
   keywords?: string[];
   includeAllSignals?: boolean;
+  /**
+   * Return every action-detail group instead of the bounded selection. Intended for a resolve pass
+   * over a saved report, not for normal inspection: a large corpus can otherwise multiply the
+   * report by the number of distinct behaviors.
+   */
+  includeAllActionDetails?: boolean;
 };
 
 export type MlaFrameworkVersionStatus = "none" | "single" | "multiple" | "conflict";
@@ -553,6 +586,8 @@ export type MlaInspectionDetails = {
       /** Override-bearing log lines seen, independent of any known marker name. */
       activityLines: number;
     };
+    /** How the bounded action-detail set was chosen, plus every omitted group's id and counters. */
+    actionDetails: MlaActionDetailSampling;
     /** Per-target framework-version and format facts, sorted by label; bounded by `MAX_LOG_GROUPS`. */
     logGroups: MlaLogGroupSummary[];
     /** Set only when `logGroups` was capped; the number of further loaded targets it omits. */
@@ -1383,6 +1418,7 @@ type LoadedMlaTarget = {
   recognitionDetails: MlaRecognitionDetail[];
   actionDetails: MlaActionDetail[];
   actionDetailsTotal: number;
+  actionDetailSampling: MlaActionDetailSampling;
   actionOccurrences: number;
   pipelineOverrides: MlaPipelineOverrideObservation[];
   pipelineOverridesTotal: number;
@@ -1969,12 +2005,173 @@ function extractActionDetails(
   });
 }
 
-function boundedActionDetails(details: readonly MlaActionDetail[]): MlaActionDetail[] {
-  if (details.length <= MAX_ACTION_DETAILS) return [...details];
-  return Array.from({ length: MAX_ACTION_DETAILS }, (_, index) => {
-    const sourceIndex = Math.floor(index * (details.length - 1) / (MAX_ACTION_DETAILS - 1));
-    return details[sourceIndex] as MlaActionDetail;
+const MAX_ACTION_OMISSIONS = 1_000;
+const ACTION_FAILURE_ADJACENCY_WINDOW_MS = 2_000;
+
+type ActionFailureScope = {
+  node_name: string;
+  started_at: string;
+  ended_at: string | null;
+  task_id: number;
+  task_name: string;
+};
+
+type ActionDetailSamplingContext = {
+  targetLabel: string;
+  targetNamespace: string;
+  failures: readonly ActionFailureScope[];
+  includeAll: boolean;
+};
+
+function actionDetailChronologicalOrder(left: MlaActionDetail, right: MlaActionDetail): number {
+  return left.representatives.first.timestamp.localeCompare(right.representatives.first.timestamp)
+    || (left.representatives.first.mergedLine ?? 0) - (right.representatives.first.mergedLine ?? 0)
+    || [left.node, left.action, left.status].join("|").localeCompare(
+      [right.node, right.action, right.status].join("|"),
+    );
+}
+
+function actionTimestampNearFailure(
+  timestamp: string,
+  failures: readonly ActionFailureScope[],
+): boolean {
+  const value = Date.parse(timestamp);
+  if (!Number.isFinite(value)) return false;
+  return failures.some((failure) => {
+    const start = Date.parse(failure.started_at);
+    if (!Number.isFinite(start)) return false;
+    const end = failure.ended_at === null ? start : Date.parse(failure.ended_at);
+    const endValue = Number.isFinite(end) ? end : start;
+    return value >= start - ACTION_FAILURE_ADJACENCY_WINDOW_MS
+      && value <= endValue + ACTION_FAILURE_ADJACENCY_WINDOW_MS;
   });
+}
+
+function actionDetailPriority(
+  detail: MlaActionDetail,
+  failureNodes: ReadonlySet<string>,
+  failureTaskIds: ReadonlySet<number>,
+  failureTaskNames: ReadonlySet<string>,
+  failures: readonly ActionFailureScope[],
+): number {
+  if (detail.status === "failed") return 4;
+  if (failureNodes.has(detail.node)) return 3;
+  if (
+    actionTimestampNearFailure(detail.representatives.first.timestamp, failures)
+    || actionTimestampNearFailure(detail.representatives.last.timestamp, failures)
+  ) return 3;
+  if (detail.taskRefs.some((ref) =>
+    failureTaskIds.has(ref.task_id)
+    || (ref.task_name !== null && failureTaskNames.has(ref.task_name))
+  )) return 2;
+  const sample = detail.representatives.first;
+  if (sample.box !== null || sample.detail !== null) return 1;
+  return 0;
+}
+
+function omissionOfActionDetail(
+  detail: MlaActionDetail,
+  context: ActionDetailSamplingContext,
+): MlaActionDetailOmission {
+  return {
+    id: artifactId(
+      `action-detail:${context.targetNamespace}:${detail.node}\u0000${detail.action}\u0000${detail.status}`,
+    ),
+    target: context.targetLabel,
+    node: detail.node,
+    action: detail.action,
+    status: detail.status,
+    occurrenceCount: detail.occurrenceCount,
+    rawLineCount: detail.rawLineCount,
+    firstTimestamp: detail.representatives.first.timestamp,
+    lastTimestamp: detail.representatives.last.timestamp,
+    reason: "sampled-out",
+  };
+}
+
+/**
+ * Select action-detail groups with a diagnostic keep-set instead of even chronological slicing.
+ *
+ * Every failed group and every group on (or within the adjacency window of) a failure node is
+ * retained first, because that is where "clicked but nothing changed" and the failed action itself
+ * live. The remaining slots rank by failure-task association, then by a retained box/detail payload,
+ * then by recency. Groups cut by the cap are named in `omissions`, so an omitted group can be
+ * requested again instead of disappearing.
+ */
+function countActionFailureAdjacent(
+  details: readonly MlaActionDetail[],
+  failureNodes: ReadonlySet<string>,
+  failures: readonly ActionFailureScope[],
+): number {
+  return details.filter((detail) =>
+    detail.status !== "failed"
+    && (failureNodes.has(detail.node)
+      || actionTimestampNearFailure(detail.representatives.first.timestamp, failures)
+      || actionTimestampNearFailure(detail.representatives.last.timestamp, failures))
+  ).length;
+}
+
+function sampleActionDetails(
+  details: readonly MlaActionDetail[],
+  context: ActionDetailSamplingContext,
+): { selected: MlaActionDetail[]; sampling: MlaActionDetailSampling } {
+  const failureNodes = new Set(context.failures.map((failure) => failure.node_name));
+  if (context.includeAll || details.length <= MAX_ACTION_DETAILS) {
+    const selected = [...details].sort(actionDetailChronologicalOrder);
+    return {
+      selected,
+      sampling: {
+        max: MAX_ACTION_DETAILS,
+        failureWindowMs: ACTION_FAILURE_ADJACENCY_WINDOW_MS,
+        selected: selected.length,
+        total: details.length,
+        keptFailed: selected.filter((detail) => detail.status === "failed").length,
+        keptFailureAdjacent: countActionFailureAdjacent(selected, failureNodes, context.failures),
+        omissions: [],
+        omissionsTotal: 0,
+        omissionsTruncated: false,
+      },
+    };
+  }
+
+  const failureTaskIds = new Set(context.failures.map((failure) => failure.task_id));
+  const failureTaskNames = new Set(context.failures.map((failure) => failure.task_name));
+  const ranked = details.map((detail) => ({
+    detail,
+    priority: actionDetailPriority(detail, failureNodes, failureTaskIds, failureTaskNames, context.failures),
+  })).sort((left, right) =>
+    right.priority - left.priority
+    || right.detail.representatives.last.timestamp.localeCompare(left.detail.representatives.last.timestamp)
+    || actionDetailChronologicalOrder(left.detail, right.detail)
+  );
+  // Failed and failure-adjacent groups are protected: they are kept even when they alone exceed the
+  // cap. The cap is a target for ordinary groups, not a reason to drop the failure context.
+  const protectedGroups = ranked.filter((item) => item.priority >= 3);
+  const ordinaryGroups = ranked.filter((item) => item.priority < 3);
+  const kept = [
+    ...protectedGroups,
+    ...ordinaryGroups.slice(0, Math.max(0, MAX_ACTION_DETAILS - protectedGroups.length)),
+  ];
+  const keptIds = new Set(kept.map((item) => item.detail));
+  const dropped = ranked.filter((item) => !keptIds.has(item.detail));
+  const selected = kept.map((item) => item.detail).sort(actionDetailChronologicalOrder);
+  const omissions = dropped
+    .slice(0, MAX_ACTION_OMISSIONS)
+    .map((item) => omissionOfActionDetail(item.detail, context));
+  return {
+    selected,
+    sampling: {
+      max: MAX_ACTION_DETAILS,
+      failureWindowMs: ACTION_FAILURE_ADJACENCY_WINDOW_MS,
+      selected: selected.length,
+      total: details.length,
+      keptFailed: selected.filter((detail) => detail.status === "failed").length,
+      keptFailureAdjacent: countActionFailureAdjacent(selected, failureNodes, context.failures),
+      omissions,
+      omissionsTotal: dropped.length,
+      omissionsTruncated: dropped.length > omissions.length,
+    },
+  };
 }
 
 function boundedPipelineOverrides(
@@ -2806,6 +3003,7 @@ async function loadMlaTarget(
   focus: LogBundleFocus | undefined,
   timeRange: TimeRange | undefined,
   imageMaps: MlaImageMaps | undefined,
+  includeAllActionDetails: boolean,
 ): Promise<LoadedMlaTarget | null> {
   if (target.kind === "directory") {
     const budget = await measureDirectoryEntries(target.path);
@@ -2922,6 +3120,12 @@ async function loadMlaTarget(
     intervals,
     rawCounts,
   );
+  const actionSelection = sampleActionDetails(allActionDetails, {
+    targetLabel: target.label,
+    targetNamespace: target.namespace,
+    failures: runtime.failures,
+    includeAll: includeAllActionDetails,
+  });
   const pipelineOverrides = boundedPipelineOverrides(
     namedPipelineOverrides(pipelineOverrideExtraction.observations, intervals),
   );
@@ -2941,8 +3145,9 @@ async function loadMlaTarget(
       sourceSegments,
       rawCounts,
     ),
-    actionDetails: boundedActionDetails(allActionDetails),
+    actionDetails: actionSelection.selected,
     actionDetailsTotal: allActionDetails.length,
+    actionDetailSampling: actionSelection.sampling,
     actionOccurrences: allActionDetails.reduce((total, detail) => total + detail.occurrenceCount, 0),
     pipelineOverrides,
     pipelineOverridesTotal: pipelineOverrideExtraction.observations.length,
@@ -2985,6 +3190,7 @@ export async function inspectMla(
         focus,
         options.timeRange,
         imageMapsByDirectory.get(pathKey(imageDirectory)),
+        options.includeAllActionDetails === true,
       ));
       if (loaded === null) {
         if (focus === undefined) {
@@ -3142,6 +3348,28 @@ export async function inspectMla(
     (total, target) => total + target.actionDetailsTotal,
     0,
   );
+  const actionDetailSampling = {
+    max: MAX_ACTION_DETAILS,
+    failureWindowMs: ACTION_FAILURE_ADJACENCY_WINDOW_MS,
+    selected: actionDetailsSelected,
+    total: actionDetailsTotal,
+    keptFailed: loadedTargets.reduce((total, target) => total + target.actionDetailSampling.keptFailed, 0),
+    keptFailureAdjacent: loadedTargets.reduce(
+      (total, target) => total + target.actionDetailSampling.keptFailureAdjacent,
+      0,
+    ),
+    omissions: [] as MlaActionDetailOmission[],
+    omissionsTotal: loadedTargets.reduce(
+      (total, target) => total + target.actionDetailSampling.omissionsTotal,
+      0,
+    ),
+    omissionsTruncated: false,
+  };
+  actionDetailSampling.omissions = loadedTargets
+    .flatMap((target) => target.actionDetailSampling.omissions)
+    .slice(0, MAX_ACTION_OMISSIONS);
+  actionDetailSampling.omissionsTruncated =
+    actionDetailSampling.omissionsTotal > actionDetailSampling.omissions.length;
   const completeness = buildCompleteness({
     signals: {
       mode: signalFocus.selection.mode === "all" ? "complete" : "focused",
@@ -3259,7 +3487,7 @@ export async function inspectMla(
         ? []
         : [{
           code: "mla_action_details_truncated",
-          message: `Selected ${target.actionDetails.length} of ${target.actionDetailsTotal} action-detail groups from ${target.target.label} using evenly spaced chronological samples.`,
+          message: `Selected ${target.actionDetails.length} of ${target.actionDetailsTotal} action-detail groups from ${target.target.label}: every failed or failure-adjacent group was kept, then the remaining slots ranked by failure-task association, action detail, and recency. ${target.actionDetailSampling.omissionsTotal} omitted group(s) are listed with ids in details.selection.actionDetails.omissions.`,
         }]
     ),
     ...loadedTargets.flatMap((target) =>
@@ -3374,6 +3602,7 @@ export async function inspectMla(
           malformedLines: pipelineOverrideMalformedLines,
           activityLines: pipelineOverrideActivityLines,
         },
+        actionDetails: actionDetailSampling,
         logGroups: reportedLogGroups,
         ...(logGroupsOmitted === 0 ? {} : { logGroupsOmitted }),
         frameworkVersions,
