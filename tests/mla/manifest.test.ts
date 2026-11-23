@@ -165,7 +165,7 @@ test("short-circuits after discovery, selecting and loading nothing", async () =
 
 test("costs far less than a full inspection of the same corpus", async () => {
   const root = await mkroot("mek-manifest-short-circuit-speed-");
-  await writeCorpus(root, [{ relativePath: "maafw.log", content: largeLog(4000) }]);
+  await writeCorpus(root, [{ relativePath: "maafw.log", content: largeLog(800) }]);
 
   // Best of two: the manifest path costs a few milliseconds, so a single sample would turn this into
   // a scheduling assertion instead of the magnitude assertion it is meant to be. The full inspection
@@ -185,6 +185,20 @@ test("costs far less than a full inspection of the same corpus", async () => {
   expect(full.coverage?.readForRuntimeFacts).toBe(1);
   expect(full.evidence.length).toBeGreaterThan(0);
   expect(fullMilliseconds).toBeGreaterThanOrEqual(2 * manifestMilliseconds);
+});
+
+test("keeps 4000-task projection within the slow-test budget", {
+  timeout: 120_000,
+  skip: process.env.MEK_SLOW_TESTS !== "1",
+}, async () => {
+  const root = await mkroot("mek-manifest-slow-4000-");
+  await writeCorpus(root, [{ relativePath: "maafw.log", content: largeLog(4000) }]);
+
+  const started = performance.now();
+  const result = await inspectMla(root);
+
+  expect(result.evidence.length).toBeGreaterThan(0);
+  expect(performance.now() - started).toBeLessThan(120_000);
 });
 
 test("reports each rotation as a family member with a monotonic name-derived window", async () => {

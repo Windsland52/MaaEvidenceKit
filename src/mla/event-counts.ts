@@ -41,6 +41,8 @@ export type RawEventCounts = {
 export type RawEventCounter = {
   /** Count event lines in one source's content. Callers may scan sources in any order. */
   scan: (content: string) => void;
+  /** Count one already-split line; chunked sources call this with continuous line text. */
+  scanLine: (line: string) => void;
   counts: () => RawEventCounts;
 };
 
@@ -140,5 +142,5 @@ export function createRawEventCounter(timeRange?: TimeRange): RawEventCounter {
     }
   };
 
-  return { scan, counts: () => ({ recognition, action }) };
+  return { scan, scanLine, counts: () => ({ recognition, action }) };
 }

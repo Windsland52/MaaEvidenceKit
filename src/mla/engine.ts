@@ -5,6 +5,8 @@ import {
   analyzeLogContent,
   analyzeLogSources,
   buildRuntimeInspection,
+  createRuntimeInspectionBuilder,
+  iterateTaskDetails,
   extractFrameworkSessions,
   loadFrameworkLogSources,
   loadNodeLogSources,
@@ -37,7 +39,9 @@ import {
   type TimeRange,
 } from "../evidence/index.js";
 import { profileStage, profileStageSync } from "../profiling.js";
+import { createLineFeeder } from "./chunk-lines.js";
 import { applyDigestResults, digestArtifacts } from "./content-digest.js";
+import { createFrameworkChunkAccumulator } from "./framework-chunks.js";
 import {
   EVENT_COUNT_RULE,
   actionBehaviorKey,
@@ -1924,34 +1928,42 @@ function candidateBox(value: unknown): [number, number, number, number] | null {
   return value as [number, number, number, number];
 }
 
-function extractActionDetails(
-  analyzed: Awaited<ReturnType<typeof analyzeLogContent>>,
+type KernelEvent = Awaited<ReturnType<typeof analyzeLogContent>>["events"][number];
+
+type ActionDetailAccumulator = {
+  addEvents: (events: readonly KernelEvent[]) => void;
+  finish: () => MlaActionDetail[];
+};
+
+function createActionDetailAccumulator(
   timeRange: TimeRange | undefined,
   sourceSegments: readonly SourceSegment[],
   intervals: readonly KernelTaskInterval[],
   rawCounts: RawEventCounts,
-): MlaActionDetail[] {
+): ActionDetailAccumulator {
   const groups = new Map<string, {
     action: string;
     node: string;
     status: "succeeded" | "failed";
     taskRefs: Map<string, MlaTaskRef>;
-    samples: MlaActionDetailSample[];
+    first: MlaActionDetailSample | undefined;
+    last: MlaActionDetailSample | undefined;
+    count: number;
   }>();
-  for (const event of analyzed.events) {
-    if (event.message !== "Node.Action.Succeeded" && event.message !== "Node.Action.Failed") continue;
-    if (!timestampWithin(event.timestamp, timeRange)) continue;
-    if (!isRecord(event.details)) continue;
+  const addEvent = (event: KernelEvent): void => {
+    if (event.message !== "Node.Action.Succeeded" && event.message !== "Node.Action.Failed") return;
+    if (!timestampWithin(event.timestamp, timeRange)) return;
+    if (!isRecord(event.details)) return;
     const actionDetails = event.details["action_details"];
-    if (!isRecord(actionDetails)) continue;
+    if (!isRecord(actionDetails)) return;
     const action = actionDetails["action"];
-    if (typeof action !== "string" || action.length === 0) continue;
+    if (typeof action !== "string" || action.length === 0) return;
     const detailName = actionDetails["name"];
     const payloadName = event.details["name"];
     const node = typeof detailName === "string" && detailName.length > 0
       ? detailName
       : typeof payloadName === "string" && payloadName.length > 0 ? payloadName : null;
-    if (node === null) continue;
+    if (node === null) return;
     const status = event.message === "Node.Action.Succeeded" ? "succeeded" : "failed";
     const taskId = typeof event.details["task_id"] === "number" ? event.details["task_id"] : null;
     const processId = typeof event.process_id === "string" ? event.process_id : null;
@@ -1961,48 +1973,70 @@ function extractActionDetails(
       node,
       status,
       taskRefs: new Map<string, MlaTaskRef>(),
-      samples: [],
+      first: undefined,
+      last: undefined,
+      count: 0,
     };
     const taskRef = taskRefForEvent(intervals, taskId, processId, event.timestamp);
     if (taskRef !== null) group.taskRefs.set(taskRefKey(taskRef), taskRef);
-    group.samples.push({
+    const sample: MlaActionDetailSample = {
       box: candidateBox(actionDetails["box"]),
       detail: actionDetails["detail"] ?? null,
       taskId,
       timestamp: event.timestamp,
       mergedLine: eventMergedLine(event, sourceSegments),
-    });
-    groups.set(key, group);
-  }
-  return [...groups.values()].sort((left, right) =>
-    (left.samples[0]?.timestamp ?? "").localeCompare(right.samples[0]?.timestamp ?? "")
-    || (left.samples[0]?.mergedLine ?? 0) - (right.samples[0]?.mergedLine ?? 0)
-    || [left.node, left.action, left.status].join("|").localeCompare(
-      [right.node, right.action, right.status].join("|"),
-    )
-  ).map((group) => {
-    const allTaskRefs = [...group.taskRefs.values()];
-    const taskRefs = boundedTaskRefs(group.taskRefs);
-    const taskIds = [...new Set(allTaskRefs.map((ref) => ref.task_id))];
-    return {
-      action: group.action,
-      node: group.node,
-      status: group.status,
-      occurrenceCount: group.samples.length,
-      rawLineCount: rawCounts.action.get(
-        actionBehaviorKey(group.node, group.action, group.status),
-      ) ?? 0,
-      dedupeRule: EVENT_COUNT_RULE,
-      taskId: taskIds.length === 1 ? (taskIds[0] ?? null) : null,
-      taskRefs: taskRefs.taskRefs,
-      taskRefsOmitted: taskRefs.taskRefsOmitted,
-      preferredArtifactId: null,
-      representatives: {
-        first: group.samples[0] as MlaActionDetailSample,
-        last: group.samples[group.samples.length - 1] as MlaActionDetailSample,
-      },
     };
-  });
+    group.first ??= sample;
+    group.last = sample;
+    group.count += 1;
+    groups.set(key, group);
+  };
+  return {
+    addEvents: (events) => {
+      for (const event of events) addEvent(event);
+    },
+    finish: () => [...groups.values()].sort((left, right) =>
+      (left.first?.timestamp ?? "").localeCompare(right.first?.timestamp ?? "")
+      || (left.first?.mergedLine ?? 0) - (right.first?.mergedLine ?? 0)
+      || [left.node, left.action, left.status].join("|").localeCompare(
+        [right.node, right.action, right.status].join("|"),
+      )
+    ).map((group) => {
+      const allTaskRefs = [...group.taskRefs.values()];
+      const taskRefs = boundedTaskRefs(group.taskRefs);
+      const taskIds = [...new Set(allTaskRefs.map((ref) => ref.task_id))];
+      return {
+        action: group.action,
+        node: group.node,
+        status: group.status,
+        occurrenceCount: group.count,
+        rawLineCount: rawCounts.action.get(
+          actionBehaviorKey(group.node, group.action, group.status),
+        ) ?? 0,
+        dedupeRule: EVENT_COUNT_RULE,
+        taskId: taskIds.length === 1 ? (taskIds[0] ?? null) : null,
+        taskRefs: taskRefs.taskRefs,
+        taskRefsOmitted: taskRefs.taskRefsOmitted,
+        preferredArtifactId: null,
+        representatives: {
+          first: group.first as MlaActionDetailSample,
+          last: group.last as MlaActionDetailSample,
+        },
+      };
+    }),
+  };
+}
+
+function extractActionDetails(
+  analyzed: Awaited<ReturnType<typeof analyzeLogContent>>,
+  timeRange: TimeRange | undefined,
+  sourceSegments: readonly SourceSegment[],
+  intervals: readonly KernelTaskInterval[],
+  rawCounts: RawEventCounts,
+): MlaActionDetail[] {
+  const accumulator = createActionDetailAccumulator(timeRange, sourceSegments, intervals, rawCounts);
+  accumulator.addEvents(analyzed.events);
+  return accumulator.finish();
 }
 
 const MAX_ACTION_OMISSIONS = 1_000;
@@ -2174,16 +2208,17 @@ function sampleActionDetails(
   };
 }
 
-function boundedPipelineOverrides(
-  observations: readonly MlaPipelineOverrideObservation[],
-): MlaPipelineOverrideObservation[] {
+function boundedPipelineOverrides<T extends {
+  taskAssociation: "task_id" | "entry_only" | "none";
+  mergedLine: number;
+}>(observations: readonly T[]): T[] {
   if (observations.length <= MAX_PIPELINE_OVERRIDES) return [...observations];
   const taskAssociated = observations.filter((item) => item.taskAssociation === "task_id");
   const unscoped = observations.filter((item) => item.taskAssociation !== "task_id");
   const selected = taskAssociated.length >= MAX_PIPELINE_OVERRIDES
     ? Array.from({ length: MAX_PIPELINE_OVERRIDES }, (_, index) => {
       const sourceIndex = Math.floor(index * (taskAssociated.length - 1) / (MAX_PIPELINE_OVERRIDES - 1));
-      return taskAssociated[sourceIndex] as MlaPipelineOverrideObservation;
+      return taskAssociated[sourceIndex] as T;
     })
     : [
       ...taskAssociated,
@@ -2191,7 +2226,7 @@ function boundedPipelineOverrides(
         const sourceIndex = Math.floor(
           index * (unscoped.length - 1) / (MAX_PIPELINE_OVERRIDES - taskAssociated.length - 1 || 1),
         );
-        return unscoped[sourceIndex] as MlaPipelineOverrideObservation;
+        return unscoped[sourceIndex] as T;
       }),
     ];
   return [...new Map(selected.map((item) => [item.mergedLine, item])).values()]
@@ -2431,13 +2466,13 @@ function compareKernelTimestamps(left: string, right: string): number {
   return 0;
 }
 
-function kernelTaskIntervals(
-  analyzed: Awaited<ReturnType<typeof analyzeLogContent>>,
-): KernelTaskInterval[] {
+type KernelTask = Awaited<ReturnType<typeof analyzeLogContent>>["tasks"][number];
+
+function kernelTaskIntervals(tasks: readonly KernelTask[]): KernelTaskInterval[] {
   // Implicit tasks are excluded by the upstream `has_starting_event` flag: without it, the
   // projector fills `entry` with the first node or scope name, which is not a task name.
   // `entry_source` is the second gate: only a value the log wrote itself may become evidence.
-  const named = analyzed.tasks.filter(isNamedKernelTask).sort((left, right) => {
+  const named = tasks.filter(isNamedKernelTask).sort((left, right) => {
     const byId = left.task_id - right.task_id;
     if (byId !== 0) return byId;
     return compareKernelTimestamps(left.start_time, right.start_time);
@@ -2558,23 +2593,28 @@ function resolveObservedTaskName(
   return taskNameForRecognition(intervals, taskId, null, timestamp);
 }
 
-function namedPipelineOverrides(
-  observations: readonly MlaPipelineOverrideObservation[],
-  intervals: readonly KernelTaskInterval[],
-): MlaPipelineOverrideObservation[] {
+function namedPipelineOverrides<T extends {
+  taskId: number | null;
+  timestamp: string;
+  taskName: string | null;
+}>(observations: readonly T[], intervals: readonly KernelTaskInterval[]): T[] {
   return observations.map((item) => {
     const taskName = resolveObservedTaskName(intervals, item.taskId, item.timestamp, item.taskName);
     return taskName === item.taskName ? item : { ...item, taskName };
   });
 }
 
-function extractRecognitionDetails(
-  analyzed: Awaited<ReturnType<typeof analyzeLogContent>>,
+type RecognitionDetailAccumulator = {
+  addEvents: (events: readonly KernelEvent[]) => void;
+  finish: () => MlaRecognitionDetail[];
+};
+
+function createRecognitionDetailAccumulator(
   timeRange: TimeRange | undefined,
   intervals: readonly KernelTaskInterval[],
   sourceSegments: readonly SourceSegment[],
   rawCounts: RawEventCounts,
-): MlaRecognitionDetail[] {
+): RecognitionDetailAccumulator {
   const groups = new Map<string, {
     algorithm: string;
     node: string;
@@ -2588,7 +2628,9 @@ function extractRecognitionDetails(
     filteredLengths: number[];
     bestPresentCount: number;
     bestSamples: RecognitionDetailSample[];
-    samples: RecognitionDetailSample[];
+    bestSampleCount: number;
+    firstSample: RecognitionDetailSample | undefined;
+    worstSample: RecognitionDetailSample | undefined;
     candidateStages: {
       all: RecognitionCandidateStageAccumulator;
       filtered: RecognitionCandidateStageAccumulator;
@@ -2608,24 +2650,25 @@ function extractRecognitionDetails(
       count: number;
       allLengths: number[];
       filteredLengths: number[];
-       bestSamples: MlaRecognitionDetailSample[];
+      bestSamples: MlaRecognitionDetailSample[];
+      bestSampleCount: number;
     }>;
     descendantRecognitionTruncated: boolean;
   }>();
-  for (const event of analyzed.events) {
-    if (event.message !== "Node.Recognition.Succeeded" && event.message !== "Node.Recognition.Failed") continue;
-    if (!timestampWithin(event.timestamp, timeRange)) continue;
+  const addEvent = (event: KernelEvent): void => {
+    if (event.message !== "Node.Recognition.Succeeded" && event.message !== "Node.Recognition.Failed") return;
+    if (!timestampWithin(event.timestamp, timeRange)) return;
     const payload = event.details;
-    if (!isRecord(payload)) continue;
+    if (!isRecord(payload)) return;
     const recoDetails = payload["reco_details"];
-    if (!isRecord(recoDetails)) continue;
+    if (!isRecord(recoDetails)) return;
     const algorithm = recoDetails["algorithm"];
-    if (typeof algorithm !== "string") continue;
+    if (typeof algorithm !== "string") return;
     const node = recoDetails["name"];
-    if (typeof node !== "string") continue;
+    if (typeof node !== "string") return;
     const shape = parseRecognitionDetail(recoDetails["detail"]);
-    if (shape.kind === "none" || shape.kind === "unknown") continue;
-    if (shape.kind === "child_array" && shape.children.length === 0) continue;
+    if (shape.kind === "none" || shape.kind === "unknown") return;
+    if (shape.kind === "child_array" && shape.children.length === 0) return;
     const status = event.message === "Node.Recognition.Succeeded" ? "succeeded" : "failed";
     const taskId = typeof payload["task_id"] === "number" ? payload["task_id"] : null;
     const processId = typeof event.process_id === "string" ? event.process_id : null;
@@ -2643,7 +2686,9 @@ function extractRecognitionDetails(
       filteredLengths: [],
       bestPresentCount: 0,
       bestSamples: [],
-      samples: [],
+      bestSampleCount: 0,
+      firstSample: undefined,
+      worstSample: undefined,
       candidateStages: {
         all: emptyCandidateStage(),
         filtered: emptyCandidateStage(),
@@ -2664,10 +2709,20 @@ function extractRecognitionDetails(
         allLengths: number[];
         filteredLengths: number[];
          bestSamples: MlaRecognitionDetailSample[];
+         bestSampleCount: number;
       }>(),
       descendantRecognitionTruncated: false,
     };
     group.count += 1;
+    const addSample = (sample: RecognitionDetailSample): void => {
+      if (group.firstSample === undefined) group.firstSample = sample;
+      if (
+        sample.score !== undefined
+        && (group.worstSample === undefined || sample.score < (group.worstSample.score ?? Infinity))
+      ) {
+        group.worstSample = sample;
+      }
+    };
     const taskRef = taskRefForEvent(intervals, taskId, processId, event.timestamp);
     if (taskRef !== null) group.taskRefs.set(taskRefKey(taskRef), taskRef);
     group.detailShapes.add(shape.kind);
@@ -2689,17 +2744,20 @@ function extractRecognitionDetails(
         group.texts.set(selected.text, (group.texts.get(selected.text) ?? 0) + 1);
       }
       if (selected?.score !== undefined) group.scores.push(selected.score);
-      group.samples.push({
+      addSample({
         ...selected,
         timestamp: event.timestamp,
         mergedLine,
       });
       if (shape.best !== null) {
-        group.bestSamples.push({
-          ...shape.best,
-          timestamp: event.timestamp,
-          mergedLine,
-        });
+        group.bestSampleCount += 1;
+        if (group.bestSamples.length < 3) {
+          group.bestSamples.push({
+            ...shape.best,
+            timestamp: event.timestamp,
+            mergedLine,
+          });
+        }
       }
     } else {
       for (const child of shape.children) {
@@ -2728,36 +2786,36 @@ function extractRecognitionDetails(
           allLengths: [],
           filteredLengths: [],
           bestSamples: [],
+          bestSampleCount: 0,
         };
         entry.count += 1;
         entry.allLengths.push(descendant.allCount);
         entry.filteredLengths.push(descendant.filteredCount);
         if (descendant.best !== null) {
-          entry.bestSamples.push({
-            ...descendant.best,
-            timestamp: event.timestamp,
-            mergedLine: eventMergedLine(event, sourceSegments),
-          });
+          entry.bestSampleCount += 1;
+          if (entry.bestSamples.length < 12) {
+            entry.bestSamples.push({
+              ...descendant.best,
+              timestamp: event.timestamp,
+              mergedLine: eventMergedLine(event, sourceSegments),
+            });
+          }
         }
         group.descendantRecognition.set(descendantKey, entry);
       }
-      group.samples.push({ timestamp: event.timestamp, mergedLine: eventMergedLine(event, sourceSegments) });
+      addSample({ timestamp: event.timestamp, mergedLine: eventMergedLine(event, sourceSegments) });
     }
     groups.set(key, group);
   }
-  return [...groups.values()].sort((left, right) =>
-    [left.node, left.algorithm, left.status].join("|").localeCompare(
-      [right.node, right.algorithm, right.status].join("|"),
-    ),
-  ).map((group) => {
+  const finish = (): MlaRecognitionDetail[] => {
+    return [...groups.values()].sort((left, right) =>
+      [left.node, left.algorithm, left.status].join("|").localeCompare(
+        [right.node, right.algorithm, right.status].join("|"),
+      ),
+    ).map((group) => {
     const score = scoreDistribution(group.scores);
-    const samples = group.samples;
-    const first = samples[0] as RecognitionDetailSample;
-    const worst = score === null
-      ? null
-      : [...samples].sort((left, right) =>
-        (left.score ?? Infinity) - (right.score ?? Infinity)
-      )[0] ?? null;
+    const first = group.firstSample as RecognitionDetailSample;
+    const worst = score === null ? null : (group.worstSample ?? null);
     const detailShape = group.detailShapes.size === 1
       ? [...group.detailShapes][0] as MlaRecognitionDetail["detailShape"]
       : "mixed" as const;
@@ -2811,7 +2869,7 @@ function extractRecognitionDetails(
           best: candidateStageSummary(group.candidateStages.best),
         },
       best: group.bestSamples.slice(0, 3),
-      bestTruncated: group.bestSamples.length > 3,
+      bestTruncated: group.bestSampleCount > 3,
       childRecognition: [...group.childRecognition.values()].slice(0, MAX_CHILD_RECOGNITIONS).map((entry) => ({
         name: entry.name,
         algorithm: entry.algorithm,
@@ -2830,28 +2888,45 @@ function extractRecognitionDetails(
         }),
     };
   });
+  };
+  return {
+    addEvents: (events) => {
+      for (const event of events) addEvent(event);
+    },
+    finish,
+  };
+}
+
+function extractRecognitionDetails(
+  analyzed: Awaited<ReturnType<typeof analyzeLogContent>>,
+  timeRange: TimeRange | undefined,
+  intervals: readonly KernelTaskInterval[],
+  sourceSegments: readonly SourceSegment[],
+  rawCounts: RawEventCounts,
+): MlaRecognitionDetail[] {
+  const accumulator = createRecognitionDetailAccumulator(
+    timeRange,
+    intervals,
+    sourceSegments,
+    rawCounts,
+  );
+  accumulator.addEvents(analyzed.events);
+  return accumulator.finish();
+}
+
+function taskTimelineEntries(kernelTask: KernelTask): MlaTaskTimelineEntry[] {
+  return buildNodeExecutionTimeline(kernelTask.nodes, { rootTaskId: kernelTask.task_id }).map((item) => ({
+    ts: item.ts,
+    event: item.navStatus,
+    node: item.executionName,
+    ...(item.matchedRecognitionName === undefined ? {} : { matched: item.matchedRecognitionName }),
+  }));
 }
 
 function buildTargetTaskTimelines(
-  analyzed: Awaited<ReturnType<typeof analyzeLogContent>>,
+  entriesByTaskExecution: ReadonlyMap<string, MlaTaskTimelineEntry[]>,
   runtime: MlaRuntimeInspectionResult,
 ): MlaTaskTimeline[] {
-  // Task ids restart across framework sessions inside one bundle, so a kernel task is
-  // identified by (task_id, start_time); the runtime execution copies that timestamp
-  // verbatim into started_at, which keeps correlation correct under time-range focus.
-  const entriesByTaskExecution = new Map<string, MlaTaskTimelineEntry[]>();
-  for (const kernelTask of analyzed.tasks) {
-    const timeline = buildNodeExecutionTimeline(kernelTask.nodes, { rootTaskId: kernelTask.task_id });
-    entriesByTaskExecution.set(
-      `${kernelTask.task_id}|${kernelTask.start_time}`,
-      timeline.map((item) => ({
-        ts: item.ts,
-        event: item.navStatus,
-        node: item.executionName,
-        ...(item.matchedRecognitionName === undefined ? {} : { matched: item.matchedRecognitionName }),
-      })),
-    );
-  }
   return [
     ...runtime.sessions.flatMap((session) => session.tasks),
     ...runtime.unscoped_tasks,
@@ -2890,6 +2965,16 @@ function mergeTaskTimelines(
     endedAt: task.ended_at,
     entries: entriesByExecution.get(task.execution_id) ?? [],
   }));
+}
+
+function countLegacyEventMarkersInLine(line: string): number {
+  let count = 0;
+  let offset = line.indexOf(LEGACY_NOTIFY_MARKER);
+  while (offset !== -1) {
+    count += 1;
+    offset = line.indexOf(LEGACY_NOTIFY_MARKER, offset + LEGACY_NOTIFY_MARKER.length);
+  }
+  return count;
 }
 
 function countLegacyEventMarkers(content: string): number {
@@ -3013,64 +3098,163 @@ async function loadMlaTarget(
       );
     }
   }
-  let framework: FrameworkSessionExtraction;
-  let sourceSegments: SourceSegment[];
+  let framework: FrameworkSessionExtraction | undefined;
+  let sourceSegments: SourceSegment[] = [];
   let analyzed;
   let legacyEventMarkers: number;
-  let pipelineOverrideExtraction: MlaPipelineOverrideExtraction;
+  let pipelineOverrideExtraction: MlaPipelineOverrideExtraction | undefined;
+  let intervals: KernelTaskInterval[] = [];
+  let runtimeInspection: MlaRuntimeInspectionResult | undefined;
+  let actionDetails: MlaActionDetail[] = [];
+  let recognitionDetails: MlaRecognitionDetail[] = [];
+  let timelineEntries = new Map<string, MlaTaskTimelineEntry[]>();
   const rawEventCounter = createRawEventCounter(timeRange);
   if (target.kind === "directory") {
     // One lazy source per file: a 2GB+ directory cannot be merged into one string (V8 tops out
     // around 512MB), and this path never asks the loader for that string.
     const loaded = await loadNodeLogSources(target.path, focus === undefined ? {} : { focus });
     if (loaded === null) return null;
-    // The facts that used to be derived from the merged string are scanned as each source is read,
-    // so the bytes are visited once and no source-sized string is retained by MEK. Framework
-    // sessions come from the same content: asking the upstream loader for them would read every
-    // selected file again and, before this path, failed on large directories' default size limit.
+    // Chunk-capable sources are parsed once: skeletons, event batches, and one task detail at a
+    // time. MEK builds its aggregates from those items instead of materializing the whole tree.
+    const chunked = focus === undefined
+      && loaded.sources.length > 0
+      && loaded.sources.every((source) => source.loadChunks !== undefined);
     const overrideScanner = createPipelineOverrideScanner();
     const frameworkExtractions: FrameworkSessionExtraction[] = [];
     let markers = 0;
-    const sources = loaded.sources.map((source) => ({
-      ...source,
-      loadContent: async () => {
-        const content = await source.loadContent();
-        markers += countLegacyEventMarkers(content);
-        overrideScanner.scan(content, source.sourceKey);
-        rawEventCounter.scan(content);
-        if (focus === undefined) {
-          frameworkExtractions.push(extractFrameworkSessions([{
-            path: source.sourcePath,
-            name: path.posix.basename(source.sourcePath),
-            content,
-            reference: source.sourceKey,
-          }]));
+    if (chunked) {
+      const frameworkBySource = new Map<string, ReturnType<typeof createFrameworkChunkAccumulator>>();
+      const feeders = new Map<string, ReturnType<typeof createLineFeeder>>();
+      let builder: ReturnType<typeof createRuntimeInspectionBuilder> | undefined;
+      let actionAccumulator: ReturnType<typeof createActionDetailAccumulator> | undefined;
+      let recognitionAccumulator: ReturnType<typeof createRecognitionDetailAccumulator> | undefined;
+      const startLineOfSource = new Map<string, number>();
+      const startLineOf = (sourceKey: string): number => startLineOfSource.get(sourceKey) ?? 1;
+      const sourceByKey = new Map(loaded.sources.map((source) => [source.sourceKey, source]));
+      const stream = iterateTaskDetails({
+        sources: loaded.sources,
+        errorImages: loaded.errorImages,
+        visionImages: loaded.visionImages,
+        waitFreezesImages: loaded.waitFreezesImages,
+        onChunk: ({ sourceKey, chunk }) => {
+          let feeder = feeders.get(sourceKey);
+          let frameworkAccumulator = frameworkBySource.get(sourceKey);
+          if (feeder === undefined || frameworkAccumulator === undefined) {
+            frameworkAccumulator = createFrameworkChunkAccumulator();
+            frameworkBySource.set(sourceKey, frameworkAccumulator);
+            const capture = frameworkAccumulator;
+            feeder = createLineFeeder((line, lineNumber) => {
+              markers += countLegacyEventMarkersInLine(line);
+              rawEventCounter.scanLine(line);
+              overrideScanner.scanLine(line, sourceKey, lineNumber);
+              capture.scanLine(line, lineNumber);
+            });
+            feeders.set(sourceKey, feeder);
+          }
+          feeder.push(chunk);
+        },
+      });
+      let summary: Awaited<ReturnType<typeof iterateTaskDetails>> extends AsyncGenerator<
+        unknown,
+        infer TSummary
+      > ? TSummary : never;
+      for (;;) {
+        const next = await stream.next();
+        if (next.done) {
+          summary = next.value;
+          break;
         }
-        return content;
-      },
-    }));
-    analyzed = await analyzeLogSources({
-      sources,
-      errorImages: loaded.errorImages,
-      visionImages: loaded.visionImages,
-      waitFreezesImages: loaded.waitFreezesImages,
-    });
-    // Merged line numbers are only known once the lazy sources were actually read.
-    sourceSegments = [...loaded.getSourceSegments()];
-    const startLineOfSource = new Map<string, number>();
-    for (const segment of sourceSegments) startLineOfSource.set(segment.source, segment.startLine);
-    legacyEventMarkers = markers;
-    pipelineOverrideExtraction = overrideScanner.finish(
-      timeRange,
-      // `focus` merges the selected files into one source whose local lines are already merged;
-      // every other source is mapped through the segment the loader reported for it.
-      (sourceKey) => startLineOfSource.get(sourceKey) ?? 1,
-    );
-    framework = focus === undefined
-      ? mergeFrameworkExtractions(frameworkExtractions)
-      // A focused load merged the matching files into one source, so framework positions cannot be
-      // taken from the parse sources without mapping every position back through the segments.
-      : extractFrameworkSessions(await loadFrameworkLogSources(target.path));
+        const item = next.value;
+        if (item.type === "skeletons") {
+          for (const [sourceKey, feeder] of feeders) {
+            feeder.finish();
+            const frameworkAccumulator = frameworkBySource.get(sourceKey);
+            if (frameworkAccumulator === undefined) continue;
+            frameworkExtractions.push(frameworkAccumulator.finish({
+              path: sourceByKey.get(sourceKey)?.sourcePath ?? "",
+              reference: sourceKey,
+            }));
+          }
+          // Source line counts are recorded only while the parser consumes the sources, so the
+          // segments and every source locator must be read at the skeletons item, not earlier.
+          sourceSegments = [...loaded.getSourceSegments()];
+          for (const segment of sourceSegments) startLineOfSource.set(segment.source, segment.startLine);
+          intervals = kernelTaskIntervals(item.skeletons);
+          framework = mergeFrameworkExtractions(frameworkExtractions);
+          builder = createRuntimeInspectionBuilder(framework, sourceSegments);
+          const rawCounts = rawEventCounter.counts();
+          actionAccumulator = createActionDetailAccumulator(
+            timeRange,
+            sourceSegments,
+            intervals,
+            rawCounts,
+          );
+          recognitionAccumulator = createRecognitionDetailAccumulator(
+            timeRange,
+            intervals,
+            sourceSegments,
+            rawCounts,
+          );
+        } else if (item.type === "events") {
+          actionAccumulator?.addEvents(item.events);
+          recognitionAccumulator?.addEvents(item.events);
+        } else {
+          builder?.addTask(item.task);
+          timelineEntries.set(
+            `${item.task.task_id}|${item.task.start_time}`,
+            taskTimelineEntries(item.task),
+          );
+        }
+      }
+      legacyEventMarkers = markers;
+      pipelineOverrideExtraction = overrideScanner.finish(timeRange, startLineOf);
+      if (builder === undefined || actionAccumulator === undefined || recognitionAccumulator === undefined) {
+        return null;
+      }
+      runtimeInspection = translateRuntimeInspection(builder.finish());
+      actionDetails = actionAccumulator.finish();
+      recognitionDetails = recognitionAccumulator.finish();
+      if (summary.warnings.length > 0) {
+        runtimeInspection = {
+          ...runtimeInspection,
+          warnings: [...runtimeInspection.warnings, ...summary.warnings],
+        };
+      }
+    } else {
+      const sources = loaded.sources.map((source) => ({
+        ...source,
+        loadContent: async () => {
+          const content = await source.loadContent();
+          markers += countLegacyEventMarkers(content);
+          overrideScanner.scan(content, source.sourceKey);
+          rawEventCounter.scan(content);
+          if (focus === undefined) {
+            frameworkExtractions.push(extractFrameworkSessions([{
+              path: source.sourcePath,
+              name: path.posix.basename(source.sourcePath),
+              content,
+              reference: source.sourceKey,
+            }]));
+          }
+          return content;
+        },
+      }));
+      analyzed = await analyzeLogSources({
+        sources,
+        errorImages: loaded.errorImages,
+        visionImages: loaded.visionImages,
+        waitFreezesImages: loaded.waitFreezesImages,
+      });
+      sourceSegments = [...loaded.getSourceSegments()];
+      const startLineOfSource = new Map<string, number>();
+      for (const segment of sourceSegments) startLineOfSource.set(segment.source, segment.startLine);
+      const startLineOf = (sourceKey: string): number => startLineOfSource.get(sourceKey) ?? 1;
+      legacyEventMarkers = markers;
+      pipelineOverrideExtraction = overrideScanner.finish(timeRange, startLineOf);
+      framework = focus === undefined
+        ? mergeFrameworkExtractions(frameworkExtractions)
+        : extractFrameworkSessions(await loadFrameworkLogSources(target.path));
+    }
   } else {
     const content = await readNodeTextFileContent(target.path);
     if (
@@ -3097,10 +3281,26 @@ async function loadMlaTarget(
       reference: `file:${portablePath(target.path)}`,
     }]);
   }
-  const runtime = filterRuntime(
-    translateRuntimeInspection(buildRuntimeInspection(analyzed, framework, sourceSegments)),
-    timeRange,
-  );
+  if (runtimeInspection === undefined) {
+    if (analyzed === undefined || framework === undefined) return null;
+    runtimeInspection = translateRuntimeInspection(
+      buildRuntimeInspection(analyzed, framework, sourceSegments),
+    );
+    intervals = kernelTaskIntervals(analyzed.tasks);
+    const rawCounts = rawEventCounter.counts();
+    actionDetails = extractActionDetails(analyzed, timeRange, sourceSegments, intervals, rawCounts);
+    recognitionDetails = extractRecognitionDetails(
+      analyzed,
+      timeRange,
+      intervals,
+      sourceSegments,
+      rawCounts,
+    );
+    for (const task of analyzed.tasks) {
+      timelineEntries.set(`${task.task_id}|${task.start_time}`, taskTimelineEntries(task));
+    }
+  }
+  const runtime = filterRuntime(runtimeInspection, timeRange);
   if (
     timeRange !== undefined
     && runtime.sessions.length === 0
@@ -3111,24 +3311,19 @@ async function loadMlaTarget(
   ) {
     return null;
   }
-  const intervals = kernelTaskIntervals(analyzed);
-  const rawCounts = rawEventCounter.counts();
-  const allActionDetails = extractActionDetails(
-    analyzed,
-    timeRange,
-    sourceSegments,
-    intervals,
-    rawCounts,
-  );
+  const allActionDetails = actionDetails;
   const actionSelection = sampleActionDetails(allActionDetails, {
     targetLabel: target.label,
     targetNamespace: target.namespace,
     failures: runtime.failures,
     includeAll: includeAllActionDetails,
   });
-  const pipelineOverrides = boundedPipelineOverrides(
-    namedPipelineOverrides(pipelineOverrideExtraction.observations, intervals),
-  );
+  const pipelineOverrides = pipelineOverrideExtraction === undefined
+    ? []
+    : boundedPipelineOverrides(
+      namedPipelineOverrides(pipelineOverrideExtraction.observations, intervals),
+    );
+  const pipelineOverridesTotal = pipelineOverrideExtraction?.observations.length ?? 0;
   const namespacedRuntime = namespaceRuntime(runtime, target.namespace);
   const parsedTaskCount = namespacedRuntime.sessions.reduce(
     (total, session) => total + session.tasks.length,
@@ -3137,23 +3332,17 @@ async function loadMlaTarget(
   return {
     target,
     runtime: namespacedRuntime,
-    taskTimelines: buildTargetTaskTimelines(analyzed, namespacedRuntime),
-    recognitionDetails: extractRecognitionDetails(
-      analyzed,
-      timeRange,
-      intervals,
-      sourceSegments,
-      rawCounts,
-    ),
+    taskTimelines: buildTargetTaskTimelines(timelineEntries, namespacedRuntime),
+    recognitionDetails,
     actionDetails: actionSelection.selected,
     actionDetailsTotal: allActionDetails.length,
     actionDetailSampling: actionSelection.sampling,
     actionOccurrences: allActionDetails.reduce((total, detail) => total + detail.occurrenceCount, 0),
     pipelineOverrides,
-    pipelineOverridesTotal: pipelineOverrideExtraction.observations.length,
-    pipelineOverrideMalformedLines: pipelineOverrideExtraction.malformedLines,
-    pipelineOverrideActivityLines: pipelineOverrideExtraction.activityLines,
-    frameworkVersionSummary: framework.summary,
+    pipelineOverridesTotal,
+    pipelineOverrideMalformedLines: pipelineOverrideExtraction?.malformedLines ?? 0,
+    pipelineOverrideActivityLines: pipelineOverrideExtraction?.activityLines ?? 0,
+    frameworkVersionSummary: framework?.summary ?? { status: "none", versions: [] },
     legacyEventMarkers,
     parsedTaskCount,
     sourceSegments,

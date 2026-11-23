@@ -37,6 +37,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `mla inspect --all-action-details` disables the cap for a resolve pass over a saved report.
   This replaces the previous evenly spaced chronological sample, which could drop the click that
   immediately preceded a failure.
+- **Multi-GB directories are parsed once as a task/event stream, and CLI runs under an explicit
+  old-space floor.** Skeletons, event batches, and one task detail at a time replace the whole
+  `KernelOutput`; pipeline-override fields are copied out of V8 sliced strings so a timestamp cannot
+  retain a multi-megabyte chunk; action/recognition accumulators keep only bounded samples. The
+  CLI re-executes itself with `--max-old-space-size=1792` when the caller did not set a limit, so a
+  small machine's default heap cannot turn a multi-GB inspection into an OOM.
+- **Pipeline-override payloads are interned by hash instead of retained per candidate.** The 2.4GB
+  corpus has 2,119 override candidates but only 76 distinct payload trees, so the scanner now parses
+  one tree per hash and shares it across equal candidates. This keeps the directory inside the
+  default Node heap without a second read, a temporary file, or changing the evidence fields.
 - **The pinned `@windsland52/maa-log-tools` moves to 2.3.0**, which exposes
   `loadNodeLogSources`, `analyzeLogSources`, and post-parse source segments through the exact
   kernel 1.2.0 / parser 2.2.0 / runtime 1.2.0 / adapter 1.2.0 pins, and whose

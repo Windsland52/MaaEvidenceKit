@@ -266,6 +266,8 @@ target、node、action、status、`occurrenceCount`、`rawLineCount` 和时间�
 
 ## `mla.pipeline_override`
 
+分块来源的 override 候选会先按 payload 哈希共享:相同哈希只解析一次 patch 树,所有等值候选引用同一份;observation 仍然逐条保留,不去重。
+
 MLA 会从 MaaFramework 核心日志中提取非空 `pipeline_override` JSON，按日志出现顺序输出
 `mla.pipeline_override` evidence。`patches` 保留 object 或 object array 的原始覆盖顺序，
 `nodeNames` 给出本次覆盖涉及的节点；`origin` 区分资源覆盖、任务提交、任务更新和 Context

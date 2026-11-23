@@ -82,6 +82,8 @@ Skill 的目录、安装方式和本地开发说明见 [`skills/README.md`](skil
 
 调用方负责先解压 ZIP,再将完整文件夹交给 MEK。日志目录按文件逐个解析,不会先把多个文件拼成
 一整段字符串(2 GB 级目录可用);`--keyword` / `--from` / `--to` 需要先读内容过滤,仍走合并路径。
+2 GB 级目录的瞬时峰值约 1.6–2.0 GB;CLI 未检测到 `--max-old-space-size` 时会自动以
+`--max-old-space-size=1792` 重启一次,避免 8 GB 机器的默认 heap 偏低导致 OOM(代价是解析变慢)。
 完整命令参考见 [`docs/cli.md`](docs/cli.md)。
 
 ```powershell

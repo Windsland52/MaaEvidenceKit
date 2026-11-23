@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
@@ -23,6 +24,7 @@ import {
 import { flag, integerOption, option, options, parseArguments, type ParsedArguments } from "./args.js";
 import { runWithAutomaticUpdates } from "./auto-update.js";
 import { readBatchRequests } from "./batch-input.js";
+import { hasHeapLimit, heapLimitedArguments } from "./heap.js";
 import { TOP_LEVEL_HELP, commandHelp } from "./help.js";
 import { emit, readInspection } from "./io.js";
 import { rejectUnknownOptions } from "./options.js";
@@ -736,5 +738,19 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<numb
 
 const invokedPath = process.argv[1];
 if (invokedPath !== undefined && import.meta.url === pathToFileURL(realpathSync(invokedPath)).href) {
-  process.exitCode = await runWithAutomaticUpdates(process.argv.slice(2), main);
+  const run = async (): Promise<number> => runWithAutomaticUpdates(process.argv.slice(2), main);
+  // A multi-GB log directory peaks well above the default old space on a small machine. Re-exec
+  // once with an explicit limit; the child has the flag, so this cannot recurse.
+  if (!hasHeapLimit(process.execArgv) && process.env.MAA_EVIDENCE_NO_HEAP_FLAG !== "1") {
+    const child = spawnSync(
+      process.execPath,
+      heapLimitedArguments(process.argv.slice(1), process.execArgv),
+      { stdio: "inherit", env: process.env },
+    );
+    process.exitCode = child.error === undefined
+      ? (child.status ?? 1)
+      : await run();
+  } else {
+    process.exitCode = await run();
+  }
 }

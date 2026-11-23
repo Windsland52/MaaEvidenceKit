@@ -15,8 +15,8 @@ importers:
         specifier: 1.0.0
         version: 1.0.0
       '@windsland52/maa-log-tools':
-        specifier: 2.3.0
-        version: 2.3.0
+        specifier: 2.4.0
+        version: 2.4.0
       cross-spawn:
         specifier: 7.0.6
         version: 7.0.6
@@ -480,24 +480,24 @@ packages:
   '@vitest/spy@5.0.5':
     resolution: {integrity: sha512-lwJRExuH417257Q5wv9QYugN9IMJkoxcrKrYxGPQkBzl7wlNpTUxD/5yNX4ESKVUIShKPgkGchYPFMWOOk0wzw==}
 
-  '@windsland52/maa-log-adapter@1.2.0':
-    resolution: {integrity: sha512-I3rUNXoGmUko5cDAxuGuq9GUZ4l6uDoaICNWrBZpIU6N91nGJIdZFQXbQQy50exnZWrpKd3Y7XcTcra6012rDg==}
+  '@windsland52/maa-log-adapter@1.3.0':
+    resolution: {integrity: sha512-LB1gJ5QQfkp4Obv6B11Z1xQeNvYsMYN+IXyFfabURHQzlZ5Czon+2nKCPQrYMNNLAnKK6vpBx5gbxifT68oD6Q==}
     engines: {node: '>=20.18.0'}
 
   '@windsland52/maa-log-kernel@1.2.0':
     resolution: {integrity: sha512-oYlhrzTxxkmLLBJcCEBJ7D3bUKdutU1h+3DHUNy9/aDYJr6KxO+btCmHekFSMajRxMFQNaI4Xah/yXCHptKGnw==}
     engines: {node: '>=20.18.0'}
 
-  '@windsland52/maa-log-parser@2.2.0':
-    resolution: {integrity: sha512-2CFByL29tEipc1wt2xByu12XBIGrsNnK0cfxuJP6geY49mEsGbz2PBnhhfcOunUXgzmPzQW0ZJVQKXSmoEocsg==}
+  '@windsland52/maa-log-parser@2.3.0':
+    resolution: {integrity: sha512-UCVKs54tFscwX/zVxDb/jtDb0PKGxcmD/0nfDPUvgUE6GsTsHhLjz5Of3LBY6BMyFhQJ8RrVBwtie/mnIMxjWQ==}
     engines: {node: '>=20.18.0'}
 
-  '@windsland52/maa-log-runtime@1.2.0':
-    resolution: {integrity: sha512-xbBWgucOYSHwCOIlzwhkhb5s7IofL6gJaDz9NrCSvSRmFuLrCV29hChbcRtS586AAyM+4PAaTAVYjVOIRdD1hQ==}
+  '@windsland52/maa-log-runtime@1.3.0':
+    resolution: {integrity: sha512-i9YBaryTfTZmtyDU0eWJNBkANbVxH2ezXI8gQcg6AIki6ii9CAnMA7PIzIYLlZTTbKK7iIp/dF/30ZgTpNlkvA==}
     engines: {node: '>=20.18.0'}
 
-  '@windsland52/maa-log-tools@2.3.0':
-    resolution: {integrity: sha512-tlDuLbVU3hETtGT5pHnOqtcF9w9FaXjMXxRJ7Z5r0QuAcRU0a7Ht/tBfa1fQ5ONug8dBkZcVwHcR5E4NaqrJwA==}
+  '@windsland52/maa-log-tools@2.4.0':
+    resolution: {integrity: sha512-j1kzlQ97Cjy2GnyTrrbo87/lOBsbMI53muaFJue4vFlfdP77Lnc0N0XYumPR2lwnAahghbkQ/w6bhYGsXNDj7A==}
     engines: {node: '>=20.18.0'}
     hasBin: true
 
@@ -1060,26 +1060,26 @@ snapshots:
 
   '@vitest/spy@5.0.5': {}
 
-  '@windsland52/maa-log-adapter@1.2.0':
+  '@windsland52/maa-log-adapter@1.3.0':
     dependencies:
       '@windsland52/maa-log-kernel': 1.2.0
-      '@windsland52/maa-log-parser': 2.2.0
-      '@windsland52/maa-log-runtime': 1.2.0
+      '@windsland52/maa-log-parser': 2.3.0
+      '@windsland52/maa-log-runtime': 1.3.0
 
   '@windsland52/maa-log-kernel@1.2.0': {}
 
-  '@windsland52/maa-log-parser@2.2.0': {}
+  '@windsland52/maa-log-parser@2.3.0': {}
 
-  '@windsland52/maa-log-runtime@1.2.0':
+  '@windsland52/maa-log-runtime@1.3.0':
     dependencies:
       '@windsland52/maa-log-kernel': 1.2.0
 
-  '@windsland52/maa-log-tools@2.3.0':
+  '@windsland52/maa-log-tools@2.4.0':
     dependencies:
-      '@windsland52/maa-log-adapter': 1.2.0
+      '@windsland52/maa-log-adapter': 1.3.0
       '@windsland52/maa-log-kernel': 1.2.0
-      '@windsland52/maa-log-parser': 2.2.0
-      '@windsland52/maa-log-runtime': 1.2.0
+      '@windsland52/maa-log-parser': 2.3.0
+      '@windsland52/maa-log-runtime': 1.3.0
       fflate: 0.8.3
 
   assertion-error@2.0.1: {}

@@ -1,6 +1,15 @@
+import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
+
 import type { TimeRange } from "../evidence/index.js";
 
 const TIMESTAMP_PATTERN = /^\[([^\]]+)\]/;
+
+/**
+ * Copy a small substring out of a log line. V8 keeps sliced strings pointing at their parent, so a
+ * timestamp or entry captured from a multi-megabyte chunk would retain the whole chunk.
+ */
+const copyText = (value: string): string => (value.length === 0 ? value : Buffer.from(value, "utf8").toString("utf8"));
 const CONTEXT_API_OVERRIDE_MARKER = "][MaaContextOverridePipeline]";
 const CONTEXT_OVERRIDE_MARKER = "][MaaNS::TaskNS::Context::override_pipeline]";
 const TASK_SUBMISSION_MARKER = "][MaaNS::Tasker::post_task]";
@@ -34,26 +43,6 @@ function hasMarker(line: string, bareMarker: string, symbol: string): boolean {
 }
 
 type JsonRecord = Record<string, unknown>;
-
-type OverrideOriginCandidate = {
-  canonicalOverride: string;
-  entry: string | null;
-  mergedLine: number;
-  origin: "task_submission" | "task_update";
-  patches: JsonRecord[];
-  taskId: number | null;
-  timestamp: string;
-};
-
-type ContextOverrideCandidate = {
-  canonicalOverride: string;
-  contextId: string;
-  mergedLine: number;
-  patches: JsonRecord[];
-  timestamp: string;
-};
-
-type ContextApiOverrideCandidate = Omit<ContextOverrideCandidate, "contextId">;
 
 export type MlaPipelineOverrideObservation = {
   sequence: number;
@@ -131,7 +120,21 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
-function parsePipelineOverride(line: string): { patches: JsonRecord[]; canonicalOverride: string } | null {
+/**
+ * Extract the raw `[pipeline_override=...]` payload without parsing it.
+ *
+ * Candidate metadata uses the range bounds directly; the payload is sliced only when its hash is
+ * first seen and the patch tree is then cached for every equal hash.
+ */
+export type PipelineOverrideBounds = { start: number; end: number };
+
+/**
+ * Locate the raw payload inside `[pipeline_override=...]` without allocating it.
+ *
+ * The scanner hashes this range in place, so one source does not create a substring per candidate;
+ * only the first occurrence of a distinct hash is sliced and parsed.
+ */
+export function pipelineOverrideBounds(line: string): PipelineOverrideBounds | null {
   const marker = "[pipeline_override=";
   const start = line.lastIndexOf(marker);
   if (start < 0) return null;
@@ -163,7 +166,32 @@ function parsePipelineOverride(line: string): { patches: JsonRecord[]; canonical
     }
   }
   if (payloadEnd < 0 || line[payloadEnd] !== "]") return null;
-  const payload = line.slice(payloadStart, payloadEnd);
+  return { start: payloadStart, end: payloadEnd };
+}
+
+/** 64-bit FNV-style hash over a substring; collision probability is negligible for mirror matching. */
+export function pipelineOverrideRangeHash(
+  line: string,
+  bounds: PipelineOverrideBounds,
+): string {
+  let left = 0x811c9dc5;
+  let right = 0x01000193;
+  for (let index = bounds.start; index < bounds.end; index += 1) {
+    const code = line.charCodeAt(index);
+    left = Math.imul(left ^ code, 0x01000193);
+    right = Math.imul(right ^ code, 0x5bd1e995);
+  }
+  return `${(left >>> 0).toString(16).padStart(8, "0")}${(right >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+export function readPipelineOverridePayload(line: string): string | null {
+  const bounds = pipelineOverrideBounds(line);
+  return bounds === null ? null : line.slice(bounds.start, bounds.end);
+}
+
+export function parsePipelineOverride(line: string): { patches: JsonRecord[]; canonicalOverride: string } | null {
+  const payload = readPipelineOverridePayload(line);
+  if (payload === null) return null;
   let parsed: unknown;
   try {
     parsed = JSON.parse(payload) as unknown;
@@ -213,15 +241,21 @@ function exactSingle<T>(values: Set<T> | undefined): T | null {
   return values.values().next().value as T;
 }
 
-function matchingOrigin(
-  context: ContextOverrideCandidate,
-  candidates: readonly OverrideOriginCandidate[],
-): OverrideOriginCandidate | null {
+type OverrideMatch = {
+  mergedLine: number;
+  timestamp: string;
+  canonicalHash: string;
+};
+
+function matchingOrigin<T extends OverrideMatch>(
+  context: OverrideMatch,
+  candidates: readonly T[],
+): T | null {
   const matches = candidates.filter((candidate) =>
     candidate.mergedLine < context.mergedLine
     && context.mergedLine - candidate.mergedLine <= 8
     && timestampDistanceMs(candidate.timestamp, context.timestamp) <= 50
-    && candidate.canonicalOverride === context.canonicalOverride
+    && candidate.canonicalHash === context.canonicalHash
   );
   return matches.sort((left, right) => right.mergedLine - left.mergedLine)[0] ?? null;
 }
@@ -280,47 +314,99 @@ function patchPathFields(
   };
 }
 
-type PendingOverrideOrigin = Omit<OverrideOriginCandidate, "mergedLine"> & {
+export type MlaPipelineOverrideCandidate = {
+  sequence: number;
+  scope: "context" | "resource" | "task";
+  origin: "context" | "resource" | "task_submission" | "task_update";
+  taskAssociation: "task_id" | "entry_only" | "none";
+  taskId: number | null;
+  taskName: string | null;
+  contextScopeId: string | null;
+  timestamp: string;
+  mergedLine: number;
+  /** Source-local locator of the line that produced this candidate. */
+  sourceKey: string;
+  localLine: number;
+  /** Hash of the raw override payload; one payload tree is shared by every equal hash. */
+  canonicalHash: string;
+  hasPatches: boolean;
+};
+
+export type MlaPipelineOverrideCandidateExtraction = {
+  candidates: MlaPipelineOverrideCandidate[];
+  malformedLines: number;
+  activityLines: number;
+};
+
+type PendingOverrideOrigin = {
+  canonicalHash: string;
+  entry: string | null;
+  origin: "task_submission" | "task_update";
+  hasPatches: boolean;
+  taskId: number | null;
+  timestamp: string;
   sourceKey: string;
   localLine: number;
 };
 
-type PendingContextOverride = Omit<ContextOverrideCandidate, "mergedLine"> & {
+type PendingContextOverride = {
+  canonicalHash: string;
+  contextId: string;
+  timestamp: string;
   sourceKey: string;
   localLine: number;
 };
 
-type PendingContextApiOverride = Omit<ContextApiOverrideCandidate, "mergedLine"> & {
-  sourceKey: string;
-  localLine: number;
-};
+type PendingContextApiOverride = Omit<PendingContextOverride, "contextId">;
 
 type PendingResourceOverride = {
+  canonicalHash: string;
+  timestamp: string;
   sourceKey: string;
   localLine: number;
-  patches: JsonRecord[];
-  timestamp: string;
 };
+
+export function pipelineOverrideHash(canonicalOverride: string): string {
+  return createHash("sha256").update(canonicalOverride).digest("hex");
+}
+
+/**
+ * Add the payload fields to one candidate from the scanner's shared hashed payload cache.
+ */
+export function pipelineOverrideObservation(
+  candidate: MlaPipelineOverrideCandidate,
+  patches: readonly JsonRecord[],
+): MlaPipelineOverrideObservation {
+  const {
+    sourceKey: _sourceKey,
+    localLine: _localLine,
+    canonicalHash: _canonicalHash,
+    hasPatches: _hasPatches,
+    ...rest
+  } = candidate;
+  return {
+    ...rest,
+    nodeNames: nodeNames(patches),
+    ...patchPathFields(patches),
+    patches: [...patches],
+  };
+}
 
 /**
  * Incremental override extraction for material that must stay split across sources.
  *
- * A 2GB+ directory is parsed from one lazy source per file, so MEK cannot hand the merged string to
- * `extractPipelineOverrides` (that string does not exist). The scanner records each candidate with
- * its source key and source-local line, then `finish` maps those to the merged line numbers the
- * evidence ledger already uses. Overrides that pair a context line in one file with the task line
- * that introduced it in another still match, because the mapping and matching happen only after
- * every source was scanned.
+ * Candidate rows carry metadata and a payload hash. The payload tree is parsed only the first time
+ * a hash appears and is shared by every equal hash; the 2.4GB corpus has 2,119 candidates but only
+ * 76 distinct payloads, so retaining one tree per candidate was the memory problem.
  */
 export interface PipelineOverrideScanner {
-  /** Scan one source's content, recording candidates against its source-local line numbers. */
   scan(content: string, sourceKey: string): number;
-  /**
-   * Resolve source-local lines to merged lines and produce the observations.
-   *
-   * `startLineOf` returns the merged line where that source begins; the default of 1 suits a
-   * single source whose local lines are already merged lines.
-   */
+  scanLine(line: string, sourceKey: string, localLine: number): void;
+  finishCandidates(
+    timeRange?: TimeRange,
+    startLineOf?: (sourceKey: string) => number,
+  ): MlaPipelineOverrideCandidateExtraction;
+  /** Materialize every candidate from the shared payload cache. */
   finish(
     timeRange?: TimeRange,
     startLineOf?: (sourceKey: string) => number,
@@ -328,6 +414,7 @@ export interface PipelineOverrideScanner {
 }
 
 export function createPipelineOverrideScanner(): PipelineOverrideScanner {
+  const payloadCache = new Map<string, { patches: JsonRecord[]; hasPatches: boolean }>();
   const origins: PendingOverrideOrigin[] = [];
   const contexts: PendingContextOverride[] = [];
   const contextApiInputs: PendingContextApiOverride[] = [];
@@ -336,16 +423,42 @@ export function createPipelineOverrideScanner(): PipelineOverrideScanner {
   let activityLines = 0;
   let malformedLines = 0;
 
+  const readOverride = (
+    line: string,
+  ): { canonicalHash: string; hasPatches: boolean } | null => {
+    const bounds = pipelineOverrideBounds(line);
+    if (bounds === null) return null;
+    const canonicalHash = pipelineOverrideRangeHash(line, bounds);
+    let cached = payloadCache.get(canonicalHash);
+    if (cached === undefined) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line.slice(bounds.start, bounds.end));
+      } catch {
+        return null;
+      }
+      const patches = Array.isArray(parsed) ? parsed : [parsed];
+      if (!patches.every(isRecord)) return null;
+      cached = {
+        patches,
+        hasPatches: patches.some((patch) => Object.keys(patch).length > 0),
+      };
+      payloadCache.set(canonicalHash, cached);
+    }
+    return { canonicalHash, hasPatches: cached.hasPatches };
+  };
+
   const scanLine = (line: string, sourceKey: string, localLine: number): void => {
     if (isOverrideActivityLine(line)) activityLines += 1;
     recordContextTaskId(line, contextTaskIds);
-    const timestamp = timestampOf(line);
-    if (timestamp === null) return;
+    const rawTimestamp = timestampOf(line);
+    if (rawTimestamp === null) return;
+    const timestamp = copyText(rawTimestamp);
     if (
       (line.includes(TASK_SUBMISSION_MARKER) || line.includes(TASK_UPDATE_MARKER))
       && line.includes("[pipeline_override=")
     ) {
-      const parsed = parsePipelineOverride(line);
+      const parsed = readOverride(line);
       if (parsed === null) {
         malformedLines += 1;
         return;
@@ -354,10 +467,10 @@ export function createPipelineOverrideScanner(): PipelineOverrideScanner {
       const rawTaskId = isSubmission ? null : bracketValue(line, "task_id");
       const taskId = rawTaskId === null ? null : Number(rawTaskId);
       origins.push({
-        canonicalOverride: parsed.canonicalOverride,
-        entry: isSubmission ? bracketValue(line, "entry") : null,
+        canonicalHash: parsed.canonicalHash,
+        entry: isSubmission ? (bracketValue(line, "entry") === null ? null : copyText(bracketValue(line, "entry") as string)) : null,
         origin: isSubmission ? "task_submission" : "task_update",
-        patches: parsed.patches,
+        hasPatches: parsed.hasPatches,
         taskId: taskId !== null && Number.isSafeInteger(taskId) ? taskId : null,
         timestamp,
         sourceKey,
@@ -366,34 +479,50 @@ export function createPipelineOverrideScanner(): PipelineOverrideScanner {
       return;
     }
     if (hasMarker(line, CONTEXT_OVERRIDE_MARKER, CONTEXT_OVERRIDE_SYMBOL)) {
-      const parsed = parsePipelineOverride(line);
+      const parsed = readOverride(line);
       const contextId = bracketValue(line, "getptr()");
       if (parsed === null || contextId === null) {
         malformedLines += 1;
         return;
       }
-      if (parsed.patches.every((patch) => Object.keys(patch).length === 0)) return;
-      contexts.push({ ...parsed, contextId, timestamp, sourceKey, localLine });
+      if (!parsed.hasPatches) return;
+      contexts.push({
+        canonicalHash: parsed.canonicalHash,
+        contextId: copyText(contextId),
+        timestamp,
+        sourceKey,
+        localLine,
+      });
       return;
     }
     if (line.includes(CONTEXT_API_OVERRIDE_MARKER) && line.includes("[pipeline_override=")) {
-      const parsed = parsePipelineOverride(line);
+      const parsed = readOverride(line);
       if (parsed === null) {
         malformedLines += 1;
         return;
       }
-      if (parsed.patches.every((patch) => Object.keys(patch).length === 0)) return;
-      contextApiInputs.push({ ...parsed, timestamp, sourceKey, localLine });
+      if (!parsed.hasPatches) return;
+      contextApiInputs.push({
+        canonicalHash: parsed.canonicalHash,
+        timestamp,
+        sourceKey,
+        localLine,
+      });
       return;
     }
     if (line.includes(RESOURCE_OVERRIDE_MARKER)) {
-      const parsed = parsePipelineOverride(line);
+      const parsed = readOverride(line);
       if (parsed === null) {
         malformedLines += 1;
         return;
       }
-      if (parsed.patches.every((patch) => Object.keys(patch).length === 0)) return;
-      resources.push({ localLine, patches: parsed.patches, timestamp, sourceKey });
+      if (!parsed.hasPatches) return;
+      resources.push({
+        canonicalHash: parsed.canonicalHash,
+        timestamp,
+        sourceKey,
+        localLine,
+      });
     }
   };
 
@@ -412,27 +541,23 @@ export function createPipelineOverrideScanner(): PipelineOverrideScanner {
     }
   };
 
-  const finish = (
+  const finishCandidates = (
     timeRange?: TimeRange,
     startLineOf: (sourceKey: string) => number = () => 1,
-  ): MlaPipelineOverrideExtraction => {
+  ): MlaPipelineOverrideCandidateExtraction => {
     const mergedLineOf = (candidate: { sourceKey: string; localLine: number }): number =>
       startLineOf(candidate.sourceKey) + candidate.localLine - 1;
-    const locatedOrigins: OverrideOriginCandidate[] = origins
+    const locatedOrigins = origins
       .map((origin) => ({ ...origin, mergedLine: mergedLineOf(origin) }))
       .sort((left, right) => left.mergedLine - right.mergedLine);
-    const locatedContexts: ContextOverrideCandidate[] = contexts
+    const locatedContexts = contexts
       .map((context) => ({ ...context, mergedLine: mergedLineOf(context) }))
       .sort((left, right) => left.mergedLine - right.mergedLine);
-    const locatedContextApiInputs: ContextApiOverrideCandidate[] = contextApiInputs
+    const locatedContextApiInputs = contextApiInputs
       .map((contextApiInput) => ({ ...contextApiInput, mergedLine: mergedLineOf(contextApiInput) }))
       .sort((left, right) => left.mergedLine - right.mergedLine);
     const locatedResources = resources
-      .map((resource) => ({
-        mergedLine: mergedLineOf(resource),
-        patches: resource.patches,
-        timestamp: resource.timestamp,
-      }))
+      .map((resource) => ({ ...resource, mergedLine: mergedLineOf(resource) }))
       .sort((left, right) => left.mergedLine - right.mergedLine);
 
     const contextOrdinals = new Map<string, string>();
@@ -442,12 +567,12 @@ export function createPipelineOverrideScanner(): PipelineOverrideScanner {
       }
     }
 
-    const observations: MlaPipelineOverrideObservation[] = [];
+    const candidates: MlaPipelineOverrideCandidate[] = [];
     const matchedOriginLines = new Set<number>();
     const matchedContextApiInputLines = new Set<number>();
     for (const resource of locatedResources) {
       if (!timestampWithin(resource.timestamp, timeRange)) continue;
-      observations.push({
+      candidates.push({
         sequence: resource.mergedLine,
         scope: "resource",
         origin: "resource",
@@ -455,11 +580,12 @@ export function createPipelineOverrideScanner(): PipelineOverrideScanner {
         taskId: null,
         taskName: null,
         contextScopeId: null,
-        nodeNames: nodeNames(resource.patches),
-        ...patchPathFields(resource.patches),
-        patches: resource.patches,
         timestamp: resource.timestamp,
         mergedLine: resource.mergedLine,
+        sourceKey: resource.sourceKey,
+        localLine: resource.localLine,
+        canonicalHash: resource.canonicalHash,
+        hasPatches: true,
       });
     }
     for (const context of locatedContexts) {
@@ -471,14 +597,14 @@ export function createPipelineOverrideScanner(): PipelineOverrideScanner {
           candidate.mergedLine < context.mergedLine
           && context.mergedLine - candidate.mergedLine <= 8
           && timestampDistanceMs(candidate.timestamp, context.timestamp) <= 50
-          && candidate.canonicalOverride === context.canonicalOverride
+          && candidate.canonicalHash === context.canonicalHash
         )
         .sort((left, right) => right.mergedLine - left.mergedLine)[0] ?? null;
       if (contextApiInput !== null) matchedContextApiInputLines.add(contextApiInput.mergedLine);
       const mappedTaskId = exactSingle(contextTaskIds.get(context.contextId));
       const taskId = origin?.taskId ?? mappedTaskId;
       const taskName = origin?.entry ?? null;
-      observations.push({
+      candidates.push({
         sequence: context.mergedLine,
         scope: "context",
         origin: origin?.origin ?? "context",
@@ -486,30 +612,31 @@ export function createPipelineOverrideScanner(): PipelineOverrideScanner {
         taskId,
         taskName,
         contextScopeId: contextOrdinals.get(context.contextId) ?? null,
-        nodeNames: nodeNames(context.patches),
-        ...patchPathFields(context.patches),
-        patches: context.patches,
         timestamp: context.timestamp,
         mergedLine: context.mergedLine,
+        sourceKey: context.sourceKey,
+        localLine: context.localLine,
+        canonicalHash: context.canonicalHash,
+        hasPatches: true,
       });
     }
     for (const origin of locatedOrigins) {
       if (matchedOriginLines.has(origin.mergedLine) || !timestampWithin(origin.timestamp, timeRange)) continue;
-      if (origin.patches.every((patch) => Object.keys(patch).length === 0)) continue;
-      const taskName = origin.entry;
-      observations.push({
+      if (!origin.hasPatches) continue;
+      candidates.push({
         sequence: origin.mergedLine,
         scope: "task",
         origin: origin.origin,
-        taskAssociation: origin.taskId !== null ? "task_id" : taskName !== null ? "entry_only" : "none",
+        taskAssociation: origin.taskId !== null ? "task_id" : origin.entry !== null ? "entry_only" : "none",
         taskId: origin.taskId,
-        taskName,
+        taskName: origin.entry,
         contextScopeId: null,
-        nodeNames: nodeNames(origin.patches),
-        ...patchPathFields(origin.patches),
-        patches: origin.patches,
         timestamp: origin.timestamp,
         mergedLine: origin.mergedLine,
+        sourceKey: origin.sourceKey,
+        localLine: origin.localLine,
+        canonicalHash: origin.canonicalHash,
+        hasPatches: true,
       });
     }
     for (const contextApiInput of locatedContextApiInputs) {
@@ -517,7 +644,7 @@ export function createPipelineOverrideScanner(): PipelineOverrideScanner {
         matchedContextApiInputLines.has(contextApiInput.mergedLine)
         || !timestampWithin(contextApiInput.timestamp, timeRange)
       ) continue;
-      observations.push({
+      candidates.push({
         sequence: contextApiInput.mergedLine,
         scope: "context",
         origin: "context",
@@ -525,26 +652,39 @@ export function createPipelineOverrideScanner(): PipelineOverrideScanner {
         taskId: null,
         taskName: null,
         contextScopeId: null,
-        nodeNames: nodeNames(contextApiInput.patches),
-        ...patchPathFields(contextApiInput.patches),
-        patches: contextApiInput.patches,
         timestamp: contextApiInput.timestamp,
         mergedLine: contextApiInput.mergedLine,
+        sourceKey: contextApiInput.sourceKey,
+        localLine: contextApiInput.localLine,
+        canonicalHash: contextApiInput.canonicalHash,
+        hasPatches: true,
       });
     }
-    observations.sort((left, right) => left.mergedLine - right.mergedLine);
-    return { observations, malformedLines, activityLines };
+    candidates.sort((left, right) => left.mergedLine - right.mergedLine);
+    return { candidates, malformedLines, activityLines };
   };
 
-  return { scan, finish };
+  const finish = (
+    timeRange?: TimeRange,
+    startLineOf: (sourceKey: string) => number = () => 1,
+  ): MlaPipelineOverrideExtraction => {
+    const extraction = finishCandidates(timeRange, startLineOf);
+    return {
+      observations: extraction.candidates.map((candidate) => {
+        const cached = payloadCache.get(candidate.canonicalHash);
+        if (cached === undefined) {
+          throw new Error("Pipeline override payload cache lost a candidate payload.");
+        }
+        return pipelineOverrideObservation(candidate, cached.patches);
+      }),
+      malformedLines: extraction.malformedLines,
+      activityLines: extraction.activityLines,
+    };
+  };
+
+  return { scan, scanLine, finishCandidates, finish };
 }
 
-/**
- * Extract overrides from one already-materialized string.
- *
- * Directory inspection with more than one source uses `createPipelineOverrideScanner` instead, so
- * no caller has to build the merged string this function needs.
- */
 export function extractPipelineOverrides(
   content: string,
   timeRange?: TimeRange,
