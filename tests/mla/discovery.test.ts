@@ -49,6 +49,24 @@ test("discovers Maa logs while reporting unsupported and missing multipart mater
 // scan bound is the only entry-count guard left on a discovered directory. Pin the reported bound
 // fields so a future upstream or local change to that limit fails here instead of silently
 // widening how much of a directory an inspection walks.
+test("classifies gzip-compressed MaaFramework logs by name family, not by compressed bytes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-discovery-gzip-"));
+  temporaryRoots.push(root);
+  const gzipBytes = Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03]);
+  await writeFile(path.join(root, "maafw.bak.2026.07.19-09.00.00.000.log.gz"), gzipBytes);
+  await writeFile(path.join(root, "maafw.log.gz"), gzipBytes);
+  await writeFile(path.join(root, "service.log.gz"), gzipBytes);
+
+  const discovery = await discoverArtifacts(root);
+
+  expect(discovery.artifacts.find((item) => item.relativePath === "maafw.bak.2026.07.19-09.00.00.000.log.gz")?.kind)
+    .toBe("maa_log");
+  expect(discovery.artifacts.find((item) => item.relativePath === "maafw.log.gz")?.kind).toBe("maa_log");
+  // A different name family cannot be sampled after compression, so it stays an unsupported log
+  // rather than being guessed as MaaFramework material.
+  expect(discovery.artifacts.find((item) => item.relativePath === "service.log.gz")?.kind).toBe("log");
+});
+
 test("reports the scanned-file bound instead of relying on an upstream entry-count limit", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mek-discovery-bound-"));
   temporaryRoots.push(root);

@@ -3,11 +3,14 @@ import path from "node:path";
 
 import {
   analyzeLogContent,
+  analyzeLogSources,
   buildRuntimeInspection,
   extractFrameworkSessions,
   loadFrameworkLogSources,
-  loadNodeLogDirectory,
+  loadNodeLogSources,
   readNodeTextFileContent,
+  type FrameworkSession,
+  type FrameworkSessionExtraction,
   type FrameworkVersionSummary,
   type LogBundleFocus,
   type SourceSegment,
@@ -43,7 +46,9 @@ import {
 } from "./discovery.js";
 import type { OmittedUnsupportedFile } from "./discovery.js";
 import {
+  createPipelineOverrideScanner,
   extractPipelineOverrides,
+  type MlaPipelineOverrideExtraction,
   type MlaPipelineOverrideObservation,
 } from "./overrides.js";
 import {
@@ -1277,6 +1282,29 @@ function positionForMergedLine(
   };
 }
 
+/**
+ * Map a kernel event's source-local line back to the merged line number evidence windows use.
+ *
+ * The parser numbers `_lineNumber` from 1 in every source. A single merged string therefore has
+ * merged numbers already, but a directory parsed as one lazy source per file restarts at 1 per
+ * file; the segment's `startLine` supplies the offset. A source key that has no segment is a
+ * merged-string parse (single file or `focus`), where the local line is already the merged line.
+ */
+function eventMergedLine(
+  event: {
+    readonly _lineNumber?: number | undefined;
+    readonly source?: { readonly sourceKey?: string | undefined; readonly line?: number | undefined } | undefined;
+  },
+  sourceSegments: readonly SourceSegment[],
+): number | null {
+  const localLine = event._lineNumber ?? event.source?.line ?? null;
+  if (localLine === null) return null;
+  const sourceKey = event.source?.sourceKey;
+  if (sourceKey === undefined) return localLine;
+  const segment = sourceSegments.find((item) => item.source === sourceKey);
+  return segment === undefined ? localLine : segment.startLine + localLine - 1;
+}
+
 function emptyRuntime(warnings: string[] = []): MlaRuntimeInspectionResult {
   return {
     schema_version: "mla-runtime-inspection/v1",
@@ -1388,7 +1416,7 @@ async function looksLikeProjectRoot(root: string): Promise<boolean> {
 }
 
 function isMainLog(file: string): boolean {
-  const name = path.basename(file).toLowerCase();
+  const name = path.basename(file).toLowerCase().replace(/\.gz$/, "");
   return name === "maa.log" || name === "maafw.log";
 }
 
@@ -1811,6 +1839,7 @@ function candidateBox(value: unknown): [number, number, number, number] | null {
 function extractActionDetails(
   analyzed: Awaited<ReturnType<typeof analyzeLogContent>>,
   timeRange: TimeRange | undefined,
+  sourceSegments: readonly SourceSegment[],
 ): MlaActionDetail[] {
   const groups = new Map<string, {
     action: string;
@@ -1848,7 +1877,7 @@ function extractActionDetails(
       detail: actionDetails["detail"] ?? null,
       taskId,
       timestamp: event.timestamp,
-      mergedLine: event._lineNumber ?? null,
+      mergedLine: eventMergedLine(event, sourceSegments),
     });
     groups.set(key, group);
   }
@@ -2230,6 +2259,7 @@ function extractRecognitionDetails(
   analyzed: Awaited<ReturnType<typeof analyzeLogContent>>,
   timeRange: TimeRange | undefined,
   intervals: readonly KernelTaskInterval[],
+  sourceSegments: readonly SourceSegment[],
 ): MlaRecognitionDetail[] {
   const groups = new Map<string, {
     algorithm: string;
@@ -2330,7 +2360,7 @@ function extractRecognitionDetails(
       group.allLengths.push(shape.all.length);
       group.filteredLengths.push(shape.filtered.length);
       if (shape.best !== null) group.bestPresentCount += 1;
-      const mergedLine = event._lineNumber ?? null;
+      const mergedLine = eventMergedLine(event, sourceSegments);
       addCandidateStageSamples(group.candidateStages.all, shape.all, event.timestamp, mergedLine);
       addCandidateStageSamples(group.candidateStages.filtered, shape.filtered, event.timestamp, mergedLine);
       addCandidateStageSamples(
@@ -2391,12 +2421,12 @@ function extractRecognitionDetails(
           entry.bestSamples.push({
             ...descendant.best,
             timestamp: event.timestamp,
-            mergedLine: event._lineNumber ?? null,
+            mergedLine: eventMergedLine(event, sourceSegments),
           });
         }
         group.descendantRecognition.set(descendantKey, entry);
       }
-      group.samples.push({ timestamp: event.timestamp, mergedLine: event._lineNumber ?? null });
+      group.samples.push({ timestamp: event.timestamp, mergedLine: eventMergedLine(event, sourceSegments) });
     }
     groups.set(key, group);
   }
@@ -2598,6 +2628,51 @@ function legacyLogFormatWarning(
     + "upgrading MaaFramework is what produces task-level evidence.";
 }
 
+/**
+ * Merge per-source framework extractions into the shape `buildRuntimeInspection` expects.
+ *
+ * MEK already reads every source once for parsing, so it derives framework sessions from that same
+ * content instead of asking the framework loader to read the whole corpus a second time (which is
+ * both a multi-GB copy and subject to the upstream default file-size limit). Upstream extracts one
+ * source at a time anyway, so concatenating the results preserves session boundaries; only the
+ * session ids need renumbering to stay unique across sources. The summary and warning rules are the
+ * upstream ones, restated here because the public API has no merge helper.
+ */
+function mergeFrameworkExtractions(
+  extractions: readonly FrameworkSessionExtraction[],
+): FrameworkSessionExtraction {
+  const sessions: FrameworkSession[] = [];
+  for (const extraction of extractions) {
+    for (const session of extraction.sessions) {
+      sessions.push({ ...session, sessionId: `framework-session-${sessions.length + 1}` });
+    }
+  }
+  const versions = [...new Set(sessions.flatMap((session) => session.versions))];
+  const status: FrameworkVersionSummary["status"] = sessions.some((session) => session.status === "conflict")
+    ? "conflict"
+    : versions.length === 0
+      ? "none"
+      : versions.length === 1
+        ? "single"
+        : "multiple";
+  const warnings: string[] = [];
+  if (status === "multiple") {
+    warnings.push(`Multiple MaaFramework versions found in selected logs: ${versions.join(", ")}.`);
+  }
+  if (status === "conflict") {
+    warnings.push("Conflicting MaaFramework version headers found within a runtime session.");
+  }
+  if (sessions.some((session) => session.startKind === "partial_file")) {
+    warnings.push(
+      "Some core log content starts without a MAA Process Start marker; its session boundary is partial.",
+    );
+  }
+  if (sessions.some((session) => session.status === "missing_version")) {
+    warnings.push("Some MaaFramework runtime sessions do not contain a Logger version header.");
+  }
+  return { sessions, summary: { status, versions }, warnings };
+}
+
 async function loadMlaTarget(
   target: MlaTarget,
   artifacts: readonly Artifact[],
@@ -2613,23 +2688,64 @@ async function loadMlaTarget(
       );
     }
   }
-  const framework = extractFrameworkSessions(await loadFrameworkLogSources(target.path));
+  let framework: FrameworkSessionExtraction;
   let sourceSegments: SourceSegment[];
-  let content: string;
   let analyzed;
+  let legacyEventMarkers: number;
+  let pipelineOverrideExtraction: MlaPipelineOverrideExtraction;
   if (target.kind === "directory") {
-    const extracted = await loadNodeLogDirectory(target.path, focus === undefined ? {} : { focus });
-    if (extracted === null) return null;
-    content = extracted.content;
-    sourceSegments = [...extracted.sourceSegments];
-    analyzed = await analyzeLogContent({
-      content,
-      errorImages: extracted.errorImages,
-      visionImages: extracted.visionImages,
-      waitFreezesImages: extracted.waitFreezesImages,
+    // One lazy source per file: a 2GB+ directory cannot be merged into one string (V8 tops out
+    // around 512MB), and this path never asks the loader for that string.
+    const loaded = await loadNodeLogSources(target.path, focus === undefined ? {} : { focus });
+    if (loaded === null) return null;
+    // The facts that used to be derived from the merged string are scanned as each source is read,
+    // so the bytes are visited once and no source-sized string is retained by MEK. Framework
+    // sessions come from the same content: asking the upstream loader for them would read every
+    // selected file again and, before this path, failed on large directories' default size limit.
+    const overrideScanner = createPipelineOverrideScanner();
+    const frameworkExtractions: FrameworkSessionExtraction[] = [];
+    let markers = 0;
+    const sources = loaded.sources.map((source) => ({
+      ...source,
+      loadContent: async () => {
+        const content = await source.loadContent();
+        markers += countLegacyEventMarkers(content);
+        overrideScanner.scan(content, source.sourceKey);
+        if (focus === undefined) {
+          frameworkExtractions.push(extractFrameworkSessions([{
+            path: source.sourcePath,
+            name: path.posix.basename(source.sourcePath),
+            content,
+            reference: source.sourceKey,
+          }]));
+        }
+        return content;
+      },
+    }));
+    analyzed = await analyzeLogSources({
+      sources,
+      errorImages: loaded.errorImages,
+      visionImages: loaded.visionImages,
+      waitFreezesImages: loaded.waitFreezesImages,
     });
+    // Merged line numbers are only known once the lazy sources were actually read.
+    sourceSegments = [...loaded.getSourceSegments()];
+    const startLineOfSource = new Map<string, number>();
+    for (const segment of sourceSegments) startLineOfSource.set(segment.source, segment.startLine);
+    legacyEventMarkers = markers;
+    pipelineOverrideExtraction = overrideScanner.finish(
+      timeRange,
+      // `focus` merges the selected files into one source whose local lines are already merged;
+      // every other source is mapped through the segment the loader reported for it.
+      (sourceKey) => startLineOfSource.get(sourceKey) ?? 1,
+    );
+    framework = focus === undefined
+      ? mergeFrameworkExtractions(frameworkExtractions)
+      // A focused load merged the matching files into one source, so framework positions cannot be
+      // taken from the parse sources without mapping every position back through the segments.
+      : extractFrameworkSessions(await loadFrameworkLogSources(target.path));
   } else {
-    content = await readNodeTextFileContent(target.path);
+    const content = await readNodeTextFileContent(target.path);
     if (
       focus?.keywords !== undefined
       && focus.keywords.length > 0
@@ -2644,8 +2760,15 @@ async function loadMlaTarget(
       lineCount: (content.match(/\n/g) ?? []).length + 1,
     }];
     analyzed = await analyzeLogContent({ content, ...imageMaps });
+    legacyEventMarkers = countLegacyEventMarkers(content);
+    pipelineOverrideExtraction = extractPipelineOverrides(content, timeRange);
+    framework = extractFrameworkSessions([{
+      path: portablePath(target.path),
+      name: path.basename(target.path),
+      content,
+      reference: `file:${portablePath(target.path)}`,
+    }]);
   }
-  const legacyEventMarkers = countLegacyEventMarkers(content);
   const runtime = filterRuntime(
     translateRuntimeInspection(buildRuntimeInspection(analyzed, framework, sourceSegments)),
     timeRange,
@@ -2661,8 +2784,7 @@ async function loadMlaTarget(
     return null;
   }
   const intervals = kernelTaskIntervals(analyzed);
-  const allActionDetails = extractActionDetails(analyzed, timeRange);
-  const pipelineOverrideExtraction = extractPipelineOverrides(content, timeRange);
+  const allActionDetails = extractActionDetails(analyzed, timeRange, sourceSegments);
   const pipelineOverrides = boundedPipelineOverrides(
     namedPipelineOverrides(pipelineOverrideExtraction.observations, intervals),
   );
@@ -2675,7 +2797,7 @@ async function loadMlaTarget(
     target,
     runtime: namespacedRuntime,
     taskTimelines: buildTargetTaskTimelines(analyzed, namespacedRuntime),
-    recognitionDetails: extractRecognitionDetails(analyzed, timeRange, intervals),
+    recognitionDetails: extractRecognitionDetails(analyzed, timeRange, intervals, sourceSegments),
     actionDetails: boundedActionDetails(allActionDetails),
     actionDetailsTotal: allActionDetails.length,
     actionOccurrences: allActionDetails.reduce((total, detail) => total + detail.occurrenceCount, 0),

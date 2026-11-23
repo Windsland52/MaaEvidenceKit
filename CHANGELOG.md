@@ -7,6 +7,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Directory inspection keeps each MaaFramework log file as its own lazy source.** `mla inspect`
+  now calls the MLA multi-source loader and analyzer instead of asking for one merged string, so a
+  multi-file directory can exceed V8's string limit without failing during loading. Legacy-format
+  marker counts and pipeline-override extraction scan each source as it is read, and merged line
+  offsets are restored after parsing from the loader's source segments. Framework-version sessions
+  are derived from the same source content, so the framework loader no longer re-reads the selected
+  logs or rejects a large one at its default 256 MB cap. Runtime, recognition, action, and override
+  evidence still name the file and file-local line that produced each fact. Keyword and time-window
+  narrowing still merge the matching files into one source because the filter must read their
+  content first; that combination keeps the upstream single-string limit.
+- **The pinned `@windsland52/maa-log-tools` moves to 2.3.0**, which exposes
+  `loadNodeLogSources`, `analyzeLogSources`, and post-parse source segments through the exact
+  kernel 1.2.0 / parser 2.2.0 / runtime 1.2.0 / adapter 1.2.0 pins, and whose
+  `buildRuntimeInspection` maps every event through the source segment that produced it.
+
 ## [0.12.1] - 2026-11-06
 
 ### Changed

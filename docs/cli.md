@@ -113,6 +113,11 @@ maa-evidence mla inspect C:\path\to\materials `
   --profile profile.json
 ```
 
+**目录按文件逐个解析,不拼成一整段字符串。** 多文件日志目录里每个文件都是独立来源,解析完成后
+按实际读到的行数还原合并行号;因此 2 GB 级目录不再撞 V8 的单字符串上限,运行时、识别、动作与
+pipeline override 证据仍能指回具体文件与文件内行号。`--keyword` 与 `--from` / `--to` 需要先读内容
+才能判断命中,仍会把命中文件合并成单个来源;超大目录叠加过滤时仍受上游合并上限约束。
+
 **`--format manifest` = 发现态短路(先看覆盖,再决定是否支付解析)。** 它只做发现层工作——遍历、
 分类、对**全部** artifact 流式算 sha256——然后**停下**:不选 target、不 load 日志、不物化 evidence。
 输出是一份 `maa-evidence/manifest-v1` 清单,其中 `input.extraction` 固定为 `"not-run"`,顶层**没有**

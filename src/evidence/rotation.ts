@@ -21,13 +21,13 @@ export const ROTATION_TIME_BASIS = "rotation-filename" as const;
  */
 export const ROTATION_BOUNDARY_AMBIGUITY_MS = 25;
 
-const ROTATION_TIMESTAMPED = /^maafw\.(?:bak\.)?(\d{4})\.(\d{2})\.(\d{2})-(\d{2})\.(\d{2})\.(\d{2})\.(\d{3})\.log$/;
+const ROTATION_TIMESTAMPED = /^maafw\.(?:bak\.)?(\d{4})\.(\d{2})\.(\d{2})-(\d{2})\.(\d{2})\.(\d{2})\.(\d{3})\.log(?:\.gz)?$/;
 
 /**
  * Active (undated) MaaFramework log names. They sit at the end of their rotation family and never
  * carry a name boundary of their own.
  */
-const ROTATION_UNDATED = /^(?:maa|maa\.bak|maafw)\.log$|^maafw\..+\.log$/;
+const ROTATION_UNDATED = /^(?:maa|maa\.bak|maafw)\.log(?:\.gz)?$|^maafw\..+\.log(?:\.gz)?$/;
 
 export type RotationCoverage = {
   rotation: { family: string; index: number };

@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { gzipSync } from "node:zlib";
 import os from "node:os";
 import path from "node:path";
 
@@ -1512,6 +1513,75 @@ test("selects and merges independent log bundles from a project directory", asyn
   expect(focused.artifacts.filter((artifact) => artifact.status === "selected").map((artifact) => artifact.relativePath))
     .toEqual(["debug/maafw.log"]);
   expect(focused.missingEvidence.some((item) => item.code === "mla_target_empty")).toBe(false);
+});
+
+test("parses a directory as separate sources and keeps second-file override line numbers", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-sources-"));
+  temporaryRoots.push(root);
+  const rotated = path.join(root, "maafw.bak.2026.07.19-09.00.00.000.log");
+  const current = path.join(root, "maafw.log");
+  await writeFile(rotated, [
+    "[2026-07-19 09:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 09:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 09:01:00.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "First", hash: "h1", uuid: "u1",
+    }),
+    event("2026-07-19 09:01:01.000", "Tasker.Task.Succeeded", {
+      task_id: 1, entry: "First", hash: "h1", uuid: "u1",
+    }),
+  ].join("\n"), "utf8");
+  await writeFile(current, [
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Tasker.Task.Starting", {
+      task_id: 2, entry: "Second", hash: "h2", uuid: "u2",
+    }),
+    "[2026-07-19 10:01:01.000][DBG][Px1][Tx1][Logger] MessageNotifier::notify legacy task marker",
+    '[2026-07-19 10:01:02.000][DBG][Px1][Tx1][Tasker.cpp][L373][MaaNS::Tasker::override_pipeline] [task_id=2] [pipeline_override={"Node":{"enabled":false}}] | enter',
+    event("2026-07-19 10:01:03.000", "Tasker.Task.Succeeded", {
+      task_id: 2, entry: "Second", hash: "h2", uuid: "u2",
+    }),
+  ].join("\n"), "utf8");
+
+  const result = await inspectMla(root);
+
+  expect(result.details.runtime.sessions.flatMap((session) => session.tasks.map((task) => task.name)))
+    .toEqual(expect.arrayContaining(["First", "Second"]));
+  const second = result.details.runtime.sessions
+    .flatMap((session) => session.tasks)
+    .find((task) => task.name === "Second");
+  expect(second?.evidence.start.path).toBe("maafw.log");
+  // Every source is scanned for this marker; the count must not stop at the first file.
+  expect(result.details.selection.logGroups.reduce((total, group) => total + group.legacyEventMarkers, 0)).toBe(1);
+  const overrides = result.evidence.filter((item) => item.kind === "mla.pipeline_override");
+  expect(overrides).toHaveLength(1);
+  // The merged line is offset by the rotated file's four lines, while the reported source line stays
+  // local to the file the override was read from.
+  expect(overrides[0]?.source).toMatchObject({ path: "maafw.log", line: 5 });
+  expect(overrides[0]?.source).not.toMatchObject({ path: path.basename(rotated) });
+});
+
+test("parses gzip-compressed directory logs and keeps their artifact kind", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mek-mla-gzip-"));
+  temporaryRoots.push(root);
+  await writeFile(path.join(root, "maafw.log.gz"), gzipSync(Buffer.from([
+    "[2026-07-19 10:00:00.000][DBG][Px1][Tx1][Logger] MAA Process Start",
+    "[2026-07-19 10:00:00.001][DBG][Px1][Tx1][Logger] Version v5.12.2",
+    event("2026-07-19 10:01:00.000", "Tasker.Task.Starting", {
+      task_id: 1, entry: "GzipTask", hash: "h1", uuid: "u1",
+    }),
+    event("2026-07-19 10:01:01.000", "Tasker.Task.Succeeded", {
+      task_id: 1, entry: "GzipTask", hash: "h1", uuid: "u1",
+    }),
+  ].join("\n"), "utf8")));
+
+  const result = await inspectMla(root);
+
+  expect(result.details.runtime.sessions.flatMap((session) => session.tasks.map((task) => task.name)))
+    .toContain("GzipTask");
+  expect(result.artifacts.find((artifact) => artifact.relativePath === "maafw.log.gz")?.kind).toBe("maa_log");
+  const taskEvidence = result.evidence.find((item) => item.kind === "mla.task");
+  expect(taskEvidence?.source).toMatchObject({ path: "maafw.log.gz" });
 });
 
 test("correlates standard MaaFramework error images with failures from rotated logs", async () => {

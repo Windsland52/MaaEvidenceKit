@@ -132,7 +132,9 @@ async function hasSupportedImageSignature(file: string): Promise<boolean> {
 }
 
 function isMaaFilename(file: string): boolean {
-  const name = path.basename(file).toLowerCase();
+  // `*.log.gz` keeps the same name family: the analyzer expands the gzip stream itself, so the
+  // compressed suffix must not demote a MaaFramework log to an unsupported file.
+  const name = path.basename(file).toLowerCase().replace(/\.gz$/, "");
   return (
     name === "maa.log"
     || name === "maa.bak.log"
@@ -147,8 +149,12 @@ async function classifyFile(file: string): Promise<Artifact["kind"]> {
   if (/\.(?:png|jpe?g|webp|bmp)$/i.test(name)) return "image";
   if (/\.jsonc?$/i.test(name) && /(?:pipeline|resource|task)/i.test(file)) return "pipeline";
   if (await hasSupportedImageSignature(file)) return "image";
-  if (!name.endsWith(".log") && !name.endsWith(".txt")) return "other";
+  const compressedTextLog = name.endsWith(".log.gz") || name.endsWith(".txt.gz");
+  if (!name.endsWith(".log") && !name.endsWith(".txt") && !compressedTextLog) return "other";
   if (isMaaFilename(file)) return "maa_log";
+  // A compressed sample is not decodable as text, so a generic `*.log.gz` stays an unsupported
+  // log instead of being guessed from bytes.
+  if (compressedTextLog) return "log";
   const sample = await boundedSample(file);
   if (sample.includes("[Logger] MAA Process Start")) return "maa_log";
   if ((sample.match(MAA_LINE) ?? []).length >= 2) return "maa_log";

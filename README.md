@@ -80,8 +80,9 @@ Skill 的目录、安装方式和本地开发说明见 [`skills/README.md`](skil
 
 ## 快速开始
 
-调用方负责先解压 ZIP,再将完整文件夹交给 MEK。完整命令参考见
-[`docs/cli.md`](docs/cli.md)。
+调用方负责先解压 ZIP,再将完整文件夹交给 MEK。日志目录按文件逐个解析,不会先把多个文件拼成
+一整段字符串(2 GB 级目录可用);`--keyword` / `--from` / `--to` 需要先读内容过滤,仍走合并路径。
+完整命令参考见 [`docs/cli.md`](docs/cli.md)。
 
 ```powershell
 # 自动选择可用适配器

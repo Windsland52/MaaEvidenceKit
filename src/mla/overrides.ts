@@ -89,7 +89,7 @@ export type MlaPipelineOverrideExtraction = {
 };
 
 /**
- * Count log lines that look like they carry a pipeline override, without depending on any known
+ * Whether a log line looks like it carries a pipeline override, without depending on any known
  * marker name or format.
  *
  * This exists to make a complete extraction miss detectable. The marker in a real log line is a
@@ -109,15 +109,11 @@ export type MlaPipelineOverrideExtraction = {
  * The count is a lower bound on override-bearing lines and is not a record count: a task submission
  * that carries an override is counted even though it yields no override observation of its own.
  */
-function overrideActivityLines(lines: readonly string[]): number {
-  let count = 0;
-  for (const line of lines) {
-    if (timestampOf(line) === null) continue;
-    // No word boundary before the token: an upstream rename such as `future_override_pipeline`
-    // still counts, which is exactly the case this detector exists to catch.
-    if (/\[[^\]]*override_pipeline/u.test(line)) count += 1;
-  }
-  return count;
+function isOverrideActivityLine(line: string): boolean {
+  if (timestampOf(line) === null) return false;
+  // No word boundary before the token: an upstream rename such as `future_override_pipeline`
+  // still counts, which is exactly the case this detector exists to catch.
+  return /\[[^\]]*override_pipeline/u.test(line);
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -201,19 +197,15 @@ function timestampWithin(timestamp: string, range: TimeRange | undefined): boole
   return true;
 }
 
-function contextTaskIdsFromLines(lines: readonly string[]): Map<string, Set<number>> {
-  const contextTaskIds = new Map<string, Set<number>>();
-  for (const line of lines) {
-    const contextMatch = /"context_id":"([0-9A-Fa-f]+)"/.exec(line);
-    const taskMatch = /"task_id":(\d+)/.exec(line);
-    if (contextMatch?.[1] === undefined || taskMatch?.[1] === undefined) continue;
-    const taskId = Number(taskMatch[1]);
-    if (!Number.isSafeInteger(taskId)) continue;
-    const ids = contextTaskIds.get(contextMatch[1]) ?? new Set<number>();
-    ids.add(taskId);
-    contextTaskIds.set(contextMatch[1], ids);
-  }
-  return contextTaskIds;
+function recordContextTaskId(line: string, contextTaskIds: Map<string, Set<number>>): void {
+  const contextMatch = /"context_id":"([0-9A-Fa-f]+)"/.exec(line);
+  const taskMatch = /"task_id":(\d+)/.exec(line);
+  if (contextMatch?.[1] === undefined || taskMatch?.[1] === undefined) return;
+  const taskId = Number(taskMatch[1]);
+  if (!Number.isSafeInteger(taskId)) return;
+  const ids = contextTaskIds.get(contextMatch[1]) ?? new Set<number>();
+  ids.add(taskId);
+  contextTaskIds.set(contextMatch[1], ids);
 }
 
 function exactSingle<T>(values: Set<T> | undefined): T | null {
@@ -288,27 +280,67 @@ function patchPathFields(
   };
 }
 
-export function extractPipelineOverrides(
-  content: string,
-  timeRange?: TimeRange,
-): MlaPipelineOverrideExtraction {
-  const lines = content.split(/\r?\n/);
-  const activityLines = overrideActivityLines(lines);
-  const contextTaskIds = contextTaskIdsFromLines(lines);
-  const origins: OverrideOriginCandidate[] = [];
-  const contexts: ContextOverrideCandidate[] = [];
-  const contextApiInputs: ContextApiOverrideCandidate[] = [];
-  const resources: Array<{
-    mergedLine: number;
-    patches: JsonRecord[];
-    timestamp: string;
-  }> = [];
+type PendingOverrideOrigin = Omit<OverrideOriginCandidate, "mergedLine"> & {
+  sourceKey: string;
+  localLine: number;
+};
+
+type PendingContextOverride = Omit<ContextOverrideCandidate, "mergedLine"> & {
+  sourceKey: string;
+  localLine: number;
+};
+
+type PendingContextApiOverride = Omit<ContextApiOverrideCandidate, "mergedLine"> & {
+  sourceKey: string;
+  localLine: number;
+};
+
+type PendingResourceOverride = {
+  sourceKey: string;
+  localLine: number;
+  patches: JsonRecord[];
+  timestamp: string;
+};
+
+/**
+ * Incremental override extraction for material that must stay split across sources.
+ *
+ * A 2GB+ directory is parsed from one lazy source per file, so MEK cannot hand the merged string to
+ * `extractPipelineOverrides` (that string does not exist). The scanner records each candidate with
+ * its source key and source-local line, then `finish` maps those to the merged line numbers the
+ * evidence ledger already uses. Overrides that pair a context line in one file with the task line
+ * that introduced it in another still match, because the mapping and matching happen only after
+ * every source was scanned.
+ */
+export interface PipelineOverrideScanner {
+  /** Scan one source's content, recording candidates against its source-local line numbers. */
+  scan(content: string, sourceKey: string): number;
+  /**
+   * Resolve source-local lines to merged lines and produce the observations.
+   *
+   * `startLineOf` returns the merged line where that source begins; the default of 1 suits a
+   * single source whose local lines are already merged lines.
+   */
+  finish(
+    timeRange?: TimeRange,
+    startLineOf?: (sourceKey: string) => number,
+  ): MlaPipelineOverrideExtraction;
+}
+
+export function createPipelineOverrideScanner(): PipelineOverrideScanner {
+  const origins: PendingOverrideOrigin[] = [];
+  const contexts: PendingContextOverride[] = [];
+  const contextApiInputs: PendingContextApiOverride[] = [];
+  const resources: PendingResourceOverride[] = [];
+  const contextTaskIds = new Map<string, Set<number>>();
+  let activityLines = 0;
   let malformedLines = 0;
 
-  for (const [index, line] of lines.entries()) {
+  const scanLine = (line: string, sourceKey: string, localLine: number): void => {
+    if (isOverrideActivityLine(line)) activityLines += 1;
+    recordContextTaskId(line, contextTaskIds);
     const timestamp = timestampOf(line);
-    if (timestamp === null) continue;
-    const mergedLine = index + 1;
+    if (timestamp === null) return;
     if (
       (line.includes(TASK_SUBMISSION_MARKER) || line.includes(TASK_UPDATE_MARKER))
       && line.includes("[pipeline_override=")
@@ -316,7 +348,7 @@ export function extractPipelineOverrides(
       const parsed = parsePipelineOverride(line);
       if (parsed === null) {
         malformedLines += 1;
-        continue;
+        return;
       }
       const isSubmission = line.includes(TASK_SUBMISSION_MARKER);
       const rawTaskId = isSubmission ? null : bracketValue(line, "task_id");
@@ -324,143 +356,200 @@ export function extractPipelineOverrides(
       origins.push({
         canonicalOverride: parsed.canonicalOverride,
         entry: isSubmission ? bracketValue(line, "entry") : null,
-        mergedLine,
         origin: isSubmission ? "task_submission" : "task_update",
         patches: parsed.patches,
         taskId: taskId !== null && Number.isSafeInteger(taskId) ? taskId : null,
         timestamp,
+        sourceKey,
+        localLine,
       });
-      continue;
+      return;
     }
     if (hasMarker(line, CONTEXT_OVERRIDE_MARKER, CONTEXT_OVERRIDE_SYMBOL)) {
       const parsed = parsePipelineOverride(line);
       const contextId = bracketValue(line, "getptr()");
       if (parsed === null || contextId === null) {
         malformedLines += 1;
-        continue;
+        return;
       }
-      if (parsed.patches.every((patch) => Object.keys(patch).length === 0)) continue;
-      contexts.push({ ...parsed, contextId, mergedLine, timestamp });
-      continue;
+      if (parsed.patches.every((patch) => Object.keys(patch).length === 0)) return;
+      contexts.push({ ...parsed, contextId, timestamp, sourceKey, localLine });
+      return;
     }
     if (line.includes(CONTEXT_API_OVERRIDE_MARKER) && line.includes("[pipeline_override=")) {
       const parsed = parsePipelineOverride(line);
       if (parsed === null) {
         malformedLines += 1;
-        continue;
+        return;
       }
-      if (parsed.patches.every((patch) => Object.keys(patch).length === 0)) continue;
-      contextApiInputs.push({ ...parsed, mergedLine, timestamp });
-      continue;
+      if (parsed.patches.every((patch) => Object.keys(patch).length === 0)) return;
+      contextApiInputs.push({ ...parsed, timestamp, sourceKey, localLine });
+      return;
     }
     if (line.includes(RESOURCE_OVERRIDE_MARKER)) {
       const parsed = parsePipelineOverride(line);
       if (parsed === null) {
         malformedLines += 1;
-        continue;
+        return;
       }
-      if (parsed.patches.every((patch) => Object.keys(patch).length === 0)) continue;
-      resources.push({ mergedLine, patches: parsed.patches, timestamp });
+      if (parsed.patches.every((patch) => Object.keys(patch).length === 0)) return;
+      resources.push({ localLine, patches: parsed.patches, timestamp, sourceKey });
     }
-  }
+  };
 
-  const contextOrdinals = new Map<string, string>();
-  for (const context of contexts) {
-    if (!contextOrdinals.has(context.contextId)) {
-      contextOrdinals.set(context.contextId, `context-${contextOrdinals.size + 1}`);
+  const scan = (content: string, sourceKey: string): number => {
+    let localLine = 0;
+    let start = 0;
+    for (;;) {
+      const newline = content.indexOf("\n", start);
+      const end = newline === -1 ? content.length : newline;
+      let line = content.slice(start, end);
+      if (line.endsWith("\r")) line = line.slice(0, -1);
+      localLine += 1;
+      scanLine(line, sourceKey, localLine);
+      if (newline === -1) return localLine;
+      start = newline + 1;
     }
-  }
+  };
 
-  const observations: MlaPipelineOverrideObservation[] = [];
-  const matchedOriginLines = new Set<number>();
-  const matchedContextApiInputLines = new Set<number>();
-  for (const resource of resources) {
-    if (!timestampWithin(resource.timestamp, timeRange)) continue;
-    observations.push({
-      sequence: resource.mergedLine,
-      scope: "resource",
-      origin: "resource",
-      taskAssociation: "none",
-      taskId: null,
-      taskName: null,
-      contextScopeId: null,
-      nodeNames: nodeNames(resource.patches),
-      ...patchPathFields(resource.patches),
-      patches: resource.patches,
-      timestamp: resource.timestamp,
-      mergedLine: resource.mergedLine,
-    });
-  }
-  for (const context of contexts) {
-    if (!timestampWithin(context.timestamp, timeRange)) continue;
-    const origin = matchingOrigin(context, origins);
-    if (origin !== null) matchedOriginLines.add(origin.mergedLine);
-    const contextApiInput = contextApiInputs
-      .filter((candidate) =>
-        candidate.mergedLine < context.mergedLine
-        && context.mergedLine - candidate.mergedLine <= 8
-        && timestampDistanceMs(candidate.timestamp, context.timestamp) <= 50
-        && candidate.canonicalOverride === context.canonicalOverride
-      )
-      .sort((left, right) => right.mergedLine - left.mergedLine)[0] ?? null;
-    if (contextApiInput !== null) matchedContextApiInputLines.add(contextApiInput.mergedLine);
-    const mappedTaskId = exactSingle(contextTaskIds.get(context.contextId));
-    const taskId = origin?.taskId ?? mappedTaskId;
-    const taskName = origin?.entry ?? null;
-    observations.push({
-      sequence: context.mergedLine,
-      scope: "context",
-      origin: origin?.origin ?? "context",
-      taskAssociation: taskId !== null ? "task_id" : taskName !== null ? "entry_only" : "none",
-      taskId,
-      taskName,
-      contextScopeId: contextOrdinals.get(context.contextId) ?? null,
-      nodeNames: nodeNames(context.patches),
-      ...patchPathFields(context.patches),
-      patches: context.patches,
-      timestamp: context.timestamp,
-      mergedLine: context.mergedLine,
-    });
-  }
-  for (const origin of origins) {
-    if (matchedOriginLines.has(origin.mergedLine) || !timestampWithin(origin.timestamp, timeRange)) continue;
-    if (origin.patches.every((patch) => Object.keys(patch).length === 0)) continue;
-    const taskName = origin.entry;
-    observations.push({
-      sequence: origin.mergedLine,
-      scope: "task",
-      origin: origin.origin,
-      taskAssociation: origin.taskId !== null ? "task_id" : taskName !== null ? "entry_only" : "none",
-      taskId: origin.taskId,
-      taskName,
-      contextScopeId: null,
-      nodeNames: nodeNames(origin.patches),
-      ...patchPathFields(origin.patches),
-      patches: origin.patches,
-      timestamp: origin.timestamp,
-      mergedLine: origin.mergedLine,
-    });
-  }
-  for (const contextApiInput of contextApiInputs) {
-    if (
-      matchedContextApiInputLines.has(contextApiInput.mergedLine)
-      || !timestampWithin(contextApiInput.timestamp, timeRange)
-    ) continue;
-    observations.push({
-      sequence: contextApiInput.mergedLine,
-      scope: "context",
-      origin: "context",
-      taskAssociation: "none",
-      taskId: null,
-      taskName: null,
-      contextScopeId: null,
-      nodeNames: nodeNames(contextApiInput.patches),
-      ...patchPathFields(contextApiInput.patches),
-      patches: contextApiInput.patches,
-      timestamp: contextApiInput.timestamp,
-      mergedLine: contextApiInput.mergedLine,
-    });
-  }
-  observations.sort((left, right) => left.mergedLine - right.mergedLine);
-  return { observations, malformedLines, activityLines };
+  const finish = (
+    timeRange?: TimeRange,
+    startLineOf: (sourceKey: string) => number = () => 1,
+  ): MlaPipelineOverrideExtraction => {
+    const mergedLineOf = (candidate: { sourceKey: string; localLine: number }): number =>
+      startLineOf(candidate.sourceKey) + candidate.localLine - 1;
+    const locatedOrigins: OverrideOriginCandidate[] = origins
+      .map((origin) => ({ ...origin, mergedLine: mergedLineOf(origin) }))
+      .sort((left, right) => left.mergedLine - right.mergedLine);
+    const locatedContexts: ContextOverrideCandidate[] = contexts
+      .map((context) => ({ ...context, mergedLine: mergedLineOf(context) }))
+      .sort((left, right) => left.mergedLine - right.mergedLine);
+    const locatedContextApiInputs: ContextApiOverrideCandidate[] = contextApiInputs
+      .map((contextApiInput) => ({ ...contextApiInput, mergedLine: mergedLineOf(contextApiInput) }))
+      .sort((left, right) => left.mergedLine - right.mergedLine);
+    const locatedResources = resources
+      .map((resource) => ({
+        mergedLine: mergedLineOf(resource),
+        patches: resource.patches,
+        timestamp: resource.timestamp,
+      }))
+      .sort((left, right) => left.mergedLine - right.mergedLine);
+
+    const contextOrdinals = new Map<string, string>();
+    for (const context of locatedContexts) {
+      if (!contextOrdinals.has(context.contextId)) {
+        contextOrdinals.set(context.contextId, `context-${contextOrdinals.size + 1}`);
+      }
+    }
+
+    const observations: MlaPipelineOverrideObservation[] = [];
+    const matchedOriginLines = new Set<number>();
+    const matchedContextApiInputLines = new Set<number>();
+    for (const resource of locatedResources) {
+      if (!timestampWithin(resource.timestamp, timeRange)) continue;
+      observations.push({
+        sequence: resource.mergedLine,
+        scope: "resource",
+        origin: "resource",
+        taskAssociation: "none",
+        taskId: null,
+        taskName: null,
+        contextScopeId: null,
+        nodeNames: nodeNames(resource.patches),
+        ...patchPathFields(resource.patches),
+        patches: resource.patches,
+        timestamp: resource.timestamp,
+        mergedLine: resource.mergedLine,
+      });
+    }
+    for (const context of locatedContexts) {
+      if (!timestampWithin(context.timestamp, timeRange)) continue;
+      const origin = matchingOrigin(context, locatedOrigins);
+      if (origin !== null) matchedOriginLines.add(origin.mergedLine);
+      const contextApiInput = locatedContextApiInputs
+        .filter((candidate) =>
+          candidate.mergedLine < context.mergedLine
+          && context.mergedLine - candidate.mergedLine <= 8
+          && timestampDistanceMs(candidate.timestamp, context.timestamp) <= 50
+          && candidate.canonicalOverride === context.canonicalOverride
+        )
+        .sort((left, right) => right.mergedLine - left.mergedLine)[0] ?? null;
+      if (contextApiInput !== null) matchedContextApiInputLines.add(contextApiInput.mergedLine);
+      const mappedTaskId = exactSingle(contextTaskIds.get(context.contextId));
+      const taskId = origin?.taskId ?? mappedTaskId;
+      const taskName = origin?.entry ?? null;
+      observations.push({
+        sequence: context.mergedLine,
+        scope: "context",
+        origin: origin?.origin ?? "context",
+        taskAssociation: taskId !== null ? "task_id" : taskName !== null ? "entry_only" : "none",
+        taskId,
+        taskName,
+        contextScopeId: contextOrdinals.get(context.contextId) ?? null,
+        nodeNames: nodeNames(context.patches),
+        ...patchPathFields(context.patches),
+        patches: context.patches,
+        timestamp: context.timestamp,
+        mergedLine: context.mergedLine,
+      });
+    }
+    for (const origin of locatedOrigins) {
+      if (matchedOriginLines.has(origin.mergedLine) || !timestampWithin(origin.timestamp, timeRange)) continue;
+      if (origin.patches.every((patch) => Object.keys(patch).length === 0)) continue;
+      const taskName = origin.entry;
+      observations.push({
+        sequence: origin.mergedLine,
+        scope: "task",
+        origin: origin.origin,
+        taskAssociation: origin.taskId !== null ? "task_id" : taskName !== null ? "entry_only" : "none",
+        taskId: origin.taskId,
+        taskName,
+        contextScopeId: null,
+        nodeNames: nodeNames(origin.patches),
+        ...patchPathFields(origin.patches),
+        patches: origin.patches,
+        timestamp: origin.timestamp,
+        mergedLine: origin.mergedLine,
+      });
+    }
+    for (const contextApiInput of locatedContextApiInputs) {
+      if (
+        matchedContextApiInputLines.has(contextApiInput.mergedLine)
+        || !timestampWithin(contextApiInput.timestamp, timeRange)
+      ) continue;
+      observations.push({
+        sequence: contextApiInput.mergedLine,
+        scope: "context",
+        origin: "context",
+        taskAssociation: "none",
+        taskId: null,
+        taskName: null,
+        contextScopeId: null,
+        nodeNames: nodeNames(contextApiInput.patches),
+        ...patchPathFields(contextApiInput.patches),
+        patches: contextApiInput.patches,
+        timestamp: contextApiInput.timestamp,
+        mergedLine: contextApiInput.mergedLine,
+      });
+    }
+    observations.sort((left, right) => left.mergedLine - right.mergedLine);
+    return { observations, malformedLines, activityLines };
+  };
+
+  return { scan, finish };
+}
+
+/**
+ * Extract overrides from one already-materialized string.
+ *
+ * Directory inspection with more than one source uses `createPipelineOverrideScanner` instead, so
+ * no caller has to build the merged string this function needs.
+ */
+export function extractPipelineOverrides(
+  content: string,
+  timeRange?: TimeRange,
+): MlaPipelineOverrideExtraction {
+  const scanner = createPipelineOverrideScanner();
+  scanner.scan(content, "");
+  return scanner.finish(timeRange, () => 1);
 }
