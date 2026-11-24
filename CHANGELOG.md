@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-24
+
 ### Changed
 
 - **Directory inspection keeps each MaaFramework log file as its own lazy source.** `mla inspect`
@@ -47,10 +49,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   corpus has 2,119 override candidates but only 76 distinct payload trees, so the scanner now parses
   one tree per hash and shares it across equal candidates. This keeps the directory inside the
   default Node heap without a second read, a temporary file, or changing the evidence fields.
-- **The pinned `@windsland52/maa-log-tools` moves to 2.3.0**, which exposes
-  `loadNodeLogSources`, `analyzeLogSources`, and post-parse source segments through the exact
-  kernel 1.2.0 / parser 2.2.0 / runtime 1.2.0 / adapter 1.2.0 pins, and whose
-  `buildRuntimeInspection` maps every event through the source segment that produced it.
+- **The pinned `@windsland52/maa-log-tools` moves to 2.4.0**, which exposes
+  `loadNodeLogSources`, `loadChunks`, `iterateTaskDetails`, and
+  `createRuntimeInspectionBuilder` through the exact kernel 1.2.0 / parser 2.3.0 / runtime 1.3.0 /
+  adapter 1.3.0 pins. Runtime evidence maps every event through the source segment that produced it,
+  and the builder no longer retains projected task trees.
 
 ## [0.12.1] - 2026-11-06
 
@@ -896,7 +899,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Whitelist-only operational telemetry, disabled default PII, and mandatory preview/confirmation for
   feedback attachments.
 
-[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Windsland52/MaaEvidenceKit/compare/v0.10.0...v0.11.0
